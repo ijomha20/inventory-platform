@@ -67,9 +67,9 @@ var SELECTORS = {
   ]
 };
 
-var CARFAX_LOGIN_URL = 'https://www.carfax.com/login';
-var CARFAX_VHR_URL   = 'https://www.carfax.com/cfm/vhrs/';
-var CARFAX_HOME      = 'https://www.carfax.com/';
+var CARFAX_LOGIN_URL = 'https://dealer.carfax.ca/login';
+var CARFAX_VHR_URL   = 'https://dealer.carfax.ca/vhrs/';
+var CARFAX_HOME      = 'https://dealer.carfax.ca/';
 
 // Session is saved here so login persists between runs
 var SESSION_DIR = path.join(__dirname, '.carfax-session');
@@ -199,8 +199,9 @@ async function findReportLink(page) {
     var links = await page.$$('a[href]');
     for (var j = 0; j < links.length; j++) {
       var h = await links[j].getAttribute('href');
-      if (h && (h.indexOf('cfm/display_cfm') !== -1 || h.indexOf('cfm/vhr') !== -1 || h.indexOf('vehicle-history') !== -1)) {
-        if (h.startsWith('/')) h = 'https://www.carfax.com' + h;
+      if (h && (h.indexOf('cfm/display_cfm') !== -1 || h.indexOf('cfm/vhr') !== -1 ||
+                h.indexOf('vehicle-history') !== -1 || h.indexOf('carfax.ca') !== -1)) {
+        if (h.startsWith('/')) h = 'https://dealer.carfax.ca' + h;
         return h;
       }
     }
