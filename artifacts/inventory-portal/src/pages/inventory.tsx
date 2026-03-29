@@ -66,7 +66,19 @@ export default function Inventory() {
     else { setSortKey(key); setSortDir("asc"); }
   };
 
-  const filtered = (inventory ?? []).filter((item) => {
+  // Deduplicate by VIN — keep the entry with the lower price
+  const parsePrice = (p: string) => parseFloat(p.replace(/[^0-9.]/g, "")) || Infinity;
+  type Item = NonNullable<typeof inventory>[number];
+  const dedupedMap = new Map<string, Item>();
+  for (const item of (inventory ?? [])) {
+    const existing = dedupedMap.get(item.vin);
+    if (!existing || parsePrice(item.price) < parsePrice(existing.price)) {
+      dedupedMap.set(item.vin, item);
+    }
+  }
+  const deduped = Array.from(dedupedMap.values());
+
+  const filtered = deduped.filter((item) => {
     if (!search) return true;
     const term = search.toLowerCase();
     return (
