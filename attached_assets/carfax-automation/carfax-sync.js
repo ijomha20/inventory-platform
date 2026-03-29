@@ -127,12 +127,36 @@ async function humanScroll(page) {
   }
 }
 
-function getChromePath() {
-  if (process.env.CHROME_PROFILE_PATH) return process.env.CHROME_PROFILE_PATH;
-  var p = os.platform();
-  if (p === 'darwin')  return path.join(os.homedir(), 'Library', 'Application Support', 'Google', 'Chrome');
-  if (p === 'win32')   return path.join(process.env.LOCALAPPDATA || '', 'Google', 'Chrome', 'User Data');
-  return path.join(os.homedir(), '.config', 'google-chrome');
+function getBrowserConfig() {
+  var browser  = (process.env.BROWSER || 'chrome').toLowerCase();
+  var p        = os.platform();
+  var channel, profilePath;
+
+  if (browser === 'msedge' || browser === 'edge') {
+    channel = 'msedge';
+    if (process.env.CHROME_PROFILE_PATH) {
+      profilePath = process.env.CHROME_PROFILE_PATH;
+    } else if (p === 'win32') {
+      profilePath = path.join(process.env.LOCALAPPDATA || '', 'Microsoft', 'Edge', 'User Data');
+    } else if (p === 'darwin') {
+      profilePath = path.join(os.homedir(), 'Library', 'Application Support', 'Microsoft Edge');
+    } else {
+      profilePath = path.join(os.homedir(), '.config', 'microsoft-edge');
+    }
+  } else {
+    channel = 'chrome';
+    if (process.env.CHROME_PROFILE_PATH) {
+      profilePath = process.env.CHROME_PROFILE_PATH;
+    } else if (p === 'darwin') {
+      profilePath = path.join(os.homedir(), 'Library', 'Application Support', 'Google', 'Chrome');
+    } else if (p === 'win32') {
+      profilePath = path.join(process.env.LOCALAPPDATA || '', 'Google', 'Chrome', 'User Data');
+    } else {
+      profilePath = path.join(os.homedir(), '.config', 'google-chrome');
+    }
+  }
+
+  return { channel: channel, profilePath: profilePath };
 }
 
 function log(msg) {
@@ -354,17 +378,18 @@ async function main() {
   log('Found ' + toProcess.length + ' VINs that need Carfax links.');
   console.log('');
 
-  var chromePath  = getChromePath();
+  var browserCfg  = getBrowserConfig();
   var profileName = process.env.CHROME_PROFILE || 'Default';
+  var browserLabel = browserCfg.channel === 'msedge' ? 'Microsoft Edge' : 'Chrome';
 
-  log('Launching Chrome... (a browser window will open — do not close it)');
+  log('Launching ' + browserLabel + '... (a browser window will open — do not close it)');
   console.log('');
 
   var context;
   try {
-    context = await chromium.launchPersistentContext(chromePath, {
+    context = await chromium.launchPersistentContext(browserCfg.profilePath, {
       headless: false,
-      channel:  'chrome',
+      channel:  browserCfg.channel,
       args: [
         '--profile-directory=' + profileName,
         '--disable-blink-features=AutomationControlled',
@@ -375,10 +400,10 @@ async function main() {
       viewport: { width: 1280, height: 900 }
     });
   } catch (err) {
-    console.log('\nERROR: Could not launch Chrome: ' + err.message);
+    console.log('\nERROR: Could not launch ' + browserLabel + ': ' + err.message);
     console.log('\nPossible fixes:');
-    console.log('  1. Make sure Google Chrome is installed.');
-    console.log('  2. Close all Chrome windows before running this script.');
+    console.log('  1. Make sure ' + browserLabel + ' is installed.');
+    console.log('  2. Close all ' + browserLabel + ' windows before running this script.');
     console.log('  3. Set CHROME_PROFILE_PATH in your .env file.');
     console.log('');
     process.exit(1);
