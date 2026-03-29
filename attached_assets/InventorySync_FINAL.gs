@@ -1,5 +1,5 @@
 // =============================================================================
-// MATRIX INVENTORY SYNC v3.0
+// MATRIX INVENTORY SYNC v3.1
 // =============================================================================
 // Pulls directly from the shared Matrix spreadsheet into "My List".
 // No intermediate Source List tab required.
@@ -15,6 +15,7 @@
 //   H  Notes           (user-editable, never overwritten by script)
 //   I  Price Changed   (timestamp of last price change, auto-written)
 //   J  Carfax          (populated by the Carfax automation script)
+//   K  Website         (inventory URL; Parkdale preferred, Matrix fallback)
 //
 // Rows are sorted by column I descending (most recently changed at top).
 //
@@ -35,7 +36,25 @@ var COL_PREV_PRICE    = 6;
 var COL_NOTES         = 7;
 var COL_PRICE_CHANGED = 8;
 var COL_CARFAX        = 9;
-var TOTAL_COLS        = 10;
+var COL_WEBSITE       = 10;
+var TOTAL_COLS        = 11;
+
+// Website link lookup (Typesense — same engine both sites use)
+var TYPESENSE_HOST = "v6eba1srpfohj89dp-1.a1.typesense.net";
+var DEALER_SITES = [
+  {
+    name:       "Parkdale",
+    collection: "37042ac7ece3a217b1a41d6f54ba6855",
+    apiKey:     "bENlSmdIaVJWNGhTcjBnZ3BaN2JxajBINWcvdzREZ21hQnFMZWM3OWJBRT1oZmUweyJmaWx0ZXJfYnkiOiJzdGF0dXM6W0luc3RvY2tdICYmIHZpc2liaWxpdHk6PjAgJiYgZGVsZXRlZF9hdDo9MCJ9",
+    siteUrl:    "https://www.parkdalemotors.ca"
+  },
+  {
+    name:       "Matrix",
+    collection: "cebacbca97920d818d57c6f0526d7413",
+    apiKey:     "ZWoxa3NxVmJLWFBOK2dWcUFBM1V0aTJyb09wUDhFZ0R5Vnc1blc2RW9Kdz1oZmUweyJmaWx0ZXJfYnkiOiJzdGF0dXM6W0luc3RvY2ssIFNvbGRdICYmIHZpc2liaWxpdHk6PjAgJiYgZGVsZXRlZF9hdDo9MCJ9",
+    siteUrl:    "https://www.matrixmotorsyeg.ca"
+  }
+];
 
 var TAB_MY_LIST  = "My List";
 var TAB_SETTINGS = "Settings";
@@ -54,6 +73,7 @@ function onOpen() {
   SpreadsheetApp.getUi()
     .createMenu("Inventory Sync")
     .addItem("Sync Now", "syncNow")
+    .addItem("Fetch Website Links", "fetchWebsiteLinks")
     .addSeparator()
     .addItem("First-Time Setup", "firstTimeSetup")
     .addItem("Setup Auto-Notifications", "setupNotificationTrigger")
@@ -127,7 +147,7 @@ function firstTimeSetup() {
 
   if (!ss.getSheetByName(TAB_MY_LIST)) {
     var m  = ss.insertSheet(TAB_MY_LIST);
-    var mh = ["Location", "VIN", "Year/Make", "Model", "Mileage", "Price", "Prev Price", "Notes", "Price Changed", "Carfax"];
+    var mh = ["Location", "VIN", "Year/Make", "Model", "Mileage", "Price", "Prev Price", "Notes", "Price Changed", "Carfax", "Website"];
     m.getRange(1, 1, 1, mh.length).setValues([mh]).setFontWeight("bold");
     m.setFrozenRows(1);
     m.setColumnWidth(COL_PRICE_CHANGED + 1, 145);
@@ -478,4 +498,111 @@ function doPost(e) {
   if (!payload.rowIndex || !payload.value) return ContentService.createTextOutput(JSON.stringify({ error: "Missing rowIndex or value" })).setMimeType(ContentService.MimeType.JSON);
   sheet.getRange(payload.rowIndex, COL_CARFAX + 1).setValue(payload.value);
   return ContentService.createTextOutput(JSON.stringify({ ok: true })).setMimeType(ContentService.MimeType.JSON);
+}
+
+// =============================================================================
+// WEBSITE LINK LOOKUP (Column K)
+// Queries each dealer's Typesense index directly — no browser required.
+// Parkdale is tried first; Matrix used if not found there.
+// Runs blank + "NOT FOUND" rows on every call (same retry logic as Carfax).
+// =============================================================================
+
+/**
+ * Searches one dealer's Typesense collection for a VIN.
+ * Returns the full inventory URL string, or null if not found.
+ */
+function searchTypesense(site, vin) {
+  var endpoint = "https://" + TYPESENSE_HOST +
+    "/collections/" + site.collection +
+    "/documents/search" +
+    "?q="            + encodeURIComponent(vin) +
+    "&query_by=vin"  +
+    "&num_typos=0"   +
+    "&per_page=1"    +
+    "&x-typesense-api-key=" + site.apiKey;
+
+  try {
+    var resp = UrlFetchApp.fetch(endpoint, { muteHttpExceptions: true });
+    if (resp.getResponseCode() !== 200) return null;
+    var body = JSON.parse(resp.getContentText());
+    if (!body.hits || body.hits.length === 0) return null;
+
+    var doc = body.hits[0].document;
+
+    // Verify the VIN actually matches (Typesense fuzzy search can return near-misses)
+    var docVin = doc.vin ? doc.vin.toString().trim().toUpperCase() : "";
+    if (docVin !== vin.toUpperCase()) return null;
+
+    // Build the URL slug from the document fields
+    var id   = doc.id        || doc.post_id    || doc.vehicle_id || "";
+    var slug = doc.slug      || doc.url_slug   || doc.page_url   || "";
+
+    // If no pre-built slug, construct one from year/make/model/trim
+    if (!slug && doc.year && doc.make && doc.model) {
+      slug = [doc.year, doc.make, doc.model, doc.trim || ""]
+        .filter(function(part) { return String(part).trim() !== ""; })
+        .join(" ")
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-+|-+$/g, "");
+    }
+
+    if (!id || !slug) return null;
+    return site.siteUrl + "/inventory/" + slug + "/" + id;
+  } catch (err) {
+    return null;
+  }
+}
+
+/**
+ * Fetches website inventory links for all rows in My List that are blank or
+ * "NOT FOUND" in column K.  Parkdale is tried first; falls back to Matrix.
+ * Run this from the "Inventory Sync" menu: Fetch Website Links.
+ */
+function fetchWebsiteLinks() {
+  var ss    = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getSheetByName(TAB_MY_LIST);
+  if (!sheet) {
+    SpreadsheetApp.getUi().alert("My List tab not found.");
+    return;
+  }
+
+  var data    = sheet.getDataRange().getValues();
+  var found   = 0;
+  var missing = 0;
+  var skipped = 0;
+
+  for (var i = 1; i < data.length; i++) {
+    var vin      = data[i][COL_VIN]     ? data[i][COL_VIN].toString().trim()     : "";
+    var existing = data[i][COL_WEBSITE] ? data[i][COL_WEBSITE].toString().trim() : "";
+
+    if (!vin || vin.length < 6) { skipped++; continue; }
+    // Skip rows that already have a valid URL
+    if (existing && existing !== "NOT FOUND") { skipped++; continue; }
+
+    var url = null;
+    // Try each site in order: Parkdale first, Matrix second
+    for (var s = 0; s < DEALER_SITES.length; s++) {
+      url = searchTypesense(DEALER_SITES[s], vin);
+      if (url) break;
+    }
+
+    if (url) {
+      sheet.getRange(i + 1, COL_WEBSITE + 1).setValue(url);
+      found++;
+    } else {
+      sheet.getRange(i + 1, COL_WEBSITE + 1).setValue("NOT FOUND");
+      missing++;
+    }
+
+    // Brief pause to avoid hammering the Typesense API
+    Utilities.sleep(400);
+  }
+
+  SpreadsheetApp.getUi().alert(
+    "Website link lookup complete.\n\n" +
+    "  Links found : " + found    + "\n" +
+    "  Not found   : " + missing  + "\n" +
+    "  Skipped     : " + skipped
+  );
 }
