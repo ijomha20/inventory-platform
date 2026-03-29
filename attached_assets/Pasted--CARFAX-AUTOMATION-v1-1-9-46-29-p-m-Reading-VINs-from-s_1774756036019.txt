@@ -1,0 +1,35 @@
+
+=== CARFAX AUTOMATION v1.1 ===
+
+[9:46:29 p.m.] Reading VINs from spreadsheet...
+[9:46:33 p.m.] Found 94 VINs that need Carfax links.
+
+[9:46:33 p.m.] Launching Microsoft Edge... (a browser window will open — do not close it)
+
+
+ERROR: Could not launch Microsoft Edge: browserType.launchPersistentContext: Target page, context or browser has been closed
+Browser logs:
+
+<launching> C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe --disable-field-trial-config --disable-background-networking --disable-background-timer-throttling --disable-backgrounding-occluded-windows --disable-back-forward-cache --disable-breakpad --disable-client-side-phishing-detection --disable-component-extensions-with-background-pages --disable-component-update --no-default-browser-check --disable-default-apps --disable-dev-shm-usage --disable-extensions --disable-features=AvoidUnnecessaryBeforeUnloadCheckSync,BoundaryEventDispatchTracksNodeRemoval,DestroyProfileOnBrowserClose,DialMediaRouteProvider,GlobalMediaControls,HttpsUpgrades,LensOverlay,MediaRouter,PaintHolding,ThirdPartyStoragePartitioning,Translate,AutoDeElevate,RenderDocument,OptimizationHints --enable-features=CDPScreenshotNewSurface --allow-pre-commit-input --disable-hang-monitor --disable-ipc-flooding-protection --disable-popup-blocking --disable-prompt-on-repost --disable-renderer-backgrounding --force-color-profile=srgb --metrics-recording-only --no-first-run --password-store=basic --use-mock-keychain --no-service-autorun --export-tagged-pdf --disable-search-engine-choice-screen --unsafely-disable-devtools-self-xss-warnings --edge-skip-compat-layer-relaunch --disable-infobars --disable-search-engine-choice-screen --disable-sync --enable-unsafe-swiftshader --no-sandbox --profile-directory=Default --disable-blink-features=AutomationControlled --no-first-run --no-default-browser-check --user-data-dir=C:\Users\ijomh\AppData\Local\Microsoft\Edge\User Data --remote-debugging-pipe about:blank
+<launched> pid=80700
+[pid=80700][out] Opening in existing browser session.
+Call log:
+  - <launching> C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe --disable-field-trial-config --disable-background-networking --disable-background-timer-throttling --disable-backgrounding-occluded-windows --disable-back-forward-cache --disable-breakpad --disable-client-side-phishing-detection --disable-component-extensions-with-background-pages --disable-component-update --no-default-browser-check --disable-default-apps --disable-dev-shm-usage --disable-extensions --disable-features=AvoidUnnecessaryBeforeUnloadCheckSync,BoundaryEventDispatchTracksNodeRemoval,DestroyProfileOnBrowserClose,DialMediaRouteProvider,GlobalMediaControls,HttpsUpgrades,LensOverlay,MediaRouter,PaintHolding,ThirdPartyStoragePartitioning,Translate,AutoDeElevate,RenderDocument,OptimizationHints --enable-features=CDPScreenshotNewSurface --allow-pre-commit-input --disable-hang-monitor --disable-ipc-flooding-protection --disable-popup-blocking --disable-prompt-on-repost --disable-renderer-backgrounding --force-color-profile=srgb --metrics-recording-only --no-first-run --password-store=basic --use-mock-keychain --no-service-autorun --export-tagged-pdf --disable-search-engine-choice-screen --unsafely-disable-devtools-self-xss-warnings --edge-skip-compat-layer-relaunch --disable-infobars --disable-search-engine-choice-screen --disable-sync --enable-unsafe-swiftshader --no-sandbox --profile-directory=Default --disable-blink-features=AutomationControlled --no-first-run --no-default-browser-check --user-data-dir=C:\Users\ijomh\AppData\Local\Microsoft\Edge\User Data --remote-debugging-pipe about:blank
+  - <launched> pid=80700
+  - [pid=80700][out] Opening in existing browser session.
+  - [pid=80700] <gracefully close start>
+  - [pid=80700] <kill>
+  - [pid=80700] <will force kill>
+  - [pid=80700] taskkill stderr: ERROR: The process "80700" not found.
+  - [pid=80700] <process did exit: exitCode=0, signal=null>
+  - [pid=80700] starting temporary directories cleanup
+  - [pid=80700] finished temporary directories cleanup
+  - [pid=80700] <gracefully close end>
+
+
+Possible fixes:
+  1. Make sure Microsoft Edge is installed.
+  2. Close all Microsoft Edge windows before running this script.
+  3. Set CHROME_PROFILE_PATH in your .env file.
+
+Press any key to continue . . .
