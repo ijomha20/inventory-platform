@@ -24,7 +24,7 @@
 // =============================================================================
 
 // ---- CONFIGURE THIS --------------------------------------------------------
-var MASTER_SHEET_URL = ""; // <-- Paste your master sheet URL here
+var MASTER_SHEET_URL = "https://docs.google.com/spreadsheets/d/1BBvsRqGAdKaDnHPds0bl-GJkhbwhfHAMQp1jXiB3S-Q/edit?gid=320358469#gid=320358469";
 var MASTER_TAB_NAME  = "My List";
 var OUTPUT_TAB_NAME  = "Inventory";
 // ----------------------------------------------------------------------------
