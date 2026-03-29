@@ -4,85 +4,89 @@ CARFAX AUTOMATION - SETUP GUIDE
 
 HOW IT WORKS
 ------------
-This script opens YOUR real Chrome browser (already logged into
-Carfax), searches each VIN in your "My List" sheet, and writes
-the Carfax report URL directly into column J.
+The script opens YOUR real Chrome browser (already logged into
+Carfax), searches each VIN in your sheet, and writes the Carfax
+report URL into column J automatically.
 
-Because it uses your actual Chrome profile with your existing
-login session, it is indistinguishable from you doing it manually.
+Because it uses your actual Chrome with your existing login,
+it looks identical to you doing it by hand.
 
-REQUIREMENTS
-------------
-- Node.js installed on your computer (https://nodejs.org/)
-- Google Chrome installed (not Chromium)
-- Logged into Carfax in Chrome already
-- The "My List" sheet updated to include a "Carfax" header in J1
-  (run firstTimeSetup in Apps Script to add it)
+WHAT YOU NEED
+-------------
+- Node.js installed on your computer  ->  https://nodejs.org/
+  (download the LTS version, install it, done)
+- Google Chrome installed
+- Already logged into Carfax in Chrome
 
 
-STEP 1 - Install dependencies
-------------------------------
-Open a terminal/command prompt in this folder and run:
+================================================================
+STEP 1 - Copy this folder to your computer
+================================================================
+
+Download the entire "carfax-automation" folder from this Replit
+project to your computer (anywhere you like, e.g. your Desktop).
+
+
+================================================================
+STEP 2 - Connect it to your spreadsheet (one time only)
+================================================================
+
+This step takes about 2 minutes.
+
+A. Paste the updated script into Apps Script
+   - Open your Google Sheet
+   - Extensions > Apps Script
+   - Replace all code with the contents of InventorySync_v2.gs
+   - Save (Ctrl+S)
+
+B. Deploy as a Web App
+   - Click "Deploy" (top right) > "New deployment"
+   - Click the gear icon next to "Select type" and pick "Web app"
+   - Set "Execute as" to: Me
+   - Set "Who has access" to: Anyone
+   - Click "Deploy"
+   - Copy the Web App URL it gives you
+
+C. Put the URL in your .env file
+   - In the carfax-automation folder, copy .env.example to .env
+   - Open .env and paste the Web App URL next to WEBAPP_URL=
+
+
+================================================================
+STEP 3 - Install dependencies (one time only)
+================================================================
+
+Open a terminal / command prompt IN the carfax-automation folder
+and run:
 
     npm install
 
+Then install the Playwright browser:
 
-STEP 2 - Create your .env file
---------------------------------
-1. Copy .env.example to .env
-2. Open .env and fill in:
-   - SPREADSHEET_ID  (from your sheet's URL)
-   - SHEET_NAME      (usually "My List")
-   - CHROME_PROFILE_PATH (leave blank to auto-detect)
+    npx playwright install chromium
 
 
-STEP 3 - Set up Google Sheets access (one time only)
-------------------------------------------------------
-1. Go to https://console.cloud.google.com/
-2. Create a new project (any name).
-3. Go to "APIs & Services" > "Library" and search for
-   "Google Sheets API". Click it and enable it.
-4. Go to "APIs & Services" > "Credentials".
-5. Click "Create Credentials" > "OAuth 2.0 Client IDs".
-6. Application type: "Desktop app". Click Create.
-7. Download the JSON file.
-8. Rename it to credentials.json and put it in THIS folder.
-9. Run in terminal:
+================================================================
+STEP 4 - Run it
+================================================================
 
-    node auth-setup.js
+In the same terminal, run:
 
-   Your browser will open. Log in with your Google account and
-   authorize the app. A token.json file will be saved. Done.
-
-
-STEP 4 - Run
--------------
     node carfax-sync.js
 
-Chrome will open automatically and search each VIN.
-Results are written to column J as each VIN is processed.
-Rows marked "NOT FOUND" will not be retried on the next run.
-Rows that errored (Chrome issue, etc.) are left blank and
-will be retried next time you run the script.
+Chrome will open, search each VIN, and results appear in column J
+as each one is found. VINs with no Carfax report get "NOT FOUND"
+so they are skipped on future runs.
 
 
+================================================================
 TIPS
------
-- Close all other Chrome windows before running for best results.
-- If Chrome fails to open, set CHROME_PROFILE_PATH manually in .env.
+================================================================
+- Close all Chrome windows before running for best results.
+- If Chrome fails to open, try setting CHROME_PROFILE_PATH in .env.
 - Screenshots of any errors are saved in the screenshots/ folder.
-- If Carfax changes their layout and the script stops finding results,
-  check screenshots/ to see what the page looks like, then update the
-  SELECTORS section at the top of carfax-sync.js.
-- Increase DELAY_BETWEEN_VINS in .env if you want slower, more
-  cautious pacing (default is 3 seconds between each VIN).
-
-
-TROUBLE?
----------
-1. Make sure you are already logged into Carfax in Chrome.
-2. Close all Chrome windows, then run the script again.
-3. Check the screenshots/ folder for captured error pages.
-4. Make sure your .env file has the correct SPREADSHEET_ID.
-
+- You can run the script again any time — it only processes rows
+  where column J is still empty.
+- To retry "NOT FOUND" rows, just clear the cell in column J and
+  run again.
 ================================================================

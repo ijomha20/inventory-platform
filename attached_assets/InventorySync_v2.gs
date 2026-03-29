@@ -623,3 +623,62 @@ function formatNumber(value) {
   if (isNaN(n)) return String(value);
   return n.toLocaleString("en-CA");
 }
+
+
+// =============================================================================
+// WEB APP BRIDGE (for Carfax automation script)
+// Deploy this as a Web App so the local Node.js Carfax script can read
+// VINs from and write results back to this spreadsheet without needing
+// Google Cloud Console or any OAuth setup.
+//
+// How to deploy:
+//   1. Click "Deploy" > "New deployment" in Apps Script.
+//   2. Click the gear icon next to "Type" and choose "Web app".
+//   3. Execute as: Me
+//   4. Who has access: Anyone
+//   5. Click Deploy. Copy the Web App URL into your .env file.
+// =============================================================================
+
+function doGet(e) {
+  var ss    = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getSheetByName(TAB_MY_LIST);
+  if (!sheet) {
+    return ContentService.createTextOutput(JSON.stringify({ error: "My List tab not found" }))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
+
+  var data   = sheet.getDataRange().getValues();
+  var result = [];
+
+  for (var i = 1; i < data.length; i++) {
+    var vin    = data[i][COL_VIN]    ? data[i][COL_VIN].toString().trim()    : "";
+    var carfax = data[i][COL_CARFAX] ? data[i][COL_CARFAX].toString().trim() : "";
+    if (vin && vin.length > 5 && !carfax) {
+      result.push({ rowIndex: i + 1, vin: vin });
+    }
+  }
+
+  return ContentService.createTextOutput(JSON.stringify(result))
+    .setMimeType(ContentService.MimeType.JSON);
+}
+
+function doPost(e) {
+  var payload = JSON.parse(e.postData.contents);
+  var ss      = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet   = ss.getSheetByName(TAB_MY_LIST);
+
+  if (!sheet) {
+    return ContentService.createTextOutput(JSON.stringify({ error: "My List tab not found" }))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
+
+  if (!payload.rowIndex || !payload.value) {
+    return ContentService.createTextOutput(JSON.stringify({ error: "Missing rowIndex or value" }))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
+
+  sheet.getRange(payload.rowIndex, COL_CARFAX + 1).setValue(payload.value);
+
+  return ContentService.createTextOutput(JSON.stringify({ ok: true }))
+    .setMimeType(ContentService.MimeType.JSON);
+}
