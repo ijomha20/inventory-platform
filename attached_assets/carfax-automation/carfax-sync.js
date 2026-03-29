@@ -1,10 +1,13 @@
 // ================================================================
-// CARFAX AUTOMATION v1.2
+// CARFAX AUTOMATION v1.3
 // Uses Playwright's own built-in browser — no conflict with Chrome
 // or Edge being open. Saves your Carfax login session locally so
 // you only need to log in on the very first run.
 //
-// Run: node carfax-sync.js
+// Run once:        node carfax-sync.js
+// Watch mode:      node carfax-sync.js --watch
+//   Keeps running, checks every WATCH_INTERVAL minutes (default 5)
+//   for new VINs and processes them automatically.
 // ================================================================
 
 var fs   = require('fs');
@@ -342,36 +345,7 @@ async function processVin(page, vin, screenshotDir) {
 // MAIN
 // ----------------------------------------------------------------
 
-async function main() {
-  console.log('');
-  console.log('=== CARFAX AUTOMATION v1.2 ===');
-  console.log('');
-
-  var screenshotDir = path.join(__dirname, 'screenshots');
-  if (!fs.existsSync(screenshotDir)) fs.mkdirSync(screenshotDir);
-
-  log('Reading VINs from spreadsheet...');
-  var toProcess;
-  try {
-    toProcess = await getVinsToProcess();
-  } catch (err) {
-    console.log('\nERROR: ' + err.message + '\n');
-    process.exit(1);
-  }
-
-  if (toProcess.length === 0) {
-    log('No VINs to process. All rows in column J are already filled.');
-    console.log('');
-    process.exit(0);
-  }
-
-  log('Found ' + toProcess.length + ' VINs that need Carfax links.');
-  console.log('');
-  log('Launching browser... (a window will open — do not close it)');
-  console.log('');
-
-  // Use Playwright's own Chromium — completely separate from Chrome/Edge
-  // Session is saved to disk so login persists between runs
+async function launchBrowser() {
   var context = await chromium.launchPersistentContext(SESSION_DIR, {
     headless: false,
     args: [
@@ -384,34 +358,30 @@ async function main() {
     userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
     viewport: { width: 1280, height: 900 }
   });
-
   var page = await context.newPage();
-
   await page.addInitScript(function() {
     Object.defineProperty(navigator, 'webdriver', { get: function() { return undefined; } });
     window.chrome = { runtime: {} };
   });
+  return { context: context, page: page };
+}
 
-  // Check login status and log in if needed
-  log('Checking Carfax login status...');
-  var loggedIn = await isLoggedIn(page);
-  if (!loggedIn) {
-    log('Not logged in.');
-    await loginToCarfax(page);
-    loggedIn = await isLoggedIn(page);
-    if (!loggedIn) {
-      log('');
-      log('WARNING: Could not confirm login. The script will continue but may fail.');
-      log('If it fails, add CARFAX_EMAIL and CARFAX_PASSWORD to your .env file,');
-      log('or delete the .carfax-session folder and run again to reset the session.');
-      log('');
-    } else {
-      log('Login successful. Session saved for future runs.');
-    }
-  } else {
-    log('Already logged in. Proceeding...');
+async function runBatch(page, screenshotDir) {
+  log('Checking spreadsheet for new VINs...');
+  var toProcess;
+  try {
+    toProcess = await getVinsToProcess();
+  } catch (err) {
+    log('ERROR reading spreadsheet: ' + err.message);
+    return;
   }
 
+  if (toProcess.length === 0) {
+    log('Nothing to process — all VINs are up to date.');
+    return;
+  }
+
+  log('Found ' + toProcess.length + ' VIN(s) to process.');
   console.log('');
 
   var delay   = parseInt(process.env.DELAY_BETWEEN_VINS || '3000', 10);
@@ -435,15 +405,67 @@ async function main() {
     if (i < toProcess.length - 1) await humanDelay(delay);
   }
 
-  await context.close();
+  console.log('');
+  log('Batch done — Found: ' + results.found + '  Not found: ' + results.notFound + '  Errors (will retry): ' + results.errors);
+  if (results.errors > 0) log('Check the screenshots/ folder for error details.');
+  console.log('');
+}
+
+async function main() {
+  var watchMode     = process.argv.indexOf('--watch') !== -1;
+  var intervalMins  = parseInt(process.env.WATCH_INTERVAL || '5', 10);
+  var intervalMs    = intervalMins * 60 * 1000;
 
   console.log('');
-  console.log('=== DONE ===');
-  console.log('  Reports found:  ' + results.found);
-  console.log('  Not found:      ' + results.notFound);
-  console.log('  Errors (will retry next run): ' + results.errors);
-  if (results.errors > 0) console.log('  Check the screenshots/ folder for details.');
+  console.log('=== CARFAX AUTOMATION v1.3 ===');
+  if (watchMode) console.log('=== WATCH MODE — checks every ' + intervalMins + ' min(s) for new VINs ===');
   console.log('');
+
+  var screenshotDir = path.join(__dirname, 'screenshots');
+  if (!fs.existsSync(screenshotDir)) fs.mkdirSync(screenshotDir);
+
+  log('Launching browser... (a window will open — do not close it)');
+  var browser = await launchBrowser();
+  var context  = browser.context;
+  var page     = browser.page;
+
+  log('Checking Carfax login status...');
+  var loggedIn = await isLoggedIn(page);
+  if (!loggedIn) {
+    log('Not logged in.');
+    await loginToCarfax(page);
+    loggedIn = await isLoggedIn(page);
+    if (!loggedIn) {
+      log('');
+      log('WARNING: Could not confirm login. The script will continue but may fail.');
+      log('If it fails, add CARFAX_EMAIL and CARFAX_PASSWORD to your .env file,');
+      log('or delete the .carfax-session folder and run again to reset the session.');
+      log('');
+    } else {
+      log('Login successful. Session saved for future runs.');
+    }
+  } else {
+    log('Already logged in. Proceeding...');
+  }
+  console.log('');
+
+  // First run immediately
+  await runBatch(page, screenshotDir);
+
+  if (!watchMode) {
+    await context.close();
+    console.log('=== DONE ===');
+    console.log('');
+    return;
+  }
+
+  // Watch mode — keep looping
+  log('Watching for new VINs. Press Ctrl+C to stop.');
+  while (true) {
+    log('Next check in ' + intervalMins + ' minute(s)...');
+    await sleep(intervalMs);
+    await runBatch(page, screenshotDir);
+  }
 }
 
 main().catch(function(err) {
