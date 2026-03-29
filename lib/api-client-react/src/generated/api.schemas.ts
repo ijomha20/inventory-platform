@@ -35,6 +35,10 @@ export interface AddAccessRequest {
   email: string;
 }
 
+export interface PriceLookupResult {
+  price: string | null;
+}
+
 export interface ErrorResponse {
   error: string;
 }
@@ -42,3 +46,7 @@ export interface ErrorResponse {
 export interface SuccessResponse {
   ok: boolean;
 }
+
+export type PriceLookupParams = {
+  url: string;
+};

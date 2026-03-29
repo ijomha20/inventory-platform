@@ -22,6 +22,8 @@ import type {
   ErrorResponse,
   HealthStatus,
   InventoryItem,
+  PriceLookupParams,
+  PriceLookupResult,
   SuccessResponse,
   User,
 } from "./api.schemas";
@@ -240,6 +242,100 @@ export function useGetInventory<
   request?: SecondParameter<typeof customFetch>;
 }): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
   const queryOptions = getGetInventoryQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Scrape retail price from a vehicle listing URL
+ */
+export const getPriceLookupUrl = (params: PriceLookupParams) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/price-lookup?${stringifiedParams}`
+    : `/api/price-lookup`;
+};
+
+export const priceLookup = async (
+  params: PriceLookupParams,
+  options?: RequestInit,
+): Promise<PriceLookupResult> => {
+  return customFetch<PriceLookupResult>(getPriceLookupUrl(params), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getPriceLookupQueryKey = (params?: PriceLookupParams) => {
+  return [`/api/price-lookup`, ...(params ? [params] : [])] as const;
+};
+
+export const getPriceLookupQueryOptions = <
+  TData = Awaited<ReturnType<typeof priceLookup>>,
+  TError = ErrorType<ErrorResponse>,
+>(
+  params: PriceLookupParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof priceLookup>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getPriceLookupQueryKey(params);
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof priceLookup>>> = ({
+    signal,
+  }) => priceLookup(params, { signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof priceLookup>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type PriceLookupQueryResult = NonNullable<
+  Awaited<ReturnType<typeof priceLookup>>
+>;
+export type PriceLookupQueryError = ErrorType<ErrorResponse>;
+
+/**
+ * @summary Scrape retail price from a vehicle listing URL
+ */
+
+export function usePriceLookup<
+  TData = Awaited<ReturnType<typeof priceLookup>>,
+  TError = ErrorType<ErrorResponse>,
+>(
+  params: PriceLookupParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof priceLookup>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getPriceLookupQueryOptions(params, options);
 
   const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
     queryKey: QueryKey;

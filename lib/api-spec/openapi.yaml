@@ -76,6 +76,37 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
 
+  /price-lookup:
+    get:
+      operationId: priceLookup
+      tags: [inventory]
+      summary: Scrape retail price from a vehicle listing URL
+      parameters:
+        - name: url
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Price result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PriceLookupResult"
+        "400":
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
   /access:
     get:
       operationId: getAccessList
@@ -219,6 +250,15 @@ components:
           type: string
       required:
         - email
+
+    PriceLookupResult:
+      type: object
+      properties:
+        price:
+          type: string
+          nullable: true
+      required:
+        - price
 
     ErrorResponse:
       type: object

@@ -11,5 +11,7 @@ export * from "./addAccessRequest";
 export * from "./errorResponse";
 export * from "./healthStatus";
 export * from "./inventoryItem";
+export * from "./priceLookupParams";
+export * from "./priceLookupResult";
 export * from "./successResponse";
 export * from "./user";

@@ -38,6 +38,17 @@ export const GetInventoryResponseItem = zod.object({
 export const GetInventoryResponse = zod.array(GetInventoryResponseItem);
 
 /**
+ * @summary Scrape retail price from a vehicle listing URL
+ */
+export const PriceLookupQueryParams = zod.object({
+  url: zod.coerce.string(),
+});
+
+export const PriceLookupResponse = zod.object({
+  price: zod.string().nullable(),
+});
+
+/**
  * @summary Get list of approved emails (owner only)
  */
 export const GetAccessListResponseItem = zod.object({

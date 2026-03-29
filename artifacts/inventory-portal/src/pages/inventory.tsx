@@ -1,11 +1,19 @@
-import { useState, useCallback } from "react";
-import { useGetInventory } from "@workspace/api-client-react";
-import { Search, ExternalLink, FileText, AlertCircle, ChevronUp, ChevronDown, ChevronsUpDown, Copy, Check } from "lucide-react";
+import { useState, useCallback, useEffect, useRef } from "react";
+import { useGetInventory, priceLookup } from "@workspace/api-client-react";
+import { Search, ExternalLink, FileText, AlertCircle, ChevronUp, ChevronDown, ChevronsUpDown, Copy, Check, Loader2 } from "lucide-react";
 import { useLocation } from "wouter";
 import { FullScreenSpinner } from "@/components/ui/spinner";
 
 type SortKey = "location" | "vehicle" | "vin" | "price";
 type SortDir = "asc" | "desc";
+
+// Format a raw price string as $12,345
+function formatPrice(raw: string): string {
+  if (!raw) return "—";
+  const n = parseFloat(raw.replace(/[^0-9.]/g, ""));
+  if (isNaN(n) || n === 0) return raw; // already formatted or non-numeric
+  return "$" + Math.round(n).toLocaleString("en-US");
+}
 
 function SortIcon({ active, dir }: { active: boolean; dir: SortDir }) {
   if (!active) return <ChevronsUpDown className="w-3.5 h-3.5 opacity-30 inline ml-1" />;
@@ -23,11 +31,8 @@ function CopyVin({ vin }: { vin: string }) {
     });
   }, [vin]);
   return (
-    <button
-      onClick={handleCopy}
-      title="Click to copy VIN"
-      className="group flex items-center gap-1.5 text-sm text-gray-700 hover:text-gray-900 transition-colors"
-    >
+    <button onClick={handleCopy} title="Click to copy VIN"
+      className="group flex items-center gap-1.5 text-sm text-gray-700 hover:text-gray-900 transition-colors">
       <span className="font-mono">{vin}</span>
       {copied
         ? <Check className="w-3.5 h-3.5 text-green-600 shrink-0" />
@@ -40,11 +45,42 @@ export default function Inventory() {
   const [search, setSearch] = useState("");
   const [sortKey, setSortKey] = useState<SortKey>("vehicle");
   const [sortDir, setSortDir] = useState<SortDir>("asc");
+  const [onlinePrices, setOnlinePrices] = useState<Map<string, string | null>>(new Map());
+  const fetchedUrls = useRef<Set<string>>(new Set());
   const [, setLocation] = useLocation();
 
   const { data: inventory, isLoading, error } = useGetInventory({
     query: { retry: false },
   });
+
+  // Fetch online prices in the background for all vehicles with a website URL
+  useEffect(() => {
+    if (!inventory) return;
+    const toFetch = inventory.filter(
+      (item) => item.website && item.website !== "NOT FOUND" && !fetchedUrls.current.has(item.website)
+    );
+    if (toFetch.length === 0) return;
+
+    // Mark all as in-progress
+    toFetch.forEach((item) => fetchedUrls.current.add(item.website!));
+
+    // Fetch with concurrency limit of 4
+    const CONCURRENCY = 4;
+    let idx = 0;
+    async function runNext() {
+      if (idx >= toFetch.length) return;
+      const item = toFetch[idx++];
+      try {
+        const result = await priceLookup({ url: item.website! });
+        setOnlinePrices((prev) => new Map(prev).set(item.website!, result.price ?? null));
+      } catch {
+        setOnlinePrices((prev) => new Map(prev).set(item.website!, null));
+      }
+      await runNext();
+    }
+    const workers = Array.from({ length: Math.min(CONCURRENCY, toFetch.length) }, () => runNext());
+    Promise.all(workers);
+  }, [inventory]);
 
   if (error) {
     const status = (error as any)?.response?.status;
@@ -67,12 +103,12 @@ export default function Inventory() {
   };
 
   // Deduplicate by VIN — keep the entry with the lower price
-  const parsePrice = (p: string) => parseFloat(p.replace(/[^0-9.]/g, "")) || Infinity;
+  const parseNumericPrice = (p: string) => parseFloat(p.replace(/[^0-9.]/g, "")) || Infinity;
   type Item = NonNullable<typeof inventory>[number];
   const dedupedMap = new Map<string, Item>();
   for (const item of (inventory ?? [])) {
     const existing = dedupedMap.get(item.vin);
-    if (!existing || parsePrice(item.price) < parsePrice(existing.price)) {
+    if (!existing || parseNumericPrice(item.price) < parseNumericPrice(existing.price)) {
       dedupedMap.set(item.vin, item);
     }
   }
@@ -94,15 +130,6 @@ export default function Inventory() {
     const cmp = av.localeCompare(bv, undefined, { numeric: true });
     return sortDir === "asc" ? cmp : -cmp;
   });
-
-  const cols: { key: SortKey | null; label: string; className: string }[] = [
-    { key: "location", label: "Location",  className: "w-36 shrink-0" },
-    { key: "vehicle",  label: "Vehicle",   className: "flex-1 min-w-0" },
-    { key: "vin",      label: "VIN",       className: "w-44 shrink-0" },
-    { key: "price",    label: "Price",     className: "w-28 shrink-0" },
-    { key: null,       label: "Carfax",    className: "w-20 shrink-0 text-center" },
-    { key: null,       label: "Listing",   className: "w-20 shrink-0 text-center" },
-  ];
 
   return (
     <div className="space-y-5">
@@ -134,63 +161,84 @@ export default function Inventory() {
 
           {/* Header row */}
           <div className="flex items-center gap-4 px-4 py-2.5 bg-gray-50 border-b border-gray-200">
-            {cols.map((col) => (
-              <div key={col.label} className={col.className}>
-                {col.key ? (
-                  <button
-                    onClick={() => handleSort(col.key!)}
-                    className="flex items-center text-xs font-semibold uppercase tracking-wide text-gray-500 hover:text-gray-800 transition-colors"
-                  >
-                    {col.label}
-                    <SortIcon active={sortKey === col.key} dir={sortDir} />
-                  </button>
-                ) : (
-                  <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">{col.label}</span>
-                )}
+            {[
+              { key: "location" as SortKey, label: "Location",     cls: "w-36 shrink-0" },
+              { key: "vehicle"  as SortKey, label: "Vehicle",      cls: "flex-1 min-w-0" },
+              { key: "vin"      as SortKey, label: "VIN",          cls: "w-44 shrink-0" },
+              { key: "price"    as SortKey, label: "Your Cost",    cls: "w-28 shrink-0" },
+            ].map((col) => (
+              <div key={col.label} className={col.cls}>
+                <button onClick={() => handleSort(col.key)}
+                  className="flex items-center text-xs font-semibold uppercase tracking-wide text-gray-500 hover:text-gray-800 transition-colors">
+                  {col.label}
+                  <SortIcon active={sortKey === col.key} dir={sortDir} />
+                </button>
               </div>
             ))}
+            <div className="w-32 shrink-0 text-xs font-semibold uppercase tracking-wide text-gray-500">Online Price</div>
+            <div className="w-20 shrink-0 text-center text-xs font-semibold uppercase tracking-wide text-gray-500">Carfax</div>
+            <div className="w-20 shrink-0 text-center text-xs font-semibold uppercase tracking-wide text-gray-500">Listing</div>
           </div>
 
           {/* Data rows */}
           <div>
-            {sorted.map((item, i) => (
-              <div
-                key={`${item.vin}-${i}`}
-                className={`flex items-center gap-4 px-4 py-3 hover:bg-gray-50 transition-colors ${i < sorted.length - 1 ? "border-b border-gray-100" : ""}`}
-              >
-                {/* Location */}
-                <div className="w-36 shrink-0 text-sm text-gray-700 truncate">{item.location || "—"}</div>
+            {sorted.map((item, i) => {
+              const websiteKey = item.website && item.website !== "NOT FOUND" ? item.website : null;
+              const isFetchingPrice = websiteKey !== null && !onlinePrices.has(websiteKey);
+              const onlinePrice = websiteKey ? onlinePrices.get(websiteKey) : undefined;
 
-                {/* Vehicle */}
-                <div className="flex-1 min-w-0 text-sm text-gray-700 font-medium truncate">{item.vehicle}</div>
+              return (
+                <div
+                  key={`${item.vin}-${i}`}
+                  className={`flex items-center gap-4 px-4 py-3 hover:bg-gray-50 transition-colors ${i < sorted.length - 1 ? "border-b border-gray-100" : ""}`}
+                >
+                  {/* Location */}
+                  <div className="w-36 shrink-0 text-sm text-gray-700 truncate">{item.location || "—"}</div>
 
-                {/* VIN */}
-                <div className="w-44 shrink-0"><CopyVin vin={item.vin} /></div>
+                  {/* Vehicle */}
+                  <div className="flex-1 min-w-0 text-sm text-gray-700 font-medium truncate">{item.vehicle}</div>
 
-                {/* Price */}
-                <div className="w-28 shrink-0 text-sm text-gray-700">{item.price || "—"}</div>
+                  {/* VIN */}
+                  <div className="w-44 shrink-0"><CopyVin vin={item.vin} /></div>
 
-                {/* Carfax */}
-                <div className="w-20 shrink-0 flex justify-center">
-                  {item.carfax && item.carfax !== "NOT FOUND" ? (
-                    <a href={item.carfax} target="_blank" rel="noopener noreferrer" title="View Carfax"
-                      className="inline-flex items-center gap-1 px-2 py-1 rounded text-xs text-gray-600 hover:text-gray-900 hover:bg-gray-100 transition-colors">
-                      <FileText className="w-4 h-4" />
-                    </a>
-                  ) : <span className="text-gray-300 text-sm">—</span>}
+                  {/* Your Cost */}
+                  <div className="w-28 shrink-0 text-sm text-gray-700">{formatPrice(item.price)}</div>
+
+                  {/* Online Price */}
+                  <div className="w-32 shrink-0 text-sm text-gray-700">
+                    {!websiteKey ? (
+                      <span className="text-gray-300">—</span>
+                    ) : isFetchingPrice ? (
+                      <Loader2 className="w-3.5 h-3.5 text-gray-400 animate-spin" />
+                    ) : onlinePrice ? (
+                      onlinePrice
+                    ) : (
+                      <span className="text-gray-300">—</span>
+                    )}
+                  </div>
+
+                  {/* Carfax */}
+                  <div className="w-20 shrink-0 flex justify-center">
+                    {item.carfax && item.carfax !== "NOT FOUND" ? (
+                      <a href={item.carfax} target="_blank" rel="noopener noreferrer" title="View Carfax"
+                        className="inline-flex items-center px-2 py-1 rounded text-xs text-gray-600 hover:text-gray-900 hover:bg-gray-100 transition-colors">
+                        <FileText className="w-4 h-4" />
+                      </a>
+                    ) : <span className="text-gray-300 text-sm">—</span>}
+                  </div>
+
+                  {/* Listing */}
+                  <div className="w-20 shrink-0 flex justify-center">
+                    {item.website && item.website !== "NOT FOUND" ? (
+                      <a href={item.website} target="_blank" rel="noopener noreferrer" title="View Listing"
+                        className="inline-flex items-center px-2 py-1 rounded text-xs text-blue-600 hover:text-blue-800 hover:bg-blue-50 transition-colors">
+                        <ExternalLink className="w-4 h-4" />
+                      </a>
+                    ) : <span className="text-gray-300 text-sm">—</span>}
+                  </div>
                 </div>
-
-                {/* Listing */}
-                <div className="w-20 shrink-0 flex justify-center">
-                  {item.website && item.website !== "NOT FOUND" ? (
-                    <a href={item.website} target="_blank" rel="noopener noreferrer" title="View Listing"
-                      className="inline-flex items-center gap-1 px-2 py-1 rounded text-xs text-blue-600 hover:text-blue-800 hover:bg-blue-50 transition-colors">
-                      <ExternalLink className="w-4 h-4" />
-                    </a>
-                  ) : <span className="text-gray-300 text-sm">—</span>}
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       ) : (
