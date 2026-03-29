@@ -19,7 +19,7 @@
 // ─── TAB NAME CONSTANTS ───────────────────────────────────────────────────────
 const TAB_MY_LIST     = "My List";
 const TAB_SOURCE      = "Source List";
-const TAB_SETTINGS    = "Settings";
+const TAB_SETTINGS    = "Settings";S
 const TAB_LOG         = "Sync Log";
 
 // Settings row keys (must match column A of the Settings tab exactly)
