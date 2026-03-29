@@ -267,7 +267,7 @@ async function typeInSearchBox(page, searchInput, vin) {
 
 async function waitForResults(page) {
   try {
-    await page.waitForSelector('a.reportLink', { timeout: 6000 });
+    await page.waitForSelector('a.reportLink', { timeout: 10000 });
     return true;
   } catch (e) {
     return false;
@@ -315,18 +315,17 @@ async function processVin(page, vin, screenshotDir) {
     }
 
     await humanClick(page, archiveToggle);
-    await humanDelay(1000);
 
-    // The search box is the same element — clear and retype VIN
-    var searchInput2 = await findElement(page, SELECTORS.vinSearchInput, 4000);
-    if (searchInput2) {
-      await typeInSearchBox(page, searchInput2, vin);
-      await humanScroll(page);
-      var found2 = await waitForResults(page);
-      if (found2) {
-        var reportLink2 = await findReportLink(page);
-        if (reportLink2) { log('  Found in Global Archive.'); return reportLink2; }
-      }
+    // VIN is already in the search box — wait up to 6 seconds for results to populate
+    var found2 = false;
+    try {
+      await page.waitForSelector('a.reportLink', { timeout: 6000 });
+      found2 = true;
+    } catch (e) { found2 = false; }
+
+    if (found2) {
+      var reportLink2 = await findReportLink(page);
+      if (reportLink2) { log('  Found in Global Archive.'); return reportLink2; }
     }
 
     log('  No report found.');
