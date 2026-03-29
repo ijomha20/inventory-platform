@@ -8,9 +8,65 @@
 import * as zod from "zod";
 
 /**
- * Returns server health status
  * @summary Health check
  */
 export const HealthCheckResponse = zod.object({
   status: zod.string(),
+});
+
+/**
+ * @summary Get current authenticated user
+ */
+export const GetMeResponse = zod.object({
+  email: zod.string(),
+  name: zod.string(),
+  picture: zod.string().optional(),
+  isOwner: zod.boolean(),
+});
+
+/**
+ * @summary Get all inventory items
+ */
+export const GetInventoryResponseItem = zod.object({
+  location: zod.string(),
+  vehicle: zod.string(),
+  vin: zod.string(),
+  price: zod.string(),
+  carfax: zod.string().optional(),
+  website: zod.string().optional(),
+});
+export const GetInventoryResponse = zod.array(GetInventoryResponseItem);
+
+/**
+ * @summary Get list of approved emails (owner only)
+ */
+export const GetAccessListResponseItem = zod.object({
+  email: zod.string(),
+  addedAt: zod.string(),
+  addedBy: zod.string(),
+});
+export const GetAccessListResponse = zod.array(GetAccessListResponseItem);
+
+/**
+ * @summary Add an email to the access list (owner only)
+ */
+export const AddAccessEntryBody = zod.object({
+  email: zod.string(),
+});
+
+export const AddAccessEntryResponse = zod.object({
+  email: zod.string(),
+  addedAt: zod.string(),
+  addedBy: zod.string(),
+});
+
+/**
+ * @summary Remove an email from the access list (owner only)
+ */
+export const RemoveAccessEntryParams = zod.object({
+  email: zod.coerce.string(),
+});
+
+export const RemoveAccessEntryResponse = zod.object({
+  ok: zod.boolean(),
 });

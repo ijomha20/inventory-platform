@@ -6,4 +6,10 @@
  * OpenAPI spec version: 0.1.0
  */
 
+export * from "./accessEntry";
+export * from "./addAccessRequest";
+export * from "./errorResponse";
 export * from "./healthStatus";
+export * from "./inventoryItem";
+export * from "./successResponse";
+export * from "./user";

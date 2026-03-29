@@ -5,18 +5,29 @@
  * API specification
  * OpenAPI spec version: 0.1.0
  */
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import type {
+  MutationFunction,
   QueryFunction,
   QueryKey,
+  UseMutationOptions,
+  UseMutationResult,
   UseQueryOptions,
   UseQueryResult,
 } from "@tanstack/react-query";
 
-import type { HealthStatus } from "./api.schemas";
+import type {
+  AccessEntry,
+  AddAccessRequest,
+  ErrorResponse,
+  HealthStatus,
+  InventoryItem,
+  SuccessResponse,
+  User,
+} from "./api.schemas";
 
 import { customFetch } from "../custom-fetch";
-import type { ErrorType } from "../custom-fetch";
+import type { ErrorType, BodyType } from "../custom-fetch";
 
 type AwaitedInput<T> = PromiseLike<T> | T;
 
@@ -25,7 +36,6 @@ type Awaited<O> = O extends AwaitedInput<infer T> ? T : never;
 type SecondParameter<T extends (...args: never) => unknown> = Parameters<T>[1];
 
 /**
- * Returns server health status
  * @summary Health check
  */
 export const getHealthCheckUrl = () => {
@@ -99,3 +109,386 @@ export function useHealthCheck<
 
   return { ...query, queryKey: queryOptions.queryKey };
 }
+
+/**
+ * @summary Get current authenticated user
+ */
+export const getGetMeUrl = () => {
+  return `/api/me`;
+};
+
+export const getMe = async (options?: RequestInit): Promise<User> => {
+  return customFetch<User>(getGetMeUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetMeQueryKey = () => {
+  return [`/api/me`] as const;
+};
+
+export const getGetMeQueryOptions = <
+  TData = Awaited<ReturnType<typeof getMe>>,
+  TError = ErrorType<ErrorResponse>,
+>(options?: {
+  query?: UseQueryOptions<Awaited<ReturnType<typeof getMe>>, TError, TData>;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetMeQueryKey();
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof getMe>>> = ({
+    signal,
+  }) => getMe({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getMe>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetMeQueryResult = NonNullable<Awaited<ReturnType<typeof getMe>>>;
+export type GetMeQueryError = ErrorType<ErrorResponse>;
+
+/**
+ * @summary Get current authenticated user
+ */
+
+export function useGetMe<
+  TData = Awaited<ReturnType<typeof getMe>>,
+  TError = ErrorType<ErrorResponse>,
+>(options?: {
+  query?: UseQueryOptions<Awaited<ReturnType<typeof getMe>>, TError, TData>;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetMeQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Get all inventory items
+ */
+export const getGetInventoryUrl = () => {
+  return `/api/inventory`;
+};
+
+export const getInventory = async (
+  options?: RequestInit,
+): Promise<InventoryItem[]> => {
+  return customFetch<InventoryItem[]>(getGetInventoryUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetInventoryQueryKey = () => {
+  return [`/api/inventory`] as const;
+};
+
+export const getGetInventoryQueryOptions = <
+  TData = Awaited<ReturnType<typeof getInventory>>,
+  TError = ErrorType<ErrorResponse>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getInventory>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetInventoryQueryKey();
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof getInventory>>> = ({
+    signal,
+  }) => getInventory({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getInventory>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetInventoryQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getInventory>>
+>;
+export type GetInventoryQueryError = ErrorType<ErrorResponse>;
+
+/**
+ * @summary Get all inventory items
+ */
+
+export function useGetInventory<
+  TData = Awaited<ReturnType<typeof getInventory>>,
+  TError = ErrorType<ErrorResponse>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getInventory>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetInventoryQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Get list of approved emails (owner only)
+ */
+export const getGetAccessListUrl = () => {
+  return `/api/access`;
+};
+
+export const getAccessList = async (
+  options?: RequestInit,
+): Promise<AccessEntry[]> => {
+  return customFetch<AccessEntry[]>(getGetAccessListUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetAccessListQueryKey = () => {
+  return [`/api/access`] as const;
+};
+
+export const getGetAccessListQueryOptions = <
+  TData = Awaited<ReturnType<typeof getAccessList>>,
+  TError = ErrorType<ErrorResponse>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getAccessList>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetAccessListQueryKey();
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof getAccessList>>> = ({
+    signal,
+  }) => getAccessList({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getAccessList>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetAccessListQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getAccessList>>
+>;
+export type GetAccessListQueryError = ErrorType<ErrorResponse>;
+
+/**
+ * @summary Get list of approved emails (owner only)
+ */
+
+export function useGetAccessList<
+  TData = Awaited<ReturnType<typeof getAccessList>>,
+  TError = ErrorType<ErrorResponse>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getAccessList>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetAccessListQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Add an email to the access list (owner only)
+ */
+export const getAddAccessEntryUrl = () => {
+  return `/api/access`;
+};
+
+export const addAccessEntry = async (
+  addAccessRequest: AddAccessRequest,
+  options?: RequestInit,
+): Promise<AccessEntry> => {
+  return customFetch<AccessEntry>(getAddAccessEntryUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(addAccessRequest),
+  });
+};
+
+export const getAddAccessEntryMutationOptions = <
+  TError = ErrorType<ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof addAccessEntry>>,
+    TError,
+    { data: BodyType<AddAccessRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof addAccessEntry>>,
+  TError,
+  { data: BodyType<AddAccessRequest> },
+  TContext
+> => {
+  const mutationKey = ["addAccessEntry"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof addAccessEntry>>,
+    { data: BodyType<AddAccessRequest> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return addAccessEntry(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type AddAccessEntryMutationResult = NonNullable<
+  Awaited<ReturnType<typeof addAccessEntry>>
+>;
+export type AddAccessEntryMutationBody = BodyType<AddAccessRequest>;
+export type AddAccessEntryMutationError = ErrorType<ErrorResponse>;
+
+/**
+ * @summary Add an email to the access list (owner only)
+ */
+export const useAddAccessEntry = <
+  TError = ErrorType<ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof addAccessEntry>>,
+    TError,
+    { data: BodyType<AddAccessRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof addAccessEntry>>,
+  TError,
+  { data: BodyType<AddAccessRequest> },
+  TContext
+> => {
+  return useMutation(getAddAccessEntryMutationOptions(options));
+};
+
+/**
+ * @summary Remove an email from the access list (owner only)
+ */
+export const getRemoveAccessEntryUrl = (email: string) => {
+  return `/api/access/${email}`;
+};
+
+export const removeAccessEntry = async (
+  email: string,
+  options?: RequestInit,
+): Promise<SuccessResponse> => {
+  return customFetch<SuccessResponse>(getRemoveAccessEntryUrl(email), {
+    ...options,
+    method: "DELETE",
+  });
+};
+
+export const getRemoveAccessEntryMutationOptions = <
+  TError = ErrorType<ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof removeAccessEntry>>,
+    TError,
+    { email: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof removeAccessEntry>>,
+  TError,
+  { email: string },
+  TContext
+> => {
+  const mutationKey = ["removeAccessEntry"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof removeAccessEntry>>,
+    { email: string }
+  > = (props) => {
+    const { email } = props ?? {};
+
+    return removeAccessEntry(email, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type RemoveAccessEntryMutationResult = NonNullable<
+  Awaited<ReturnType<typeof removeAccessEntry>>
+>;
+
+export type RemoveAccessEntryMutationError = ErrorType<ErrorResponse>;
+
+/**
+ * @summary Remove an email from the access list (owner only)
+ */
+export const useRemoveAccessEntry = <
+  TError = ErrorType<ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof removeAccessEntry>>,
+    TError,
+    { email: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof removeAccessEntry>>,
+  TError,
+  { email: string },
+  TContext
+> => {
+  return useMutation(getRemoveAccessEntryMutationOptions(options));
+};

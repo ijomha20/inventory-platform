@@ -10,13 +10,18 @@ servers:
 tags:
   - name: health
     description: Health operations
+  - name: auth
+    description: Authentication
+  - name: inventory
+    description: Inventory data
+  - name: access
+    description: Access list management
 paths:
   /healthz:
     get:
       operationId: healthCheck
       tags: [health]
       summary: Health check
-      description: Returns server health status
       responses:
         "200":
           description: Healthy
@@ -24,6 +29,128 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+
+  /me:
+    get:
+      operationId: getMe
+      tags: [auth]
+      summary: Get current authenticated user
+      responses:
+        "200":
+          description: Current user
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /inventory:
+    get:
+      operationId: getInventory
+      tags: [inventory]
+      summary: Get all inventory items
+      responses:
+        "200":
+          description: List of inventory items
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/InventoryItem"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: Access denied
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /access:
+    get:
+      operationId: getAccessList
+      tags: [access]
+      summary: Get list of approved emails (owner only)
+      responses:
+        "200":
+          description: Approved emails
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AccessEntry"
+        "403":
+          description: Owner only
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    post:
+      operationId: addAccessEntry
+      tags: [access]
+      summary: Add an email to the access list (owner only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AddAccessRequest"
+      responses:
+        "200":
+          description: Entry added
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AccessEntry"
+        "400":
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: Owner only
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /access/{email}:
+    delete:
+      operationId: removeAccessEntry
+      tags: [access]
+      summary: Remove an email from the access list (owner only)
+      parameters:
+        - name: email
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Entry removed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessResponse"
+        "403":
+          description: Owner only
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
 components:
   schemas:
     HealthStatus:
@@ -34,3 +161,77 @@ components:
       required:
         - status
 
+    User:
+      type: object
+      properties:
+        email:
+          type: string
+        name:
+          type: string
+        picture:
+          type: string
+        isOwner:
+          type: boolean
+      required:
+        - email
+        - name
+        - isOwner
+
+    InventoryItem:
+      type: object
+      properties:
+        location:
+          type: string
+        vehicle:
+          type: string
+        vin:
+          type: string
+        price:
+          type: string
+        carfax:
+          type: string
+        website:
+          type: string
+      required:
+        - location
+        - vehicle
+        - vin
+        - price
+
+    AccessEntry:
+      type: object
+      properties:
+        email:
+          type: string
+        addedAt:
+          type: string
+        addedBy:
+          type: string
+      required:
+        - email
+        - addedAt
+        - addedBy
+
+    AddAccessRequest:
+      type: object
+      properties:
+        email:
+          type: string
+      required:
+        - email
+
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+      required:
+        - error
+
+    SuccessResponse:
+      type: object
+      properties:
+        ok:
+          type: boolean
+      required:
+        - ok

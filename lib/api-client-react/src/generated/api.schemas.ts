@@ -8,3 +8,37 @@
 export interface HealthStatus {
   status: string;
 }
+
+export interface User {
+  email: string;
+  name: string;
+  picture?: string;
+  isOwner: boolean;
+}
+
+export interface InventoryItem {
+  location: string;
+  vehicle: string;
+  vin: string;
+  price: string;
+  carfax?: string;
+  website?: string;
+}
+
+export interface AccessEntry {
+  email: string;
+  addedAt: string;
+  addedBy: string;
+}
+
+export interface AddAccessRequest {
+  email: string;
+}
+
+export interface ErrorResponse {
+  error: string;
+}
+
+export interface SuccessResponse {
+  ok: boolean;
+}

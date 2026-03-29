@@ -1,0 +1,13 @@
+packages:
+  "framer-motion": "For premium stagger animations and page transitions"
+  "clsx": "Utility for conditionally joining classNames"
+  "tailwind-merge": "Utility for merging tailwind classes without style conflicts"
+  "lucide-react": "Beautiful, consistent icon set"
+  "date-fns": "For formatting access entry dates"
+
+images: []
+
+notes:
+  - "The app uses a forced dark-mode premium aesthetic tailored for data-focused applications."
+  - "Google OAuth routes are located at /api/auth/google and /api/auth/logout"
+  - "API hooks are imported from @workspace/api-client-react per workspace conventions"

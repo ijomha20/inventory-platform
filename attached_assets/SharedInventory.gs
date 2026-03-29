@@ -199,6 +199,44 @@ function refreshSharedList() {
 }
 
 // =============================================================================
+// DATA ENDPOINT (for the Inventory Portal web app)
+// Deploy this script as a Web App (Execute as: Me, Anyone can access)
+// and paste the resulting URL into INVENTORY_DATA_URL in Replit Secrets.
+// The web app handles its own authentication — this endpoint just serves data.
+// =============================================================================
+
+function doGet(e) {
+  var ss  = SpreadsheetApp.getActiveSpreadsheet();
+  var tab = ss.getSheetByName(OUTPUT_TAB_NAME);
+  if (!tab) {
+    return ContentService
+      .createTextOutput(JSON.stringify({ error: "Inventory tab not found" }))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
+
+  var data = tab.getDataRange().getValues();
+  var rows = [];
+
+  for (var i = 1; i < data.length; i++) {
+    var row = data[i];
+    // Skip completely empty rows
+    if (!row[O_LOCATION] && !row[O_VIN] && !row[O_VEHICLE]) continue;
+    rows.push({
+      location: row[O_LOCATION] ? row[O_LOCATION].toString().trim() : "",
+      vehicle:  row[O_VEHICLE]  ? row[O_VEHICLE].toString().trim()  : "",
+      vin:      row[O_VIN]      ? row[O_VIN].toString().trim()      : "",
+      price:    row[O_PRICE]    ? row[O_PRICE].toString().trim()     : "",
+      carfax:   row[O_CARFAX]   ? row[O_CARFAX].toString().trim()   : "",
+      website:  row[O_WEBSITE]  ? row[O_WEBSITE].toString().trim()  : ""
+    });
+  }
+
+  return ContentService
+    .createTextOutput(JSON.stringify(rows))
+    .setMimeType(ContentService.MimeType.JSON);
+}
+
+// =============================================================================
 // HELPERS
 // =============================================================================
 
