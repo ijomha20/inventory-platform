@@ -465,7 +465,7 @@ function doGet(e) {
   for (var i = 1; i < data.length; i++) {
     var vin    = data[i][COL_VIN]    ? data[i][COL_VIN].toString().trim()    : "";
     var carfax = data[i][COL_CARFAX] ? data[i][COL_CARFAX].toString().trim() : "";
-    if (vin && vin.length > 5 && !carfax) result.push({ rowIndex: i + 1, vin: vin });
+    if (vin && vin.length > 5 && (!carfax || carfax === "NOT FOUND")) result.push({ rowIndex: i + 1, vin: vin });
   }
   return ContentService.createTextOutput(JSON.stringify(result)).setMimeType(ContentService.MimeType.JSON);
 }
