@@ -156,7 +156,7 @@ function fetchMatrixData() {
   var rawRows = [];
   for (var i = 1; i < allData.length; i++) {
     var dealer = allData[i][0] ? allData[i][0].toString().trim().toLowerCase() : "";
-    if (dealer !== "matrix" && dealer !== "pdm") continue;
+    if (dealer !== "matrix") continue;
     var vin = allData[i][1] ? allData[i][1].toString().trim().toLowerCase() : "";
     if (vin === "" || vinMap[vin]) continue;
     vinMap[vin] = { vin: allData[i][1], col3: allData[i][2], col4: allData[i][3], col5: allData[i][4], price: allData[i][5] };
@@ -192,7 +192,7 @@ function performSync(isHeadless) {
   for (var i = myData.length - 1; i >= 1; i--) {
     var loc = myData[i][COL_LOCATION] ? myData[i][COL_LOCATION].toString().trim().toUpperCase() : "";
     var vin = myData[i][COL_VIN]      ? myData[i][COL_VIN].toString().trim().toLowerCase()      : "";
-    if ((loc === "MM" || loc === "PDM") && vin !== "" && !vinMap[vin]) {
+    if (loc === "MM" && vin !== "" && !vinMap[vin]) {
       mySheet.deleteRow(i + 1);
       removedVins.push(vin.toUpperCase());
     }
@@ -208,7 +208,7 @@ function performSync(isHeadless) {
     var cloc = currentData[j][COL_LOCATION] ? currentData[j][COL_LOCATION].toString().trim().toUpperCase() : "";
     var cvin = currentData[j][COL_VIN]      ? currentData[j][COL_VIN].toString().trim().toLowerCase()      : "";
     if (cvin !== "") currentVinSet[cvin] = j + 1;
-    if ((cloc !== "MM" && cloc !== "PDM") || cvin === "" || !vinMap[cvin]) continue;
+    if (cloc !== "MM" || cvin === "" || !vinMap[cvin]) continue;
     var oldPriceRaw = currentData[j][COL_PRICE];
     var oldPrice    = typeof oldPriceRaw === "number" ? oldPriceRaw : parseFloat(oldPriceRaw);
     var newPriceRaw = vinMap[cvin].price;
@@ -237,8 +237,7 @@ function performSync(isHeadless) {
   for (var r = 0; r < rawRows.length; r++) {
     var sVin = rawRows[r][1] ? rawRows[r][1].toString().trim().toLowerCase() : "";
     if (sVin === "" || currentVinSet[sVin]) continue;
-    var newLoc = rawRows[r][0] ? rawRows[r][0].toString().trim().toUpperCase() : "MM";
-    newRows.push([newLoc, rawRows[r][1], rawRows[r][2], rawRows[r][3], rawRows[r][4], rawRows[r][5], "", "", "", ""]);
+    newRows.push(["MM", rawRows[r][1], rawRows[r][2], rawRows[r][3], rawRows[r][4], rawRows[r][5], "", "", "", ""]);
     newVins.push(sVin);
   }
   if (newRows.length > 0) {
@@ -271,7 +270,7 @@ function performSync(isHeadless) {
     for (var f = 1; f < finalData.length; f++) {
       var floc = finalData[f][COL_LOCATION] ? finalData[f][COL_LOCATION].toString().trim().toUpperCase() : "";
       var fvin = finalData[f][COL_VIN]      ? finalData[f][COL_VIN].toString().trim().toLowerCase()      : "";
-      if ((floc !== "MM" && floc !== "PDM") || fvin === "") continue;
+      if (floc !== "MM" || fvin === "") continue;
       if (newVinSet[fvin])          cyanRanges.push("A" + (f + 1) + ":J" + (f + 1));
       else if (changedVinSet[fvin]) yellowRanges.push("A" + (f + 1) + ":J" + (f + 1));
     }
