@@ -1,0 +1,270 @@
+function onOpen() {
+  const ui = SpreadsheetApp.getUi();
+  ui.createMenu('Inventory Sync')
+    .addItem('1. Import Matrix Units', 'importMatrixUnits')
+    .addItem('2. Sync My List', 'syncMatrixInventory')
+    .addSeparator()
+    .addItem('▶ Run Full Sync', 'masterSync')
+    .addSeparator()
+    .addItem('⚙️ Setup Notifications', 'setupNotificationTrigger')
+    .addToUi();
+}
+
+function importMatrixUnits() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const ui = SpreadsheetApp.getUi();
+  
+  const SHARED_SHEET_URL = "https://docs.google.com/spreadsheets/d/1eDC29_UYZsfJtk6IqIDV3Hb0vaq8eS2uz_iWT6MbowA/edit?gid=0#gid=0";
+  const SHARED_TAB_NAME = "Sheet1";
+  
+  try {
+    const sharedSS = SpreadsheetApp.openByUrl(SHARED_SHEET_URL);
+    const sharedSheet = sharedSS.getSheetByName(SHARED_TAB_NAME);
+    const sourceSheet = ss.getSheetByName("Source List");
+    
+    if (!sharedSheet) {
+      ui.alert("Error: Cannot find tab in shared sheet.");
+      return;
+    }
+    
+    if (!sourceSheet) {
+      ui.alert("Error: 'Source List' tab not found.");
+      return;
+    }
+    
+    const allData = sharedSheet.getDataRange().getValues();
+    const header = allData[0];
+    const matrixData = [header];
+    
+    for (let i = 1; i < allData.length; i++) {
+      let dealer = allData[i][0] ? allData[i][0].toString().trim().toLowerCase() : "";
+      if (dealer === "matrix") {
+        matrixData.push(allData[i]);
+      }
+    }
+    
+    sourceSheet.clear();
+    
+    if (matrixData.length > 1) {
+      sourceSheet.getRange(1, 1, matrixData.length, matrixData[0].length).setValues(matrixData);
+    } else {
+      sourceSheet.getRange(1, 1, 1, header.length).setValues([header]);
+    }
+    
+  } catch (e) {
+    ui.alert("Error: " + e.message);
+  }
+}
+
+function syncMatrixInventory() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const ui = SpreadsheetApp.getUi();
+  const mySheet = ss.getSheetByName("My List");
+  const sourceSheet = ss.getSheetByName("Source List");
+
+  if (!mySheet || !sourceSheet) {
+    ui.alert("Error: Tabs must be named 'My List' and 'Source List'.");
+    return;
+  }
+
+  const sourceData = sourceSheet.getDataRange().getValues();
+  const myData = mySheet.getDataRange().getValues();
+  
+  const sourceVinMap = {};
+  sourceData.forEach((row, idx) => {
+    if (idx === 0) return;
+    let vin = row[1] ? row[1].toString().trim().toLowerCase() : "";
+    if (vin !== "") {
+      sourceVinMap[vin] = {
+        vin: row[1],
+        col3: row[2],
+        col4: row[3],
+        col5: row[4],
+        price: row[5]
+      };
+    }
+  });
+  
+  const newVins = [];
+  const priceChangedVins = [];
+
+  for (let i = myData.length - 1; i >= 1; i--) {
+    let loc = myData[i][0] ? myData[i][0].toString().trim().toUpperCase() : "";
+    let vin = myData[i][1] ? myData[i][1].toString().trim().toLowerCase() : "";
+    if (loc === "MM" && vin !== "" && !sourceVinMap[vin]) {
+      mySheet.deleteRow(i + 1);
+    }
+  }
+
+  const currentData = mySheet.getDataRange().getValues();
+  for (let i = 1; i < currentData.length; i++) {
+    let loc = currentData[i][0] ? currentData[i][0].toString().trim().toUpperCase() : "";
+    let vin = currentData[i][1] ? currentData[i][1].toString().trim().toLowerCase() : "";
+    
+    if (loc === "MM" && vin !== "" && sourceVinMap[vin]) {
+      let oldPrice = currentData[i][5];
+      let newPrice = sourceVinMap[vin].price;
+      
+      mySheet.getRange(i + 1, 2).setValue(sourceVinMap[vin].vin);
+      mySheet.getRange(i + 1, 3).setValue(sourceVinMap[vin].col3);
+      mySheet.getRange(i + 1, 4).setValue(sourceVinMap[vin].col4);
+      mySheet.getRange(i + 1, 5).setValue(sourceVinMap[vin].col5);
+      mySheet.getRange(i + 1, 6).setValue(sourceVinMap[vin].price);
+      
+      let oldPriceNum = typeof oldPrice === 'number' ? oldPrice : parseFloat(oldPrice);
+      let newPriceNum = typeof newPrice === 'number' ? newPrice : parseFloat(newPrice);
+      
+      if (!isNaN(oldPriceNum) && !isNaN(newPriceNum) && oldPriceNum !== newPriceNum) {
+        priceChangedVins.push(vin);
+      }
+    }
+  }
+
+  const currentVins = mySheet.getDataRange().getValues().map(r => r ? r[1].toString().trim().toLowerCase() : "");
+  sourceData.forEach((sRow, idx) => {
+    if (idx === 0) return;
+    let sVin = sRow[1] ? sRow[1].toString().trim().toLowerCase() : "";
+    if (sVin !== "" && !currentVins.includes(sVin)) {
+      mySheet.appendRow(["MM", sRow[1], sRow[2], sRow[3], sRow[4], sRow[5], "", ""]);
+      newVins.push(sVin);
+    }
+  });
+
+  const lastRow = mySheet.getLastRow();
+  const lastCol = 8;
+  
+  if (lastRow > 1) {
+    const dataRange = mySheet.getRange(2, 1, lastRow - 1, lastCol);
+    dataRange.sort({column: 1, ascending: true});
+    dataRange.setFontFamily("Arial").setFontSize(12);
+    mySheet.getRange(2, 1, lastRow - 1, 1).setFontWeight("bold").setHorizontalAlignment("center");
+    mySheet.getRange(2, 2, lastRow - 1, 3).setHorizontalAlignment("left");
+    mySheet.getRange(2, 5, lastRow - 1, 1).setNumberFormat("#,##0").setHorizontalAlignment("left");
+    mySheet.getRange(2, 6, lastRow - 1, 3).setNumberFormat("$#,##0.00");
+    mySheet.getRange(2, 1, lastRow - 1, lastCol).setBackground(null);
+  }
+
+  const finalData = mySheet.getDataRange().getValues();
+  for (let i = 1; i < finalData.length; i++) {
+    let vin = finalData[i][1] ? finalData[i][1].toString().trim().toLowerCase() : "";
+    let loc = finalData[i][0] ? finalData[i][0].toString().trim().toUpperCase() : "";
+    if (loc === "MM" && vin !== "") {
+      if (newVins.includes(vin)) {
+        mySheet.getRange(i + 1, 1, 1, lastCol).setBackground("#00FFFF");
+      } else if (priceChangedVins.includes(vin)) {
+        mySheet.getRange(i + 1, 1, 1, lastCol).setBackground("#FFFF00");
+      }
+    }
+  }
+
+  let alertMsg = "Sync Complete!";
+  if (newVins.length > 0) alertMsg += "\n" + newVins.length + " new units";
+  if (priceChangedVins.length > 0) alertMsg += "\n" + priceChangedVins.length + " price changes";
+  ui.alert(alertMsg);
+}
+
+function masterSync() {
+  importMatrixUnits();
+  SpreadsheetApp.flush();
+  syncMatrixInventory();
+}
+
+function setupNotificationTrigger() {
+  const ui = SpreadsheetApp.getUi();
+  const triggers = ScriptApp.getProjectTriggers();
+  triggers.forEach(trigger => {
+    if (trigger.getHandlerFunction() === 'autoCheckForChanges') {
+      ScriptApp.deleteTrigger(trigger);
+    }
+  });
+  ScriptApp.newTrigger('autoCheckForChanges').timeBased().everyHours(1).create();
+  ui.alert('Notifications activated!\nEmail: ijomha20@gmail.com\nChecks every hour');
+}
+
+function autoCheckForChanges() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sourceSheet = ss.getSheetByName("Source List");
+  const mySheet = ss.getSheetByName("My List");
+  if (!sourceSheet || !mySheet) return;
+  
+  const props = PropertiesService.getScriptProperties();
+  const previousState = props.getProperty('MATRIX_INVENTORY_STATE');
+  
+  importMatrixUnits();
+  SpreadsheetApp.flush();
+  
+  const sourceData = sourceSheet.getDataRange().getValues();
+  const currentState = {};
+  
+  sourceData.forEach((row, idx) => {
+    if (idx === 0) return;
+    let vin = row[1] ? row[1].toString().trim().toLowerCase() : "";
+    if (vin !== "") {
+      currentState[vin] = {
+        vin: row[1],
+        description: row[2] + " " + row[3],
+        mileage: row[4],
+        price: row[5]
+      };
+    }
+  });
+  
+  const newVehicles = [];
+  const priceChanges = [];
+  
+  if (previousState) {
+    const oldState = JSON.parse(previousState);
+    Object.keys(currentState).forEach(vin => {
+      if (!oldState[vin]) {
+        newVehicles.push(currentState[vin]);
+      } else {
+        let oldPrice = parseFloat(oldState[vin].price);
+        let newPrice = parseFloat(currentState[vin].price);
+        if (!isNaN(oldPrice) && !isNaN(newPrice) && oldPrice !== newPrice) {
+          priceChanges.push({vehicle: currentState[vin], oldPrice: oldPrice, newPrice: newPrice});
+        }
+      }
+    });
+  }
+  
+  props.setProperty('MATRIX_INVENTORY_STATE', JSON.stringify(currentState));
+  
+  if (newVehicles.length > 0 || priceChanges.length > 0) {
+    sendChangeNotification(newVehicles, priceChanges);
+    syncMatrixInventory();
+  }
+}
+
+function sendChangeNotification(newVehicles, priceChanges) {
+  const email = "ijomha20@gmail.com";
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheetUrl = ss.getUrl();
+  let subject = "Matrix Inventory Update";
+  let body = "Matrix Inventory Changes:\n\n";
+  
+  if (newVehicles.length > 0) {
+    body += "NEW VEHICLES (" + newVehicles.length + "):\n";
+    body += "========================================\n";
+    newVehicles.forEach(v => {
+      body += "Vehicle: " + v.description + "\n";
+      body += "VIN: " + v.vin + "\n";
+      body += "Mileage: " + v.mileage + " km\n";
+      body += "Price: $" + v.price + "\n\n";
+    });
+  }
+  
+  if (priceChanges.length > 0) {
+    body += "PRICE CHANGES (" + priceChanges.length + "):\n";
+    body += "========================================\n";
+    priceChanges.forEach(c => {
+      body += "Vehicle: " + c.vehicle.description + "\n";
+      body += "VIN: " + c.vehicle.vin + "\n";
+      body += "Mileage: " + c.vehicle.mileage + " km\n";
+      body += "Old Price: $" + c.oldPrice + "\n";
+      body += "New Price: $" + c.newPrice + "\n\n";
+    });
+  }
+  
+  body += "\nView spreadsheet: " + sheetUrl;
+  MailApp.sendEmail(email, subject, body);
+}
