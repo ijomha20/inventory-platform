@@ -1,0 +1,16 @@
+{
+  "name": "carfax-automation",
+  "version": "1.0.0",
+  "description": "Automated Carfax VHR link puller for inventory sheet",
+  "main": "carfax-sync.js",
+  "scripts": {
+    "setup": "node auth-setup.js",
+    "start": "node carfax-sync.js"
+  },
+  "dependencies": {
+    "playwright": "^1.44.0",
+    "googleapis": "^140.0.0",
+    "dotenv": "^16.4.5",
+    "open": "^10.1.0"
+  }
+}

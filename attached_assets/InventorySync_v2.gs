@@ -35,7 +35,8 @@ var COL_PRICE         = 5;
 var COL_PREV_PRICE    = 6;
 var COL_NOTES         = 7;
 var COL_PRICE_CHANGED = 8;
-var TOTAL_COLS        = 9;
+var COL_CARFAX        = 9;
+var TOTAL_COLS        = 10;
 
 // Tab names
 var TAB_MY_LIST  = "My List";
@@ -155,7 +156,7 @@ function firstTimeSetup() {
   // My List tab
   if (!ss.getSheetByName(TAB_MY_LIST)) {
     var m       = ss.insertSheet(TAB_MY_LIST);
-    var mh      = ["Location", "VIN", "Year/Make", "Model", "Mileage", "Price", "Prev Price", "Notes", "Price Changed"];
+    var mh      = ["Location", "VIN", "Year/Make", "Model", "Mileage", "Price", "Prev Price", "Notes", "Price Changed", "Carfax"];
     m.getRange(1, 1, 1, mh.length).setValues([mh]).setFontWeight("bold");
     m.setFrozenRows(1);
     m.setColumnWidth(COL_PRICE_CHANGED + 1, 145);
@@ -319,7 +320,7 @@ function performSync(isHeadless) {
   for (var r = 0; r < rawRows.length; r++) {
     var sVin = rawRows[r][1] ? rawRows[r][1].toString().trim().toLowerCase() : "";
     if (sVin === "" || currentVinSet[sVin]) continue;
-    newRows.push(["MM", rawRows[r][1], rawRows[r][2], rawRows[r][3], rawRows[r][4], rawRows[r][5], "", "", ""]);
+    newRows.push(["MM", rawRows[r][1], rawRows[r][2], rawRows[r][3], rawRows[r][4], rawRows[r][5], "", "", "", ""]);
     newVins.push(sVin);
   }
 
@@ -361,8 +362,8 @@ function performSync(isHeadless) {
       var floc = finalData[f][COL_LOCATION] ? finalData[f][COL_LOCATION].toString().trim().toUpperCase() : "";
       var fvin = finalData[f][COL_VIN]      ? finalData[f][COL_VIN].toString().trim().toLowerCase()      : "";
       if (floc !== "MM" || fvin === "") continue;
-      if (newVinSet[fvin])      cyanRanges.push("A" + (f + 1) + ":I" + (f + 1));
-      else if (changedVinSet[fvin]) yellowRanges.push("A" + (f + 1) + ":I" + (f + 1));
+      if (newVinSet[fvin])      cyanRanges.push("A" + (f + 1) + ":J" + (f + 1));
+      else if (changedVinSet[fvin]) yellowRanges.push("A" + (f + 1) + ":J" + (f + 1));
     }
 
     if (cyanRanges.length > 0)   mySheet.getRangeList(cyanRanges).setBackground("#00FFFF");
