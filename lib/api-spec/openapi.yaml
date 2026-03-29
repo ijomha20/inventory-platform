@@ -219,6 +219,8 @@ components:
           type: string
         price:
           type: string
+        km:
+          type: string
         carfax:
           type: string
         website:

@@ -34,6 +34,7 @@ var M_LOCATION  = 0;  // A - Location
 var M_VIN       = 1;  // B - VIN
 var M_YEAR_MAKE = 2;  // C - Year/Make
 var M_MODEL     = 3;  // D - Model
+var M_MILEAGE   = 4;  // E - Mileage/KM
 var M_NOTES     = 7;  // H - Notes (manually-set public price)
 var M_CARFAX    = 9;  // J - Carfax
 var M_WEBSITE   = 10; // K - Website
@@ -43,11 +44,12 @@ var O_LOCATION  = 0;  // A
 var O_VEHICLE   = 1;  // B
 var O_VIN       = 2;  // C
 var O_PRICE     = 3;  // D
-var O_CARFAX    = 4;  // E
-var O_WEBSITE   = 5;  // F
-var TOTAL_OUT   = 6;
+var O_KM        = 4;  // E
+var O_CARFAX    = 5;  // F
+var O_WEBSITE   = 6;  // G
+var TOTAL_OUT   = 7;
 
-var HEADER_ROW = ["Location", "Vehicle", "VIN", "Price", "Carfax", "Website"];
+var HEADER_ROW = ["Location", "Vehicle", "VIN", "Price", "KM", "Carfax", "Website"];
 
 // =============================================================================
 // MENU
@@ -98,6 +100,7 @@ function applyHeader(tab) {
   tab.setColumnWidth(O_VEHICLE  + 1, 220);
   tab.setColumnWidth(O_VIN      + 1, 160);
   tab.setColumnWidth(O_PRICE    + 1, 100);
+  tab.setColumnWidth(O_KM       + 1, 90);
   tab.setColumnWidth(O_CARFAX   + 1, 320);
   tab.setColumnWidth(O_WEBSITE  + 1, 320);
 }
@@ -165,10 +168,11 @@ function refreshSharedList() {
     var model    = row[M_MODEL]     ? row[M_MODEL].toString().trim()     : "";
     var vehicle  = (yearMake + " " + model).trim();
     var vin      = row[M_VIN]       ? row[M_VIN].toString().trim()       : "";
+    var km       = row[M_MILEAGE]   ? row[M_MILEAGE].toString().trim()   : "";
     var carfax   = row[M_CARFAX]    ? row[M_CARFAX].toString().trim()    : "";
     var website  = row[M_WEBSITE]   ? row[M_WEBSITE].toString().trim()   : "";
 
-    outputRows.push([location, vehicle, vin, price, carfax, website]);
+    outputRows.push([location, vehicle, vin, price, km, carfax, website]);
   }
 
   // --- Write to shared sheet ---
@@ -225,7 +229,8 @@ function doGet(e) {
       location: row[O_LOCATION] ? row[O_LOCATION].toString().trim() : "",
       vehicle:  row[O_VEHICLE]  ? row[O_VEHICLE].toString().trim()  : "",
       vin:      row[O_VIN]      ? row[O_VIN].toString().trim()      : "",
-      price:    row[O_PRICE]    ? row[O_PRICE].toString().trim()     : "",
+      price:    row[O_PRICE]    ? row[O_PRICE].toString().trim()    : "",
+      km:       row[O_KM]       ? row[O_KM].toString().trim()       : "",
       carfax:   row[O_CARFAX]   ? row[O_CARFAX].toString().trim()   : "",
       website:  row[O_WEBSITE]  ? row[O_WEBSITE].toString().trim()  : ""
     });

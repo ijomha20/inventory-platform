@@ -4,7 +4,7 @@ import { Search, ExternalLink, FileText, AlertCircle, ChevronUp, ChevronDown, Ch
 import { useLocation } from "wouter";
 import { FullScreenSpinner } from "@/components/ui/spinner";
 
-type SortKey = "location" | "vehicle" | "vin" | "price";
+type SortKey = "location" | "vehicle" | "vin" | "price" | "km";
 type SortDir = "asc" | "desc";
 
 // Format a raw price string as $12,345
@@ -166,6 +166,7 @@ export default function Inventory() {
               { key: "vehicle"  as SortKey, label: "Vehicle",      cls: "flex-1 min-w-0" },
               { key: "vin"      as SortKey, label: "VIN",          cls: "w-44 shrink-0" },
               { key: "price"    as SortKey, label: "Your Cost",    cls: "w-28 shrink-0" },
+              { key: "km"       as SortKey, label: "KM",           cls: "w-24 shrink-0" },
             ].map((col) => (
               <div key={col.label} className={col.cls}>
                 <button onClick={() => handleSort(col.key)}
@@ -203,6 +204,11 @@ export default function Inventory() {
 
                   {/* Your Cost */}
                   <div className="w-28 shrink-0 text-sm text-gray-700">{formatPrice(item.price)}</div>
+
+                  {/* KM */}
+                  <div className="w-24 shrink-0 text-sm text-gray-700">
+                    {item.km ? Number(item.km.replace(/[^0-9]/g, "")).toLocaleString("en-US") + " km" : "—"}
+                  </div>
 
                   {/* Online Price */}
                   <div className="w-32 shrink-0 text-sm text-gray-700">

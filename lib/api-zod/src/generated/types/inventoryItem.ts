@@ -11,6 +11,7 @@ export interface InventoryItem {
   vehicle: string;
   vin: string;
   price: string;
+  km?: string;
   carfax?: string;
   website?: string;
 }

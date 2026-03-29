@@ -32,6 +32,7 @@ export const GetInventoryResponseItem = zod.object({
   vehicle: zod.string(),
   vin: zod.string(),
   price: zod.string(),
+  km: zod.string().optional(),
   carfax: zod.string().optional(),
   website: zod.string().optional(),
 });
