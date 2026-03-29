@@ -47,12 +47,15 @@ var SELECTORS = {
     'input[aria-label*="search"]'
   ],
   globalArchiveToggle: [
+    'button:has-text("Global Archive")',
+    'a:has-text("Global Archive")',
+    'label:has-text("Global Archive")',
+    'span:has-text("Global Archive")',
     'input[id*="archive"]',
     'input[id*="global"]',
-    'label:has-text("Global")',
-    'button:has-text("Global")',
     '[data-testid*="archive"]',
-    'span:has-text("Global Archive")'
+    'li:has-text("Global Archive")',
+    'div:has-text("Global Archive")'
   ],
   reportLink: [
     'a[href*="cfm/display_cfm"]',
@@ -68,7 +71,7 @@ var SELECTORS = {
 };
 
 var CARFAX_LOGIN_URL = 'https://dealer.carfax.ca/login';
-var CARFAX_VHR_URL   = 'https://dealer.carfax.ca/vhrs/';
+var CARFAX_VHR_URL   = 'https://dealer.carfax.ca/MyReports';
 var CARFAX_HOME      = 'https://dealer.carfax.ca/';
 
 // Session is saved here so login persists between runs
@@ -333,11 +336,8 @@ async function processVin(page, vin, screenshotDir) {
         if (reportLink2) { log('  Found in Global Archive.'); return reportLink2; }
       }
     } else {
-      await page.goto(CARFAX_VHR_URL + '?archive=true&vin=' + vin, { waitUntil: 'domcontentloaded', timeout: 15000 });
-      await humanDelay(2000);
-      await humanScroll(page);
-      var reportLink3 = await findReportLink(page);
-      if (reportLink3) { log('  Found via Global Archive URL.'); return reportLink3; }
+      log('  Could not find Global Archive toggle. Screenshot saved.');
+      await page.screenshot({ path: path.join(screenshotDir, 'no-archive-toggle-' + vin + '.png') });
     }
 
     log('  No report found.');
