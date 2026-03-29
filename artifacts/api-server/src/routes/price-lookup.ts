@@ -28,6 +28,9 @@ router.get("/price-lookup", async (req, res) => {
     return;
   }
 
+  // Never cache — prices change and we must always serve a fresh Typesense result
+  res.set("Cache-Control", "no-store");
+
   const url = (req.query.url as string ?? "").trim();
   if (!url || !url.startsWith("http")) {
     res.status(400).json({ error: "Invalid URL" });
