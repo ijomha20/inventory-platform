@@ -38,35 +38,20 @@ var SELECTORS = {
     'input[type="submit"]'
   ],
   vinSearchInput: [
+    'input.searchVehicle',
+    'input.searchbox.searchVehicle',
     'input[placeholder*="VIN"]',
-    'input[placeholder*="vin"]',
-    'input[name*="vin"]',
-    'input[name*="VIN"]',
-    'input[type="search"]',
-    'input[aria-label*="VIN"]',
-    'input[aria-label*="search"]'
+    'input[type="search"]'
   ],
   globalArchiveToggle: [
-    'button:has-text("Global Archive")',
-    'a:has-text("Global Archive")',
-    'label:has-text("Global Archive")',
-    'span:has-text("Global Archive")',
-    'input[id*="archive"]',
-    'input[id*="global"]',
-    '[data-testid*="archive"]',
-    'li:has-text("Global Archive")',
-    'div:has-text("Global Archive")'
+    'label#global-archive',
+    'input#globalreports'
   ],
   reportLink: [
+    'a.reportLink',
     'a[href*="cfm/display_cfm"]',
     'a[href*="vhr"]',
-    'a[href*="vehicle-history"]',
-    'a[href*="/cfm/"]',
-    '[data-testid*="report"] a',
-    '.report-card a',
-    '.vhr-result a',
-    'a:has-text("View Report")',
-    'a:has-text("View Full Report")'
+    'a[href*="/cfm/"]'
   ]
 };
 
@@ -271,73 +256,77 @@ async function loginToCarfax(page) {
 // PROCESS ONE VIN
 // ----------------------------------------------------------------
 
+async function typeInSearchBox(page, searchInput, vin) {
+  await humanClick(page, searchInput);
+  await page.keyboard.press('Control+A');
+  await sleep(rand(80, 180));
+  await page.keyboard.press('Backspace');
+  await sleep(rand(100, 250));
+  await humanType(searchInput, vin);
+}
+
+async function waitForResults(page) {
+  try {
+    await page.waitForSelector('a.reportLink', { timeout: 6000 });
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
+
 async function processVin(page, vin, screenshotDir) {
   log('  Searching: ' + vin);
   try {
     await page.goto(CARFAX_VHR_URL, { waitUntil: 'domcontentloaded', timeout: 20000 });
-    await humanDelay(1500);
+    await humanDelay(2000);
 
     var currentUrl = page.url();
     if (currentUrl.indexOf('login') !== -1 || currentUrl.indexOf('signin') !== -1) {
       log('  Redirected to login — session expired. Re-logging in...');
       await loginToCarfax(page);
       await page.goto(CARFAX_VHR_URL, { waitUntil: 'domcontentloaded', timeout: 20000 });
-      await humanDelay(1500);
+      await humanDelay(2000);
     }
 
-    var searchInput = await findElement(page, SELECTORS.vinSearchInput, 6000);
-    if (!searchInput) {
-      await page.goto(CARFAX_HOME, { waitUntil: 'domcontentloaded', timeout: 20000 });
-      await humanDelay(1000);
-      searchInput = await findElement(page, SELECTORS.vinSearchInput, 6000);
-    }
+    var searchInput = await findElement(page, SELECTORS.vinSearchInput, 8000);
     if (!searchInput) {
       log('  Could not find search input. Screenshot saved.');
       await page.screenshot({ path: path.join(screenshotDir, 'no-input-' + vin + '.png') });
       return 'ERROR';
     }
 
-    await humanClick(page, searchInput);
-    await page.keyboard.press('Control+A');
-    await sleep(rand(80, 180));
-    await page.keyboard.press('Backspace');
-    await sleep(rand(100, 250));
-    await humanType(searchInput, vin);
+    // ---- Try My VHRs first (radio is already selected by default) ----
+    await typeInSearchBox(page, searchInput, vin);
     await humanScroll(page);
-    await searchInput.press('Enter');
-    await humanDelay(2000);
-    await page.waitForLoadState('domcontentloaded');
-    await humanDelay(1500);
-    await humanScroll(page);
+    var found = await waitForResults(page);
+    if (found) {
+      var reportLink = await findReportLink(page);
+      if (reportLink) { log('  Found in My VHRs.'); return reportLink; }
+    }
 
-    var reportLink = await findReportLink(page);
-    if (reportLink) { log('  Found in My VHRs.'); return reportLink; }
-
+    // ---- Switch to Global Archive ----
     log('  Not in My VHRs. Trying Global Archive...');
     var archiveToggle = await findElement(page, SELECTORS.globalArchiveToggle, 3000);
-    if (archiveToggle) {
-      await humanClick(page, archiveToggle);
-      await humanDelay(2000);
-      var searchInput2 = await findElement(page, SELECTORS.vinSearchInput, 4000);
-      if (searchInput2) {
-        await humanClick(page, searchInput2);
-        await page.keyboard.press('Control+A');
-        await sleep(rand(80, 180));
-        await page.keyboard.press('Backspace');
-        await sleep(rand(100, 250));
-        await humanType(searchInput2, vin);
-        await humanScroll(page);
-        await searchInput2.press('Enter');
-        await humanDelay(2500);
-        await page.waitForLoadState('domcontentloaded');
-        await humanDelay(1500);
-        await humanScroll(page);
+    if (!archiveToggle) {
+      log('  Could not find Global Archive toggle. Screenshot saved.');
+      await page.screenshot({ path: path.join(screenshotDir, 'no-archive-toggle-' + vin + '.png') });
+      log('  No report found.');
+      return 'NOT_FOUND';
+    }
+
+    await humanClick(page, archiveToggle);
+    await humanDelay(1000);
+
+    // The search box is the same element — clear and retype VIN
+    var searchInput2 = await findElement(page, SELECTORS.vinSearchInput, 4000);
+    if (searchInput2) {
+      await typeInSearchBox(page, searchInput2, vin);
+      await humanScroll(page);
+      var found2 = await waitForResults(page);
+      if (found2) {
         var reportLink2 = await findReportLink(page);
         if (reportLink2) { log('  Found in Global Archive.'); return reportLink2; }
       }
-    } else {
-      log('  Could not find Global Archive toggle. Screenshot saved.');
-      await page.screenshot({ path: path.join(screenshotDir, 'no-archive-toggle-' + vin + '.png') });
     }
 
     log('  No report found.');

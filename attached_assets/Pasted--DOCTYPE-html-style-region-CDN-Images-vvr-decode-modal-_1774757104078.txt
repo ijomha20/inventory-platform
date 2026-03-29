@@ -1,0 +1,2320 @@
+
+
+
+
+<!DOCTYPE html>
+<style>
+    /*#region CDN Images*/
+    .vvr-decode-modal.vvr-decode-modal-info-section.input-container, .options-container > select, .input-container > select {
+        background-image: url(https://cdn.carfax.ca/dealer/icons/chevron-down.svg);
+        }
+
+        .vvr-decode-modal.vvr-decode-modal-info-section.input-container, .options-container > select:disabled, .input-container > select:disabled {
+            background-image: url(https://cdn.carfax.ca/dealer/icons/chevron-down-disabled.svg);
+    }
+
+    i.error-exclamation-circle {
+    content: url(https://cdn.carfax.ca/dealer/icons/icon-error.svg);
+    }
+
+    i.info-icon {
+    content: url(https://cdn.carfax.ca/dealer/icons/icon-info.svg);
+    }
+
+    i.expand-icon {
+    content: url(https://cdn.carfax.ca/dealer/icons/chevron-down.svg);
+    }
+
+    i.leaning-fox {
+    content: url(https://cdn.carfax.ca/dealer/product/vvr-leaning-fox.svg);
+    }
+
+    i.i-bubble-icon {
+    content: url(https://cdn.carfax.ca/dealer/product/vvr-i-bubble-icon.svg);
+    }
+
+    i.vin-specific-values {
+    content: url(https://cdn.carfax.ca/dealer/product/vvr-vin-specific-values-en.svg);
+    }
+    i.vin-specific-values:lang(fr) {
+    content: url(https://cdn.carfax.ca/dealer/product/vvr-vin-specific-values-fr.svg);
+    }
+
+    i.offer-sheet {
+    content: url(https://cdn.carfax.ca/dealer/product/vvr-offer-sheet-en.svg);
+    }
+    i.offer-sheet:lang(fr) {
+    content: url(https://cdn.carfax.ca/dealer/product/vvr-offer-sheet-fr.svg);
+    }
+    img.dealer-preholiday-ad {
+        content: url( https://cdn.carfax.ca/dealer/Ads/QuickView25Ad/Quick_View_EN_Mobile_330x300.png );
+    }
+
+    img.dealer-holiday-ad {
+        content: url( https://cdn.carfax.ca/dealer/Ads/Holiday25Ad/Holiday_EN_Mobile_330x300.jpg );
+    }
+
+    img.dealer-main-ad {
+        content: url( https://cdn.carfax.ca/dealer/Ads/QuickView25Ad/Quick_View_EN_Mobile_330x300.png );
+    }
+
+    @media only screen and (min-width:576px) {
+        img.dealer-ad-image {
+            content: url( https://cdn.carfax.ca/dealer/Ads/HbvAd/DealerMobile-EN-546x335.png );
+        }
+
+        img.dealer-preholiday-ad {
+            content: url( https://cdn.carfax.ca/dealer/Ads/QuickView25Ad/Quick_View_EN_Tablet_546x335.png );
+        }
+
+        img.dealer-holiday-ad {
+            content: url( https://cdn.carfax.ca/dealer/Ads/Holiday25Ad/Holiday_EN_Tablet_546x335.jpg );
+        }
+
+        img.dealer-main-ad {
+            content: url( https://cdn.carfax.ca/dealer/Ads/QuickView25Ad/Quick_View_EN_Tablet_546x335.png );
+        }
+    }
+
+    @media only screen and (min-width: 768px) {
+        img.dealer-ad-image {
+            content: url( https://cdn.carfax.ca/dealer/Ads/HbvAd/DealerMobile-EN-720x350.png );
+        }
+
+        img.dealer-preholiday-ad {
+            content: url( https://cdn.carfax.ca/dealer/Ads/QuickView25Ad/Quick_View_EN_Tablet_720x350.png );
+        }
+
+        img.dealer-holiday-ad {
+            content: url( https://cdn.carfax.ca/dealer/Ads/Holiday25Ad/Holiday_EN_Tablet_720x350.jpg );
+        }
+
+        img.dealer-main-ad {
+            content: url( https://cdn.carfax.ca/dealer/Ads/QuickView25Ad/Quick_View_EN_Tablet_720x350.png );
+        }
+    }
+
+    @media only screen and (min-width: 992px) {
+        img.dealer-ad-image {
+            content: url( https://cdn.carfax.ca/dealer/Ads/HbvAd/DealerMobile-EN-610x370.png );
+        }
+
+        img.dealer-preholiday-ad {
+            content: url( https://cdn.carfax.ca/dealer/Ads/QuickView25Ad/Quick_View_EN_Desktop_610x370.png );
+        }
+
+        img.dealer-holiday-ad {
+            content: url( https://cdn.carfax.ca/dealer/Ads/Holiday25Ad/Holiday_EN_Desktop_610x370.jpg );
+        }
+
+        img.dealer-main-ad {
+            content: url( https://cdn.carfax.ca/dealer/Ads/QuickView25Ad/Quick_View_EN_Desktop_610x370.png );
+        }
+    }
+
+    @media only screen and (min-width: 1200px) {
+        img.dealer-ad-image {
+            content: url( https://cdn.carfax.ca/dealer/Ads/HbvAd/DealerMobile-EN-815x400.png );
+        }
+
+        img.dealer-preholiday-ad {
+            content: url( https://cdn.carfax.ca/dealer/Ads/QuickView25Ad/Quick_View_EN_Desktop_815x400.png );
+        }
+
+        img.dealer-holiday-ad {
+            content: url( https://cdn.carfax.ca/dealer/Ads/Holiday25Ad/Holiday_EN_Desktop_815x400.jpg );
+        }
+
+        img.dealer-main-ad {
+            content: url( https://cdn.carfax.ca/dealer/Ads/QuickView25Ad/Quick_View_EN_Desktop_815x400.png );
+        }
+    }
+
+    @media only screen and (min-width: 1440px) {
+        img.dealer-ad-image {
+            content: url( https://cdn.carfax.ca/dealer/Ads/HbvAd/DealerMobile-EN-810x400.png );
+        }
+
+        img.dealer-preholiday-ad {
+            content: url( https://cdn.carfax.ca/dealer/Ads/QuickView25Ad/Quick_View_EN_Desktop_810x400.png );
+        }
+
+        img.dealer-holiday-ad {
+            content: url( https://cdn.carfax.ca/dealer/Ads/Holiday25Ad/Holiday_EN_Desktop_810x400.jpg );
+        }
+
+        img.dealer-main-ad {
+            content: url( https://cdn.carfax.ca/dealer/Ads/QuickView25Ad/Quick_View_EN_Desktop_810x400.png );
+        }
+    }
+    }
+    /*#endregion CDN Images*/
+
+    /*#region CDN Fonts*/
+    @font-face {
+        font-family: 'noto_sans';
+        src: url('https://cdn.carfax.ca/vehicle-history/fonts/1.0.0/notosans-regular-webfont.woff2') format('woff2'), url('https://cdn.carfax.ca/vehicle-history/fonts/1.0.0/notosans-regular-webfont.woff') format('woff');
+        font-display: swap;
+        font-weight: 400;
+        font-style: normal;
+    }
+    @font-face {
+        font-family: 'noto_sans';
+        src: url('https://cdn.carfax.ca/vehicle-history/fonts/1.0.0/notosans-medium-webfont.woff2') format('woff2'), url('https://cdn.carfax.ca/vehicle-history/fonts/1.0.0/notosans-medium-webfont.woff') format('woff');
+        font-display: swap;
+        font-weight: 500;
+        font-style: normal;
+    }
+    @font-face{
+        font-family:'noto_sans';
+        src: url('https://cdn.carfax.ca/vehicle-history/fonts/1.0.0/notosans-semibold-webfont.woff2') format('woff2'), url('https://cdn.carfax.ca/vehicle-history/fonts/1.0.0/notosans-semibold-webfont.woff') format('woff');
+        font-display: swap;
+        font-weight: 600;
+        font-style: normal;
+    }
+    @font-face{
+        font-family:'noto_sans';
+        src: url('https://cdn.carfax.ca/vehicle-history/fonts/1.0.0/notosans-bold-webfont.woff2') format('woff2'), url('https://cdn.carfax.ca/vehicle-history/fonts/1.0.0/notosans-bold-webfont.woff') format('woff');
+        font-display: swap;
+        font-weight: 700;
+        font-style: normal;
+    }
+    @font-face{
+        font-family:'noto_sans';
+        src: url('https://cdn.carfax.ca/vehicle-history/fonts/1.0.0/notosans-extrabold-webfont.woff2') format('woff2'), url('https://cdn.carfax.ca/vehicle-history/fonts/1.0.0/notosans-extrabold-webfont') format('woff');
+        font-display: swap;
+        font-weight: 800;
+        font-style: normal;
+    }
+    @font-face {
+        font-family: 'noto_sans';
+        src: url('https://cdn.carfax.ca/vehicle-history/fonts/1.0.0/notosans-light-webfont.woff2') format('woff2'), url('https://cdn.carfax.ca/vehicle-history/fonts/1.0.0/notosans-light-webfont') format('woff');
+        font-display: swap;
+        font-weight: 300;
+        font-style: normal;
+    }
+    @font-face {
+        font-family: 'noto_sansbold';
+        src: url('https://cdn.carfax.ca/dealer/fonts/NotoSans-Bold.ttf');
+        font-weight: bold;
+    }
+    @font-face {
+        font-family: 'noto_sansmedium';
+        src: url('https://cdn.carfax.ca/dealer/fonts/NotoSans-Medium.ttf');
+        font-weight: 500;
+    }
+    @font-face {
+        font-family: 'noto_sansregular';
+        src: url('https://cdn.carfax.ca/dealer/fonts/NotoSans-Regular.ttf');
+    }
+    @font-face {
+        font-family: 'noto_sanssemibold';
+        src: url('https://cdn.carfax.ca/dealer/fonts/NotoSans-SemiBold.ttf');
+        font-weight: 600;
+    }
+    @font-face {
+        font-family: 'noto_sanslight';
+        src: url('https://cdn.carfax.ca/dealer/fonts/NotoSans-Light.ttf');
+        font-weight: 300;
+    }
+    @font-face {
+        font-family: 'vhr-icons';
+        src: url('https://cdn.carfax.ca/dealer/fonts/vhr-icons.woff2?92941242') format('woff2'), url('https://cdn.carfax.ca/dealer/fonts/vhr-icons.woff?92941242') format('woff');
+        font-weight: normal;
+        font-style: normal;
+    }
+    /*#endregion CDN Fonts*/
+</style>
+
+<html>
+<head>
+    
+    
+
+    <script type="module">
+        //#region Define WebComponents
+        import { InputErrorMessage } from "../../Scripts/WebComponents/input-error-message.js";
+        import { DpInput } from "../../Scripts/WebComponents/dp-input.js";
+        import { OdometerInput } from "../../Scripts/WebComponents/odometer-input.js";
+        import { VvrDecodeModal } from "../../Scripts/WebComponents/vvr-decode-modal.js";
+        import { MvDecodeModal } from "../../Scripts/WebComponents/mv-decode-modal.js";
+        import { AutoFraudModal } from "../../Scripts/WebComponents/auto-fraud-modal.js";
+        import { InfoToolTip } from "../../Scripts/WebComponents/info-tooltip.js";
+        import { ProductInfoVvr } from "../../Scripts/WebComponents/product-info-vvr.js";
+        import { NewDealerAd } from "../../Scripts/WebComponents/Ads/new-dealer-ad.js";
+        import { DealerPreholidayAd } from '../../Scripts/WebComponents/Ads/dealer-preholiday-ad.js';
+        import { DealerHolidayAd } from '../../Scripts/WebComponents/Ads/dealer-holiday-ad.js';
+        import { DealerAdContainer } from "../../Scripts/WebComponents/Ads/dealer-ad-container.js";
+        import { DealerMainAd } from "../../Scripts/WebComponents/Ads/dealer-main-ad.js";
+
+        customElements.define("input-error-message", InputErrorMessage);
+        customElements.define("dp-input", DpInput);
+        customElements.define("info-tooltip", InfoToolTip);
+        customElements.define("odometer-input", OdometerInput);
+        customElements.define("vvr-decode-modal", VvrDecodeModal);
+        customElements.define("mv-decode-modal", MvDecodeModal);
+        customElements.define("auto-fraud-modal", AutoFraudModal);
+        customElements.define("product-info-vvr", ProductInfoVvr);
+        customElements.define('dealer-preholiday-ad', DealerPreholidayAd);
+        customElements.define('dealer-holiday-ad', DealerHolidayAd);
+        customElements.define("dealer-main-ad", DealerMainAd);
+        customElements.define("dealer-ad-container", DealerAdContainer);
+        //#endregion Define WebComponents
+
+    </script>
+
+    
+    <!-- AppInsights JS Tracking -->
+    <script type="text/javascript">
+    !function(T,l,y){var S=T.location,k="script",D="instrumentationKey",C="ingestionendpoint",I="disableExceptionTracking",E="ai.device.",b="toLowerCase",w="crossOrigin",N="POST",e="appInsightsSDK",t=y.name||"appInsights";(y.name||T[e])&&(T[e]=t);var n=T[t]||function(d){var g=!1,f=!1,m={initialize:!0,queue:[],sv:"5",version:2,config:d};function v(e,t){var n={},a="Browser";return n[E+"id"]=a[b](),n[E+"type"]=a,n["ai.operation.name"]=S&&S.pathname||"_unknown_",n["ai.internal.sdkVersion"]="javascript:snippet_"+(m.sv||m.version),{time:function(){var e=new Date;function t(e){var t=""+e;return 1===t.length&&(t="0"+t),t}return e.getUTCFullYear()+"-"+t(1+e.getUTCMonth())+"-"+t(e.getUTCDate())+"T"+t(e.getUTCHours())+":"+t(e.getUTCMinutes())+":"+t(e.getUTCSeconds())+"."+((e.getUTCMilliseconds()/1e3).toFixed(3)+"").slice(2,5)+"Z"}(),iKey:e,name:"Microsoft.ApplicationInsights."+e.replace(/-/g,"")+"."+t,sampleRate:100,tags:n,data:{baseData:{ver:2}}}}var h=d.url||y.src;if(h){function a(e){var t,n,a,i,r,o,s,c,u,p,l;g=!0,m.queue=[],f||(f=!0,t=h,s=function(){var e={},t=d.connectionString;if(t)for(var n=t.split(";"),a=0;a<n.length;a++){var i=n[a].split("=");2===i.length&&(e[i[0][b]()]=i[1])}if(!e[C]){var r=e.endpointsuffix,o=r?e.location:null;e[C]="https://"+(o?o+".":"")+"dc."+(r||"services.visualstudio.com")}return e}(),c=s[D]||d[D]||"",u=s[C],p=u?u+"/v2/track":d.endpointUrl,(l=[]).push((n="SDK LOAD Failure: Failed to load Application Insights SDK script (See stack for details)",a=t,i=p,(o=(r=v(c,"Exception")).data).baseType="ExceptionData",o.baseData.exceptions=[{typeName:"SDKLoadFailed",message:n.replace(/\./g,"-"),hasFullStack:!1,stack:n+"\nSnippet failed to load ["+a+"] -- Telemetry is disabled\nHelp Link: https://go.microsoft.com/fwlink/?linkid=2128109\nHost: "+(S&&S.pathname||"_unknown_")+"\nEndpoint: "+i,parsedStack:[]}],r)),l.push(function(e,t,n,a){var i=v(c,"Message"),r=i.data;r.baseType="MessageData";var o=r.baseData;return o.message='AI (Internal): 99 message:"'+("SDK LOAD Failure: Failed to load Application Insights SDK script (See stack for details) ("+n+")").replace(/\"/g,"")+'"',o.properties={endpoint:a},i}(0,0,t,p)),function(e,t){if(JSON){var n=T.fetch;if(n&&!y.useXhr)n(t,{method:N,body:JSON.stringify(e),mode:"cors"});else if(XMLHttpRequest){var a=new XMLHttpRequest;a.open(N,t),a.setRequestHeader("Content-type","application/json"),a.send(JSON.stringify(e))}}}(l,p))}function i(e,t){f||setTimeout(function(){!t&&m.core||a()},500)}var e=function(){var n=l.createElement(k);n.src=h;var e=y[w];return!e&&""!==e||"undefined"==n[w]||(n[w]=e),n.onload=i,n.onerror=a,n.onreadystatechange=function(e,t){"loaded"!==n.readyState&&"complete"!==n.readyState||i(0,t)},n}();y.ld<0?l.getElementsByTagName("head")[0].appendChild(e):setTimeout(function(){l.getElementsByTagName(k)[0].parentNode.appendChild(e)},y.ld||0)}try{m.cookie=l.cookie}catch(p){}function t(e){for(;e.length;)!function(t){m[t]=function(){var e=arguments;g||m.queue.push(function(){m[t].apply(m,e)})}}(e.pop())}var n="track",r="TrackPage",o="TrackEvent";t([n+"Event",n+"PageView",n+"Exception",n+"Trace",n+"DependencyData",n+"Metric",n+"PageViewPerformance","start"+r,"stop"+r,"start"+o,"stop"+o,"addTelemetryInitializer","setAuthenticatedUserContext","clearAuthenticatedUserContext","flush"]),m.SeverityLevel={Verbose:0,Information:1,Warning:2,Error:3,Critical:4};var s=(d.extensionConfig||{}).ApplicationInsightsAnalytics||{};if(!0!==d[I]&&!0!==s[I]){var c="onerror";t(["_"+c]);var u=T[c];T[c]=function(e,t,n,a,i){var r=u&&u(e,t,n,a,i);return!0!==r&&m["_"+c]({message:e,url:t,lineNumber:n,columnNumber:a,error:i}),r},d.autoExceptionInstrumented=!0}return m}(y.cfg);function a(){y.onInit&&y.onInit(n)}(T[t]=n).queue&&0===n.queue.length?(n.queue.push(a),n.trackPageView({})):a()}(window,document,{
+    src: "https://js.monitor.azure.com/scripts/b/ai.2.min.js", // The SDK URL Source
+                                                               // name: "appInsights", // Global SDK Instance name defaults to "appInsights" when not supplied
+                                                               // ld: 0, // Defines the load delay (in ms) before attempting to load the sdk. -1 = block page load and add to head. (default) = 0ms load after timeout,
+                                                               // useXhr: 1, // Use XHR instead of fetch to report failures (if available),
+    crossOrigin: "anonymous", // When supplied this will add the provided value as the cross origin attribute on the script tag
+                              // onInit: null, // Once the application insights instance has loaded and initialized this callback function will be called with 1 argument -- the sdk instance (DO NOT ADD anything to the sdk.queue -- As they won't get called)
+    cfg: { // Application Insights Configuration
+                                instrumentationKey: "56ab1765-86f8-47d3-939a-568ff5a81af5",
+        disableFetchTracking: false
+    }});
+    </script>
+    <!-- Hotjar Tracking Code for Dealer Portal -->
+    <script>
+        (function (h, o, t, j, a, r) {
+            h.hj = h.hj || function () { (h.hj.q = h.hj.q || []).push(arguments) };
+            h._hjSettings = { hjid: 3382670, hjsv: 6 };
+            a = o.getElementsByTagName('head')[0];
+            r = o.createElement('script'); r.async = 1;
+            r.src = t + h._hjSettings.hjid + j + h._hjSettings.hjsv;
+            a.appendChild(r);
+        })(window, document, 'https://static.hotjar.com/c/hotjar-', '.js?sv=');
+    </script>
+
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, minimum-scale=1">
+    <title>My Reports | CARFAX Canada</title>
+
+    <link href="/bundles/css?v=ptO2OZfyFbZCoaRRUl8lqQwC-Ez4f2ElgH7GwAo8t8A1" rel="stylesheet"/>
+
+    <link href="/bundles/css/menu-tabs?v=hra1ylkAJ2LwRADoC82vS5gIySTNREcDsFNgWsOhS881" rel="stylesheet"/>
+
+    <link href="https://fonts.googleapis.com/icon?family=Material+Icons|Material+Icons+Outlined|Material+Icons+Round" rel="stylesheet">
+    <link href="https://nightly.datatables.net/fixedheader/css/fixedHeader.dataTables.css?_=f0de745b101295e88f1504c17177ff49.css" rel="stylesheet" type="text/css" />
+
+    <link href="/Content/banner.css" rel="stylesheet"/>
+
+    <script src="/bundles/dp-polyfill?v=Bfyn5ZL-q3sv2f1WYITuhmrO1F23ph29yNA7v8qWWGE1"></script>
+
+    <script src="/bundles/dp-enums?v=fV8Sp5s35zIW_KLJXAbs_CaH9UD9gTGjAb953LxHDug1"></script>
+
+
+    <script src="/bundles/modernizr?v=wBEWDufH_8Md-Pbioxomt90vm6tJN2Pyy9u9zHtWsPo1"></script>
+
+    <link href="https://fonts.googleapis.com/css?family=Open+Sans:400,600|Open+Sans+Condensed:300,700|Roboto:300,400,500,700|Montserrat:900|Noto+Sans&display=swap" rel="stylesheet" type="text/css" />
+    <script src="/bundles/jquery?v=8DlYske5toFXPEcZudER0CI19DqH91dki0R00rHTynM1"></script>
+
+    <script src="/bundles/bootstrap?v=ZopHcElNywqtDNks6m06g0GuN23Lqg3peMOzsfXO6wI1"></script>
+
+
+    <script src="/bundles/dp-js-body?v=IimusJEi6Q616P0kpdPjN__Nlf3hJW6tczs3CgXXFW01"></script>
+
+
+
+    
+    
+    <script>
+        var isDebug = false;
+    </script>
+
+
+<script>
+    $(document).ready(function () {
+        // Check with the server if the FTUJ has been completed
+        $.ajax({
+            type: 'GET',
+            url: '/api/ajax/GetCompletedActionByUserId?completedAction=AutoFraudFTUJ',
+            success: function (data) {
+                // If the server returns false, that means the FTUJ hasn't been completed
+                if (data === false) {
+                    $('#ftujModal').modal('show');
+                } else {
+                    $('#ftujModal').modal('hide');
+                }
+            },
+            error: function () {
+                console.error("Error checking if FTUJ has been completed.");
+            }
+        });
+        // Handle the "Got It" button click event
+        $('.gotIt-button').click(function () {
+            // Call the completeAF function to mark the FTUJ as completed
+            completeAF();
+            $('#ftujModal').modal('close');
+        });
+        // Handle the "What we check for" button click event
+        $('.check-button').click(function () {
+            $('#ftujModal').modal('hide');
+            whatWeCheckFor();
+            completeAF();
+            $(document).ready(function () {
+                $('#ftujModal').modal('close'); // Ensure modal stays closed on page load
+            });
+
+        });
+    });
+    // Function to send the AJAX request to mark AF FTUJ as completed
+    function completeAF() {
+        var input = '{ "UserId": "85385", "CompletedAction" : "AutoFraudFTUJ" }';
+
+        $.ajax({
+           type: 'POST',
+           url: '/api/ajax/SetCompletedAction',
+           contentType: 'application/json',
+           dataType: 'json',
+           data: input,
+    });
+}
+
+    function whatWeCheckFor() {
+        var whatWeCheckForUrl = "/Products/VINFraudCheck";
+        window.open(whatWeCheckForUrl, "_blank");
+    }
+</script>
+
+<link rel="stylesheet" href="/Styles/WebComponents/Shared/auto-fraud-ftuj.css" type="text/css" />
+
+<div class="modal fade" id="ftujModal" tabindex="-1" role="dialog" aria-labelledby="getAppModalLabel" data-backdrop="static">
+    <div class="modal-dialog af-ftuj-modal modal-dialog-centered" role="document">
+        <div class="modal-content-ftuj">
+            <div class="modal-header-AFmain">
+                <img class="main-img"
+                     src="/Images/Home/auto-fraud-en.png"
+                     alt="Fraud Image" />
+            </div>
+            <div class="main-body">
+                <div class="body-title-container">
+                    <div class="newFeature">
+                        <span class="instruction-title">NEW FEATURE</span>
+                    </div>
+                    <div class="fraudIndicator">
+                        <span class="instruction-details">VIN Fraud Check</span>
+                    </div>
+                </div>
+                <div class="body-content">
+                    <div class="content-para1">To help protect you from auto fraud and feel more confident in the vehicles you’re buying and selling, we’ve added new fraud indicators in the dealer portal.</div>
+                    <div class="content-para2">Now, when you run a new CARFAX Canada Vehicle History Report (VHR), we’ll check the vehicle history for issues that could indicate potential fraud, as well as the stolen status. If we detect potential fraud and/or stolen activity, a small icon will appear beside the VIN on the ‘My VHRs’ tab.*</div>
+                    <div class="content-para3">Questions? Talk to your CARFAX Canada rep or visit our <a href="https://support.carfax.ca/en/support/home" style="color: #475467; text-decoration: underline; ">Support Centre</a>.</div>
+
+                </div>
+            </div>
+            <div class="main-footer">
+                <div class="button-container">
+                    <div class="check-container">
+                        <button class="check-button">What Do We Check For</button>
+                        <img class="arrow-img" src="/Images/Home/arrow-up-right.png" width="20" height="20" alt="" />
+                    </div>
+                    <div class="gotIt-container">
+                        <button data-dismiss="modal" class="gotIt-button">Got It</button>
+                    </div>
+                </div>
+                <div class="footer-content">
+                    <div class="text-container">
+                        <span>* Please note: VIN Fraud Check is only available on new VHRs (not on existing reports that were run prior to launch of this feature).</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+
+
+<!-- Google Tag Manager -->
+        <script>
+            var dataLayer = window.dataLayer = window.dataLayer || [];
+            dataLayer.push({
+                'userId': 85385,
+                'companyId': 44847
+            });
+        </script>
+
+<script>
+    (function (w, d, s, l, i) {
+        w[l] = w[l] || [];
+        w[l].push({
+            'gtm.start': new Date().getTime(),
+            event: 'gtm.js'
+        });
+        var f = d.getElementsByTagName(s)[0],
+            j = d.createElement(s),
+            dl = l != 'dataLayer' ? '&l=' + l : '';
+        j.async = true;
+        j.src = 'https://www.googletagmanager.com/gtm.js?id=' + i + dl + '&gtm_auth=YwYYeQdk2kllffq-WNJ00Q&gtm_preview=env-2&gtm_cookies_win=x';
+        f.parentNode.insertBefore(j, f);
+    })
+    (window, document, 'script', 'dataLayer', 'GTM-PBFCH7V');
+</script>
+<!-- End Google Tag Manager -->
+
+<!--BEGIN QUALTRICS WEBSITE FEEDBACK SNIPPET-->
+
+<script type='text/javascript'>
+
+    (function () {
+        var g = function (g) {
+
+            this.go = function () { var a = document.createElement("script"); a.type = "text/javascript"; a.src = g; document.body && document.body.appendChild(a) };
+
+            this.start = function () { var t = this; "complete" !== document.readyState ? window.addEventListener ? window.addEventListener("load", function () { t.go() }, !1) : window.attachEvent && window.attachEvent("onload", function () { t.go() }) : t.go() };
+        };
+
+        try { (new g("https://zn3osgror2ae5uoyo-carfaxcanada.siteintercept.qualtrics.com/SIE/?Q_ZID=ZN_3oSGrOR2aE5UOYO")).start() } catch (i){}
+    })();
+
+</script><div id='ZN_3oSGrOR2aE5UOYO'><!--DO NOT REMOVE-CONTENTS PLACED HERE--></div>
+
+<!--END WEBSITE FEEDBACK SNIPPET-->
+
+</head>
+<body lang="en">
+
+<!-- Google Tag Manager (noscript) -->
+
+<noscript>
+    <iframe src="https://www.googletagmanager.com/ns.html?id=GTM-PBFCH7V&gtm_auth=YwYYeQdk2kllffq-WNJ00Q&gtm_preview=env-2&gtm_cookies_win=x"
+            height="0"
+            width="0"
+            style="display:none; visibility:hidden">
+    </iframe>
+</noscript>
+<!-- End Google Tag Manager (noscript) -->
+
+
+
+<script>
+    const isMobile = () => {
+        const isIphone = window.navigator.userAgent.toLowerCase().match('iphone') !== null;
+        if (isIphone) return true;
+
+        const isAndroid = window.navigator.userAgent.toLowerCase().match('android') !== null;
+        if (isAndroid) {
+            if (window.screen.width < 1600) return true
+        }
+        return false
+    }
+
+    // Function to set a cookie
+    function setCookie(name, value, days) {
+        const date = new Date();
+        date.setTime(date.getTime() + (days * 24 * 60 * 60 * 1000));
+        const expires = "expires=" + date.toUTCString();
+        document.cookie = name + "=" + value + ";" + expires + ";path=/";
+    }
+
+    // get a cookie 
+    function getCookie(name) {
+        const nameEQ = name + "=";
+        const ca = document.cookie.split(';');
+        for (let i = 0; i < ca.length; i++) {
+            let c = ca[i];
+            while (c.charAt(0) === ' ') c = c.substring(1, c.length);
+            if (c.indexOf(nameEQ) === 0) return c.substring(nameEQ.length, c.length);
+        }
+        return null;
+    }
+
+    // Function to close the banner
+    function closeBanner() {
+        const banner = document.getElementById('banner');
+        banner.style.display = 'none';
+
+        // Retrieve the number of closes from cookies
+        let closeCount = getCookie('bannerCloseCount') ? parseInt(getCookie('bannerCloseCount')) : 0;
+        closeCount++;
+        setCookie('bannerCloseCount', closeCount, 28); // Store for 28 days
+
+        // If closed less than 4 times, set a cookie to show it again in 7 days
+        if (closeCount < 4) {
+            const now = new Date().getTime();
+            setCookie('bannerNextShowTime', now + 7 * 24 * 60 * 60 * 1000, 28); // Show again in 7 days
+        }
+        console.log('Banner closed count:', closeCount); //Need to keep this console to keep the count track
+    }
+
+    const getApp = () => {
+        if (isMobile()) {
+            window.location.href = '/mobile/download';
+        } else {
+            $('#getAppModal').modal('show');
+        }
+    };
+
+    $(document).ready(() => {
+        $("#banner").show()
+    })
+</script>
+
+<link rel="stylesheet" href="/Styles/WebComponents/Ads/mobile-banner.css" type="text/css" />
+
+<div id="banner" class="banner" style="display: none;">
+    <div class="mobile-banner-left-spacer"></div>
+    <div class="banner-container">
+        <div class="app-icon-container">
+            <div class="app-icon">
+                <img src="/Images/Mobile/AppIcon.png" height="38" width="38" alt="" />
+            </div>
+        </div>
+        <div class="text-button-container">
+            <div class="banner-text-container">
+                <span class="banner-text">Appraise vehicles on the go with the new CARFAX Canada for Dealers app.</span>
+            </div>
+            <button class="get-app-button" onclick="getApp()">Get App</button>
+        </div>
+    </div>
+    <button class="mobile-banner-close-button" onclick="closeBanner()">
+        <img src="/Images/Mobile/close.png" alt="" />
+    </button>
+</div>
+
+    
+<link rel="stylesheet" href="/Styles/WebComponents/Ads/mobile-banner.css" type="text/css" />
+
+<div class="modal fade" id="getAppModal" tabindex="-1" role="dialog" aria-labelledby="getAppModalLabel" aria-hidden="true">
+    <div class="modal-dialog custom-modal modal-dialog-centered" role="document">
+        <div class="modal-content getapp-modal-content">
+            <div class="modal-header-main">
+                <div class="modal-header-inner">
+                    <h5 class="getapp-modal-title" id="getAppModalLabel">Download the CARFAX Canada for Dealers app</h5>
+                </div>
+                <div class="close-btn-container">
+                    <button class="mobile-banner-close-button" data-dismiss="modal">
+                        <img src="/Images/Mobile/close.png" alt="" />
+                    </button>
+                </div>
+            </div>
+            <div class="modal-separator"></div>
+            <div class="main-modal-body">
+                <div class="inner-body">
+                    <div class="inner-container">
+                        <div class="instructions-container">
+                            <div class="instruction-heading">
+                                <span class="instruction-title">Follow these instructions:</span>
+                            </div>
+                            <div class="instruction-list">
+                                <div>1. Open the camera app on your phone</div>
+                                <div>2. Point the camera at the QR code to the right</div>
+                                <div>3. Tap the notification that appears</div>
+                                <div>4. Install from your device’s app store</div>
+                            </div>
+                        </div>
+                        <div class="qr-container">
+                            <div class="qr-code">
+                                <img data-dismiss="modal" src="/Images/Mobile/barcode.png" width="144" height="144" alt="" />
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="getapp-modal-footer">
+                    <div class="footer-text-heading">
+                        <span>Having trouble with the QR code?</span>
+                    </div>
+                    <div class="footer-content">
+                        <div class="getapp-text-container">
+                            <span>Search for &quot;CARFAX Canada for Dealers&quot; in your device&#39;s app store instead.</span>
+                        </div>
+                    </div>
+
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+    <script type="text/javascript">
+
+
+    var cultureInfo = 'en';
+    </script>
+
+    <script type="text/javascript">
+var _gauid = 'iuOvv63HrYBAbFXef9OzgQ==';var _gacid = 'gMY4PzIJCcIcYvtz+coqOw==';var _gacprovince = 'AB';    </script>
+
+    
+    <script>
+        window.dataLayer.push({
+            'event': 'dealerTypeSet',
+            'dealerType': 'Subscription'
+        });
+    </script>
+
+    
+
+
+<div class="container-fluid ui-dp-header">
+    <div class="row">
+        <div class="col-xs-12 ui-header-menu-background">
+            <div class="container">
+                <div class="row">
+                    <div class="col-md-6">
+                    </div>
+                    <div class="col-md-6 col-xs-12">
+                        <div class="ui-dp-header-submenu-txt">
+
+
+                            <a class="system-status-page" href="https://dealerstatus.carfax.ca/?ljs=en" target="_blank">Systems Status Page</a> |
+                            <a class="end-of-line" href="/AccountDetails">My Account</a> |
+                            <a href="https://support.carfax.ca/en/support/home" target="_blank">Contact</a> |
+                            <a id="btnLogout" href="javascript:window.location = '/Login/Logout';">Log out <b>Yahya Arsali</b></a> |
+                                <a class="ui-dp-header-mainmenu-language" style="cursor: pointer;">FR</a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-12 col-xs-12 ui-dp-header-logo-column">
+            <div class="container" id="header-container">
+                <div class="logo-dp-header"><a href="/"><img src=/Images/Shared/CFC-Logo.svg alt="CARFAX Canada" class="logo-dp" /></a></div>
+
+                <div><a class="toggleMenu toggleImage" href="#"><img src="/Images/Shared/ico-header-mobile-hotspot.svg" width="20" height="16" alt="" /></a></div>
+                
+
+
+<div class="ui-dp-header-mainmenu">
+    <ul class="ui-dp-header-mainmenu-ul">
+        <li><a class="main-menu-l1-MyReportsMenu" href="/MyReports">My Reports</a></li>
+
+
+        <li class="hasSubMenu">
+            <a class="main-menu-l1-Products" href="/Products">Product Info</a>
+            <div class="mzr-content ui-dp-header-mainmenu-products">
+                <div class="two-col">
+                    <h3><a class="main-menu-l1-Products" href="/Products">Product Info</a></h3>
+                    <ul class="mzr-links">
+                        <li><a class="main-menu-l3-Verified" href="/Products/Verified">Vehicle History Report + Lien Check</a></li>
+                        <li><a class="main-menu-l3-VerifiedBc" href="/Products/VerifiedBc">Vehicle History Report + Lien Check (BC)</a></li>
+                        <li><a class="main-menu-l3-Claims" href="/Products/Claims">Vehicle History Report</a></li>
+                        <li><a class="main-menu-l3-ClaimsBc" href="/Products/ClaimsBc">Vehicle History Report (BC)</a></li>
+                        <li><a class="main-menu-l3-Lien" href="/Products/Lien">CARFAX Canada Lien</a></li>
+                        <li><a class="main-menu-l3-ScreeningTools" href="/Products/ScreeningTools">Screening Tool</a></li>
+                        <li><a class="main-menu-l3-Vvr" href="/Products/Vvr/">Vehicle Valuation Report (VVR)</a></li>
+                        <li><a class="main-menu-l3-TradeInWidget" href="/Products/VehicleTradeInWidget">Vehicle Trade-in Widget</a></li>
+                        <li><a class="main-menu-l3-HBV" href="/Products/HistoryBasedValue">History-Based Value</a></li>
+                        <li><a class="main-menu-l3-FI" href="/Products/VINFraudCheck">VIN Fraud Check</a></li>
+                    </ul>
+                </div>
+                <div class="two-col">
+                    <h3><a class="main-menu-l2-WhyCarfaxCanada" href="/Products/WhyCarfaxCanada">Why CARFAX Canada</a></h3>
+                    <ul class="mzr-links">
+                        <li><a class="main-menu-l3-CompareProducts" href="/Products/CompareProducts">Compare Products</a></li>
+                        <li><a class="main-menu-l3-FreeSampleReports" href="/Products/FreeSampleReports" target="_blank">Free Sample Reports</a></li>
+                    </ul>
+                </div>
+            </div>
+        </li>
+        <li class="hasSubMenu">
+            <a class="main-menu-l1-DealerBenefits">Dealer Benefits</a>
+            <div class="mzr-content ui-dp-header-mainmenu-dealer-benefits">
+                <div class="three-col">
+                    <h3><a href="https://www.carfax.ca/about-carfax">About CARFAX Canada</a></h3>
+                    <ul class="mzr-links">
+                        <li><a class="main-menu-l3-OurPartners" href="https://www.carfax.ca/about-carfax/our-partners">Our Partners</a></li>
+                        <li><a class="main-menu-l3-InTheNews" href="https://www.carfax.ca/about-carfax/press-centre">CARFAX Canada in the News</a></li>
+                        
+                    </ul>                   
+                    <h3><a class="main-menu-l2-Marketing" href="/DealerBenefits/Marketing">Marketing</a></h3>
+                    <ul class="mzr-links">
+                        <li><a class="main-menu-l3-PointOfPurchase" href="/DealerBenefits/PointOfPurchase">Point of Purchase</a></li>
+                        <li><a class="main-menu-l3-DigitalMarketing" href="/DealerBenefits/DigitalMarketing">Digital Marketing</a></li>
+                        <li><a class="main-menu-l3-LogoUsage" href="/DealerBenefits/DigitalAssetsForYourSite">Digital Assets for Your Site</a></li>
+                    </ul>
+                </div>
+                <div class="three-col">
+                    <h3><a class="main-menu-l2-DealerInsights" href="#">Dealer Insights</a></h3>
+                    <ul class="mzr-links">
+                        <li><a class="main-menu-l3-DrivingInsights" href="https://go.carfax.ca/blog">Driving Insights</a></li>
+                        <li><a class="main-menu-l3-Consulting" href="/DealerBenefits/Consulting">Consulting</a></li>
+                    </ul>
+                    <h3>
+                        <a class="main-menu-l2-Tools" href="/DealerBenefits/Tools">Tools</a>
+                    </h3>
+                    <ul class="mzr-links">
+                        <li><a class="main-menu-l3-FormsLibrary" href="/DealerBenefits/FormsLibrary">Forms Library</a></li>
+                    </ul>
+                </div>
+                <div class="three-col">
+                    <h3><a class="main-menu-l2-ManagingYourReports" href="/DealerBenefits/ManagingYourReports">Managing Your Reports</a></h3>
+                    <ul class="mzr-links">
+                        <li><a class="main-menu-l3-WhatsInReport" href="/DealerBenefits/WhatsInAReport">What&#39;s In A Report?</a></li>
+                        <li><a class="main-menu-l3-Faqs" href="https://support.carfax.ca/en/support/solutions">FAQs</a></li>
+                        <li><a class="main-menu-l3-Glossary" href="https://support.carfax.ca/en/support/solutions">Glossary</a></li>
+                        <li><a class="main-menu-l3-BcAutoUpgrade" href="/DealerBenefits/BCAutoUpgrade">BC Auto-Upgrade</a></li>
+                    </ul>
+                </div>
+                <div class="three-col">
+                </div>
+                <div class="three-col">
+                    <h3><a class="main-menu-l2-Partnerships" href="/DealerBenefits/Partnerships">Partnerships</a></h3>
+                    <ul class="mzr-links">
+                        <li><a class="main-menu-l3-CarProofListingSites" href="/DealerBenefits/ListingSites">CARFAX Canada on Listing Sites</a></li>
+                        <li><a class="main-menu-l3-CARFAXCanadaAtAuction" href="/DealerBenefits/CARFAXCanadaAtAuction">CARFAX Canada at Auction</a></li>
+                        <li><a class="main-menu-l3-UcdaBenefits" href="http://www.ucda.org/services.aspx" target="_blank">UCDA Member Benefits</a></li>
+                    </ul>
+                </div>
+            </div>
+        </li>
+    </ul>
+</div>
+
+<!-- START Mobile Menu -->
+<div class="ui-dp-header-mobile-menu">
+    <ul class="ui-dp-header-mobile-menu-ul">
+        <li><a class="main-menu-l1-MyReportsMenu" href="/MyReports">My Reports</a></li>
+
+
+        <li>
+            <a class="main-menu-l1-Products" href="/Products">Product Info</a>
+            <ul>
+                <li class="ml0">
+                    <a class="pl30" href="/Products">Product Info</a>
+                    <ul>
+                        <li><a class="main-menu-l3-Verified" href="/Products/Verified">Vehicle History Report + Lien Check</a></li>
+                        <li><a class="main-menu-l3-VerifiedBc" href="/Products/VerifiedBc">Vehicle History Report + Lien Check (BC)</a></li>
+                        <li><a class="main-menu-l3-Claims" href="/Products/Claims">Vehicle History Report</a></li>
+                        <li><a class="main-menu-l3-ClaimsBc" href="/Products/ClaimsBc">Vehicle History Report (BC)</a></li>
+                        <li><a class="main-menu-l3-Lien" href="/Products/Lien">CARFAX Canada Lien</a></li>
+                        <li><a class="main-menu-l3-ScreeningTools" href="/Products/ScreeningTools">Screening Tool</a></li>
+                        <li><a class="main-menu-l3-Vvr" href="/Products/Vvr/">Vehicle Valuation Report (VVR)</a></li>
+                        <li><a class="main-menu-l3-TradeInWidget" href="/Products/VehicleTradeInWidget">Vehicle Trade-in Widget</a></li>
+                        <li><a class="main-menu-l3-FI" href="/Products/VINFraudCheck">VIN Fraud Check</a></li>
+                    </ul>
+                </li>
+                <li>
+                    <a class="main-menu-l2-WhyCarfaxCanada" href="/Products/WhyCarfaxCanada">Why CARFAX Canada</a>
+                    <ul>
+                        <li><a class="main-menu-l3-CompareProducts" href="/Products/CompareProducts">Compare Products</a></li>
+                        <li><a class="main-menu-l3-FreeSampleReports" href="/Products/FreeSampleReports" target="_blank">Free Sample Reports</a></li>
+                    </ul>
+                </li>
+            </ul>
+        </li>
+        <li>
+            <a class="main-menu-l1-DealerBenefits">Dealer Benefits</a>
+            <ul>
+                <li class="ml0"><a class="pl30" href="https://www.carfax.ca/about-carfax">About CARFAX Canada</a></li>
+
+                <li>
+                    <a class="main-menu-l3-Marketing" href="/DealerBenefits/Marketing">Marketing</a>
+                    <ul>
+                        <li><a class="main-menu-l3-Marketing" href="/DealerBenefits/Marketing">Marketing</a></li>
+                        <li><a class="main-menu-l3-PointOfPurchase" href="/DealerBenefits/PointOfPurchase">Point of Purchase</a></li>
+                        <li><a class="main-menu-l3-DigitalMarketing" href="/DealerBenefits/DigitalMarketing">Digital Marketing</a></li>
+                        <li><a class="main-menu-l3-LogoUsage" href="/DealerBenefits/DigitalAssetsForYourSite">Digital Assets for Your Site</a></li>
+                    </ul>
+                </li>
+
+                <li>
+                    <a class="main-menu-l2-DealerInsights" href="/DealerBenefits/DealerInsights">Dealer Insights</a>
+                    <ul class="mzr-links">
+                        <li><a class="main-menu-l3-DrivingInsights" href="https://go.carfax.ca/blog">Driving Insights</a></li>
+                        <li><a class="main-menu-l3-Consulting" href="/DealerBenefits/Consulting">Consulting</a></li>
+                    </ul>
+                </li>
+
+                <li>
+                    <a class="main-menu-l3-Tools" href="/DealerBenefits/Tools">Tools</a>
+                    <ul class="mzr-links">
+                        <li><a class="main-menu-l3-Tools" href="/DealerBenefits/Tools">Tools</a>
+                        <li><a class="main-menu-l3-FormsLibrary" href="/DealerBenefits/FormsLibrary">Forms Library</a></li>
+                    </ul>
+
+                </li>
+
+                <li>
+                    <a class="main-menu-l3-ManagingReports" href="/DealerBenefits/ManagingYourReports">Managing Your Reports</a>
+                    <ul class="mzr-links">
+                        <li><a class="main-menu-l3-ManagingReports" href="/DealerBenefits/ManagingYourReports">Managing Your Reports</a></li>
+                        <li><a class="main-menu-l3-WhatsInReport" href="/DealerBenefits/WhatsInAReport">What&#39;s In A Report?</a></li>
+                        <li><a class="main-menu-l3-Faqs" href="https://support.carfax.ca/en/support/solutions">FAQs</a></li>
+                        <li><a class="main-menu-l3-Glossary" href="https://support.carfax.ca/en/support/solutions">Glossary</a></li>
+                        <li><a class="main-menu-l3-BcAutoUpgrade" href="/DealerBenefits/BCAutoUpgrade">BC Auto-Upgrade</a></li>
+                    </ul>
+                </li>
+
+                <li>
+                    <a class="main-menu-l3-Partnerships" href="/DealerBenefits/Partnerships">Partnerships</a>
+                    <ul class="mzr-links">
+                        <li><a class="main-menu-l3-CarProofListingSites" href="/DealerBenefits/ListingSites">CARFAX Canada on Listing Sites</a></li>
+                        <li><a class="main-menu-l3-CARFAXCanadaAtAuction" href="/DealerBenefits/CARFAXCanadaAtAuction">CARFAX Canada at Auction</a></li>
+                        <li><a class="main-menu-l3-UcdaBenefits" href="http://www.ucda.org/services.aspx" target="_blank">UCDA Member Benefits</a></li>
+                    </ul>
+                </li>
+
+            </ul>
+        </li>
+    </ul>
+</div>
+<!-- END Mobile Menu -->
+
+            </div>
+        </div>
+    </div>
+</div>
+
+<script type="text/javascript">
+    var popupQueue = new Array();
+    var currentPopup = '';
+    var hasPopups = false;
+
+    function NextPopup() {
+        if (currentPopup != '')
+            $(currentPopup).modal('hide');
+
+        if (!false && // Don't show popup on the conditions of use page,
+            !false) {   // as well as the privacy policy page
+            if (popupQueue.length > 0) {
+                currentPopup = popupQueue.shift();
+                $(currentPopup).modal('show');
+            } else if (hasPopups) {
+                // Reload the page when all popups have been accepted
+                location.reload();
+            }
+        }
+    }
+
+    $('.ui-dp-header-mainmenu-language').click(function () {
+        var language = $(this).text();
+        toggleLanguageTo(language);
+    });
+</script>
+
+
+    <script>
+        // Refreshes the page when navigating using browser's back and forward buttons,
+        // and any of the following popups are open, so we don't see popups that have been previously accepted/dismissed
+        if (performance.getEntriesByType("navigation")[0].type === "back_forward" &&
+            ($('#privacPolicyPopup').length || $('#termsAndConditionsPopup').length || $('#subscriptionTermsAndConditionsPopup').length ||
+                $('#dealer-message-modal').length || $('#industryInsightsSurvey').length || $('#userOptionsPopup').length || $('#ftujModal').length)) {
+            window.location.reload();
+        }
+    </script>
+
+    <div class="container ui-dp-body">
+        <div class="row">
+            <div class="col-lg-12">
+                
+<link href="/bundles/vhr?v=uLmPuFsia-XGpj53oXqrxddXYxAhwqMcAf-xH-Ssk8A1" rel="stylesheet"/>
+
+
+    <link href="/bundles/vin-decode-modal-css?v=kc6U4WaF45kr5NLDI5F5-SohNQ6duWFBQbZhXDjYup81" rel="stylesheet"/>
+
+    <script src="/bundles/vin-decode-modal-js?v=RbvILRL3gELsbRUUfmihgHMb88TmFLnqEbjqQuJ4JDY1"></script>
+
+
+    <vvr-decode-modal id="vvrDecodeModalListItem"></vvr-decode-modal>
+    <mv-decode-modal id="mvDecodeModalListItem"></mv-decode-modal>
+    <auto-fraud-modal id="afFlagModal"></auto-fraud-modal>
+    <script type="text/javascript">
+        const apiBaseUrl = `https://dealerapi.carfax.ca`;
+        const vvrWebsiteUrl = `https://valuation.carfax.ca/?id={0}`;
+
+        var vvrDecodeModalListItem = document.getElementById('vvrDecodeModalListItem');
+        var mvDecodeModalListItem = document.getElementById('mvDecodeModalListItem');
+        var afFlagModal = document.getElementById('afFlagModal');
+        const vinDecodeService = new VinDecodeService(apiBaseUrl);
+    </script>
+
+<link href="/Content/jquery.dataTables.css" rel="stylesheet" />
+<h1>My Reports</h1>
+
+<div class="ui-dp-menu-tabs">
+
+    <a class="ui-dp-menu-tabs-myvhrs" href="/MyReports"><span>My VHRs</span></a>
+
+    <a class="ui-dp-menu-tabs-myvvrs" href="/MyVvrs"><span>My VVRs</span></a>
+
+
+
+    <a class="ui-dp-menu-tabs-myinventory" href="/MyInventory/"><span>My Inventory</span></a>
+
+    <a class="ui-dp-menu-tabs-aucreports" href="/AuctionReports/"><span>Auctions Reports</span></a>
+
+    <hr class="ui-dp-menu-hr">
+</div>
+<link href="/bundles/market-view-css?v=slCeEeTbp9IM03Rr-RxdW4xa3H_kp5RzZSTXiLKSe-Q1" rel="stylesheet"/>
+
+
+
+
+
+
+
+
+
+
+
+<style>
+    .ui-dp-menu-tabs {
+        margin-bottom: 10px;
+    }
+
+    .ui-dp-search-vin-radio {
+        font-family: Roboto;
+        font-size: 14px;
+        color: #3F464E;
+        letter-spacing: 0;
+        line-height: 21px;
+        display: inherit;
+        float: none;
+    }
+
+    .ui-reports-search-input-red {
+        border: 1px solid #F1F1F1 !important;
+    }
+
+    .ui-dp-search-vin-radio input:checked + span {
+        font-weight: 700;
+    }
+
+    .ui-dp-newvhr-container {
+        justify-content: flex-end;
+        text-align: right;
+    }
+
+    .ui-dp-table-myreports-th-report {
+        width: auto;
+    }
+
+    .ui-dp-table-myreports-th-ref {
+        width: 100px;
+    }
+
+    span.reportNumber {
+        display: block;
+    }
+
+    .vhr-add-vehicle-button {
+        text-transform: none !important;
+        font-size: 17px !important;
+        line-height: 22px !important;
+        font-family: 'noto_sanssemibold';
+        width: 156px;
+        height: 44px;
+        color: white;
+        padding: 10px 20px;
+        min-width: fit-content;
+        display: flex;
+        align-items: center;
+        cursor: pointer;
+        margin-left: auto;
+        margin-bottom: 15px;
+        margin-top: auto;
+    }
+
+        .vhr-add-vehicle-button.vhr-add-vehicle-icon {
+            font-size: 20px;
+            margin-right: 12px;
+        }
+</style>
+
+<div class="myreports-page">
+    <div class="row row-eh">
+        <div class="col-xs-12 col-md-5 col-sm-7 ui-dp-filter">
+            <div class=".ui-dp-myreports-new-search ui-dp-myreports-search">
+                <div class="ui-dp-search-vin-radio" id="searchReportsBy">
+                    <strong>Search in:</strong>
+                    <label class="reset-style cursor-default">
+                        <input checked="checked" data-placeholder="Search by Year/Make/Model and Date" data-val="true" data-val-number="The field SearchReports must be a number." id="myreports" name="SearchReports" type="radio" value="1" />
+                        <span>My VHRs</span>
+                    </label>
+                        <label class="reset-style cursor-default" id="global-archive">
+                            <input data-placeholder="Search by VIN" id="globalreports" name="SearchReports" type="radio" value="2" />
+                            <span>Global Archive</span>
+                        </label>
+                    <span class="field-validation-valid" data-valmsg-for="SearchReports" data-valmsg-replace="true"></span>
+                </div>
+            </div>
+
+            <div class="searchbar w100 bottommargin-15 background-white" id="searchbar">
+                <input type="text" class="searchbox searchVehicle" autocomplete="off" spellcheck="false" maxlength="50" />
+                <span class="glyphicon glyphicon-search" aria-hidden="true"></span>
+            </div>
+        </div>
+        <div class="col-xs-12 col-md-7 col-sm-5 ui-dp-newvhr-container">
+            <span class="ui-dp-btn vhr-add-vehicle-button" id="get-report-button" onclick="window.location = '../'">
+                <span class="material-icons vhr-add-vehicle-icon"> add </span>
+                Get Report
+            </span>
+        </div>
+    </div>
+
+    <!-- items being paged -->
+    <div class="ui-dp-table-container">
+        <div id="my-reports-table_wrapper" class="dataTables_wrapper no-footer">
+            <table id="my-reports-table" class="ui-dp-table ui-dp-myreports-table">
+                <thead>
+                    <tr>
+                        <th>VIN <span id="unopenedReportCount"></span></th>
+                        <th>Year / Make / Model</th>
+                        <th class="ui-dp-table-myreports-th-datetime-no-ico">Date/Time</th>
+                        <th class="ui-dp-table-myreports-th-report">Report</th>
+                            <th class="upgradedReports">Lien Express</th>
+                        <th class="ui-dp-table-myreports-th-ref">Reference</th>
+                        <th class="ui-dp-table-myreports-th-tools text-center">Tools</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr><td colspan="7">Loading Report List...</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+    <div class="clearfix"></div>
+</div>
+<div id="my-reports-pagination-template" class="hidden">
+    <div class="dataTables_paginate paging_simple_numbers">
+        <a href="#" class="paginate_button previous disabled" aria-controls="my-reports-table" data-dt-idx="1" tabindex="0">Previous</a>
+        <span class="pagination-numbers"></span>
+        <a href="#" class="paginate_button next disabled" aria-controls="my-reports-table" data-dt-idx="2" tabindex="0">Next</a>
+    </div>
+</div>
+<div id="my-reports-pagination-number-template" class="hidden">
+    <a href="#" class="paginate_button" aria-controls="my-reports-table" data-dt-idx="1" tabindex="0">1</a>
+</div>
+<table id="my-reports-loading-template" class="hidden">
+    <tr><td colspan="7">Loading Report List...</td></tr>
+</table>
+<table id="my-reports-no-records-found-template" class="hidden">
+    <tr class="no-records-found">
+        <td colspan="7">
+            <h4>No results found</h4>
+            <span>We can&#39;t find any results based on your search.</span>
+        </td>
+    </tr>
+</table>
+
+<script type="text/javascript">
+    
+    /* New Vhr Search and Paging code */
+    const ReportTypes = {
+        ARAA: 'araa',
+        Verified: 'verified',
+        VerifiedBC: 'verifiedbc',
+        ClaimsBC: 'claimsbc',
+        Claims: 'claims',
+        Lien: 'lien',
+        LienExpress: 'lien express',
+        USExpress: 'us express',
+        AlbertaUVIP: 'alberta uvip',
+        QuickProof: 'quickproof',
+        ODVR: 'odvr'
+    }
+
+
+    function OpenFraudModal(vin, flagArray, modalType) {
+        let { isStolen, ...fraudFlags } = flagArray;
+
+        if (modalType === "true") {
+            let activeFraudFlags= [];
+            for (var flag in fraudFlags) {
+                if (flagArray[flag] === true) {
+                    activeFraudFlags.push({ name: flag, value: flagArray[flag] });
+                }
+            }
+            afFlagModal.open(vin, activeFraudFlags, modalType);
+        } else {
+            let activeStolenFlags = [isStolen];
+            afFlagModal.open(vin, activeStolenFlags, modalType);
+        }
+    }
+
+    var vhrListModule = function () {
+        return {
+            userConfig: null,
+            username: 'matrixmotorsyeg@gmail.com_44847',
+            language: 'en-US',
+            pageNumber: 1,
+            pageSize: 25,
+            totalReports: 0,
+            userSessionData: null,
+            linkTemplate: 'https://vhr.carfax.ca/?id=',
+            legacyLinkTemplate: 'https://vhr-legacy.carfax.ca/?id=',
+            totalPages: function () {
+                return Math.ceil(this.totalReports / this.pageSize);
+            },
+            loadList: function(params) {
+                var thisInstance = this;
+                var autoSearchTimer = null;
+                var initialTableBody;
+                var isInitialized = false;
+                var lastSearch = '';
+                var onListLoaded;
+
+                if (params !== undefined && params !== null) {
+                    if (params.config !== undefined) {
+                        thisInstance.userConfig = params.config;
+                    }
+                    if (params.sessionData !== undefined) {
+                        thisInstance.userSessionData = params.sessionData;
+                    }
+                    if (params.pNum > 0) {
+                        thisInstance.pageNumber = params.pNum;
+                    }
+                    if (params.pSize > 0) {
+                        thisInstance.pageSize = params.pSize;
+                    }
+                    if (params.onListLoaded !== undefined) {
+                        onListLoaded = params.onListLoaded;
+                    }
+                }
+                function initialize() {
+                    initialTableBody = $('#my-reports-table > tbody').clone();
+
+                    $('.searchbox.searchVehicle').unbind('keyup').keyup(function (event) {
+                        var newSearchTerm = $('.searchbar .searchbox.searchVehicle').val();
+                        if (lastSearch !== newSearchTerm) {
+                            var loadingRow = $('#my-reports-loading-template tr').clone();
+                            var tBody = $('#my-reports-table > tbody');
+                            tBody.empty();
+                            loadingRow.appendTo(tBody);
+                            thisInstance.pageNumber = 1;
+                            $('.ui-dp-table-container .paging_simple_numbers').remove();
+                            setAutosearchTimer();
+                            if (event.which === 13) {
+                                fetchResults();
+                            }
+                        }
+                    });
+
+                    $('.ui-reports-search-btn').unbind('click').click(function() {
+                        fetchResults();
+                    });
+
+                    isInitialized = true;
+                }
+
+                function rebindRowEvents() {
+                    $(".cpo-icon").unbind('click').click(function(e) {
+                        e.preventDefault();
+                        viewCpo($(this));
+                    });
+
+                    $('.ui-dp-table-myreports-toolbox-ico-print').unbind('click').click(function (e) {
+                        e.preventDefault();
+                        var reportDate = new Date($(this).data('report-date'));
+                        var newVhrReleaseDate = new Date(2020, 10, 19);
+                        if (reportDate < newVhrReleaseDate) {
+                            printExternalWebpage(thisInstance.legacyLinkTemplate + $(this).parents('tr').data('encrypted-uvip-requestid'));
+                        }
+                        else {
+                            printExternalWebpage(thisInstance.linkTemplate + $(this).parents('tr').data('encrypted-uvip-requestid'));
+                        }
+                    });
+
+                    $('.ui-dp-table-myreports-toolbox-ico-reskin').unbind('click').click(function (e) {
+                        e.preventDefault();
+                        OpenPopup(thisInstance.linkTemplate + $(this).data('encrypted-uvip-requestid-hl'), 920, 0);
+                    });
+
+                    $('a.paginate_button').unbind('click').click(function (e) {
+                        e.preventDefault();
+                        var targetPageNo = parseInt($(this).data('dt-idx'));
+                        if (targetPageNo >= 1 && targetPageNo <= thisInstance.totalPages()) {
+                            thisInstance.pageNumber = targetPageNo;
+                            fetchResults();
+                        }
+                    });
+                }
+
+                function fetchResults() {
+                    $('#my-reports-table > tbody').replaceWith(initialTableBody);
+                    clearAutosearchTimer();
+                    var searchTerm = $('.searchbar .searchVehicle').val();
+                    var isGlobalVinSearch = ($('input[name="SearchReports"]:checked').val() === '2');
+
+                    var url = 'https://dealerapi.carfax.ca' +
+                        '/api/v2/RecentActivity/Reports/?username=' +
+                        thisInstance.username +
+                        '&searchTerm=' +
+                        searchTerm +
+                        '&isGlobalVinSearch=' +
+                        isGlobalVinSearch +
+                        '&pageNumber=' +
+                        thisInstance.pageNumber +
+                        '&pageSize=' +
+                        thisInstance.pageSize;
+
+                    $.ajax({
+                        url: url,
+                        type: 'GET',
+                        crossDomain: true,
+                        headers: addAuth(),
+                        success: function (data) {
+
+                            //start auto fraud Signal R connection
+                            if (data && Array.isArray(data.reports)) {
+                                let numberOfPendingReports = data.reports.filter(record => record.isReportComplete === false).length;
+
+                                startAutoFraudSignal(numberOfPendingReports).catch((error) => {
+                                    // Handle any errors here (optional, since we're catching inside startAutoFraudSignal)
+                                    console.error("Error occurred in startAutoFraudSignal:", error);
+                                });
+                            }
+
+                            lastSearch = searchTerm;
+                            thisInstance.totalReports = data.totalReports;
+                            displayResultsNew(data);
+                        },
+                        errors: function(e) {
+                            //TODO
+                        }
+                    });
+                }
+
+                //TODO: addAuth, getDayDiff and getDateTimeString functions should be moved to a shared js so they can be reused.
+                function addAuth(o) {
+                    o = o !== undefined ? o : {};
+                    o.Authorization = 'Bearer ' + getCookie('Jwt');
+                    return o;
+                }
+
+                function getDayDiff(date1, date2) {
+                    var timeDiff = Math.abs(date2.getTime() - date1.getTime());
+                    return Math.floor(timeDiff / (1000 * 3600 * 24));
+                }
+
+                function getDateTimeString(date) {
+                    var d = new Date(date);
+                    return (d.getMonth() + 1).toString().padStart(2, '0') +
+                        '/' +
+                        d.getDate().toString().padStart(2, '0') +
+                        '/' +
+                        d.getFullYear() +
+                        ' ' +
+                        d.getHours().toString().padStart(2, '0') +
+                        ':' +
+                        d.getMinutes().toString().padStart(2, '0');
+                }
+
+                function displayResultsNew(data) {
+                    var tBody = $('#my-reports-table > tbody');
+                    tBody.empty();
+                    $('#unopenedReportCount').data('count', data.reportsNotViewed);
+                    $('#unopenedReportCount').text('(' + data.reportsNotViewed + ')');
+                    if (thisInstance.totalReports === 0) {
+                        var notFoundRow = $('#my-reports-no-records-found-template tr').clone();
+                        notFoundRow.appendTo(tBody);
+                    } else {
+                        $.each(data.reports,
+                            function (i, v) {
+                                //this section of code will be removed as it is to randomize what flags if given to each report so to test each case
+                                var flagArray = {
+                                    'isStolen': v.isStolen,
+                                    'potentialFakeVin': v.potentialFakeVin,
+                                    'potentialVinClone':v.potentialVinClone,
+                                };
+                                v.flagArray = flagArray;
+                                var featFlags = thisInstance.userSessionData.SelectedUserCompany.FeatureFlags;
+                                var condLink = thisInstance.linkTemplate +
+                                ((featFlags.indexOf(
+                                            'HasVhrSubscription') >
+                                        -1 &&
+                                        [4, 9].indexOf(v.sourceService) > -1) ||
+                                    (featFlags.indexOf(
+                                            'HasVerifiedSubscription') >
+                                        -1 &&
+                                        v.vhrReportProperties.indexOf('LienExpressesOrdered') > -1)
+                                    ? encodeURIComponent(v.encryptedHideLienUvipRequestId)
+                                    : encodeURIComponent(v.encryptedUvipRequestId));
+                                var newLine = $('#vhr-list-item-template').clone();
+                                var newLineTr = $(newLine.find('tr')[0]);
+                                newLineTr.data('encrypted-uvip-requestid', v.encryptedUvipRequestId);
+                                newLineTr.addClass(v.viewed ? '' : 'unopened');
+                                newLine.find('.vin').text(v.vin);
+                                newLine.find('.shortvin')
+                                    .text(v.vin.substr(v.vin.length - (v.vin.length >= 6 ? 6 : v.vin.length)));
+                                newLine.find('.yearMakeModel').text(v.year + '/' + v.make + '/' + v.model);
+                                newLine.find('.reportDate').text(getDateTimeString(v.reportDate));
+                                newLine.find('[data-encryptedId=""]')
+                                    .attr('data-encryptedId', v.encryptedUvipRequestId);
+                                newLine.find('[data-encryptedVvrId=""]')
+                                    .attr('data-encryptedVvrId', v.encryptedVvrReportId);
+                                newLine.find('[cplogid=""]').attr('cplogid', v.encryptedUvipRequestId);
+                                newLine.find('[isReportComplete=""]').attr('isReportComplete', v.isReportComplete);
+                                newLine.find('[data-cplogid=""]').attr('data-cplogid', v.encryptedUvipRequestId);
+                                newLine.find('[data-year=""]').attr('data-year', v.year);
+                                newLine.find('[data-mvid=""]').attr('data-mvid', v.encryptedMvId);
+                                newLine.find('[data-reporttype=""]').attr('data-reporttype', v.reportType);
+                                newLine.find('[data-id=""]').attr('data-id', v.encryptedUvipRequestId);
+                                newLine.find('[data-vin=""]').attr('data-vin', v.vin);
+                                newLine.find('[vin=""]').attr('vin', v.vin);
+                                if (v.isStolen == true) {
+                                    newLine.find('#stolen-flag').removeClass()
+                                }
+                                if (v.potentialFakeVin || v.potentialVinClone == true) {
+                                    newLine.find('#fraud-flag').removeClass()
+                                }
+
+                                newLine.find('#stolen-flag').attr('data-reportId', "stolen-"+v.reportNumber);
+                                newLine.find('#fraud-flag').attr('data-reportId', "fraud-" + v.reportNumber);
+
+								newLine.find('#flag-icon-row').attr('data-reportId',  v.reportNumber);
+								newLine.find('#flag-icon-row').attr('data-vin',  v.vin);
+
+                                newLine.find('#fraud-flag').on("click", function () {
+                                    OpenFraudModal(v.vin, v.flagArray, "true");
+                                });
+                                newLine.find('#stolen-flag').on("click", function () {
+                                    OpenFraudModal(v.vin, v.flagArray, "false");
+                                });
+                                newLine.find('.reportLink, .open-liensearch').attr('href',
+                                    thisInstance.linkTemplate + encodeURIComponent(v.encryptedUvipRequestId));
+                                newLine.find('.open-verified').attr('href',
+                                    thisInstance.linkTemplate + encodeURIComponent(v.encryptedLienReportId));
+                                newLine.find('.reportNumber').text(v.reportNumber);
+                                newLine.find('.condReportLink').attr('href', condLink);
+                                newLine.find('.reportType').text(convertReportType(v.reportType));
+                                newLine.find('[data-sourceService=""]').attr('data-sourceService', v.sourceService);
+                                newLine.find('.nonsubscriber-verfied-upgrade, .subscription-lien-activate')
+                                    .data('lienurl', v.encryptedLienReportId === '' ? '' : thisInstance.linkTemplate + encodeURIComponent(v.encryptedLienReportId));
+                                newLine.find('[data-encrypted-uvip-requestid-hl=""]')
+                                    .attr('data-encrypted-uvip-requestid-hl', v.encryptedHideLienUvipRequestId);
+                                if (v.vhrReportProperties.indexOf('IsAllowedToEditReferences') <= -1) {
+                                    newLine.find('#vhr-reference-reportNumber').remove();
+                                    newLine.find('.reference').text(v.reference);
+                                } else {
+                                    newLine.find('.reference').remove();
+                                    var tRef = newLine.find('#vhr-reference-reportNumber');
+                                    tRef.attr('onchange',
+                                        tRef.attr('onchange').replace('reportNumber', v.reportNumber));
+                                    tRef.attr('value', v.reference);
+                                    tRef.attr('id', tRef.attr('id').replace('reportNumber', v.reportNumber));
+                                }
+
+                                if (v.vhrReportProperties.indexOf('HasBCRegOnNonBCReport') <= -1) {
+                                    newLine.find('.hasBcRegistrationOnNonBcReport').remove();
+                                }
+
+                                if ($('#my-reports-table th.quickLien').length === 0) {
+                                    newLine.find('td.quickLien').remove();
+                                } else {
+                                    var quickLienLink = newLine.find('.quick-lien-activate');
+                                    if ([4, 9].indexOf(v.sourceService) < 0) {
+                                        newLine.find('td.quickLien *').remove();
+                                    } else {
+                                        quickLienLink.data('lienurl',
+                                            v.encryptedQuickLienId !== ''
+                                            ? thisInstance.linkTemplate + encodeURIComponent(v.encryptedQuickLienId)
+                                            : '');
+                                        quickLienLink.text(v.encryptedQuickLienId === ''
+                                            ? 'Order'
+                                            : 'View');
+
+                                    }
+                                }
+
+                                if ($('#my-reports-table th.upgradedReports').length === 0) {
+                                    newLine.find('td.upgradedReports').remove();
+                                } else {
+                                    var isSubscriber = featFlags.indexOf('HasVhrSubscription') > -1 || featFlags.indexOf('HasVerifiedSubscription') > -1;
+                                    var allowNonSubscriberUpgrade = featFlags.indexOf('NonSubscriberAllowVerifiedUpgrade') > -1;
+                                    if (isSubscriber) { newLine.find('.upgradedReports.show-nonsubscription-lien-order').remove();}
+                                    else if (allowNonSubscriberUpgrade) { newLine.find('.upgradedReports.subscription-lien-order').remove();}
+                                    else {
+                                        newLine.find('.upgradedReports.show-nonsubscription-lien-order, .upgradedReports.subscription-lien-order').remove();
+                                    }
+
+                                    var reportUpgradeLinks = newLine.find('td.upgradedReports');
+                                    if (featFlags.indexOf('OpenUpgradedReports') > -1 &&
+                                        v.vhrReportProperties.indexOf('LienExpressesOrdered') < 0 &&
+                                        v.encryptedLienReportId !== '') {
+                                        reportUpgradeLinks.find('a:not(".open-verified"),p').remove();
+                                    }
+                                    else if (featFlags.indexOf('OpenClaimsPlusLienExpress') > -1 && v.vhrReportProperties.indexOf('LienExpressesOrdered') > -1) {
+                                        reportUpgradeLinks.find('a:not(".open-liensearch"),p').remove();
+                                    } else if ((featFlags.indexOf('RequireCcInfo') > -1 &&
+                                            featFlags.indexOf('HasCcInfo') < 0 ||
+                                            featFlags.indexOf('RequireEftInfo') > -1 &&
+                                            featFlags.indexOf('HasEftInfo') < 0) &&
+                                        (featFlags.indexOf('SubscriptionAdmin') > -1 ||
+                                            allowNonSubscriberUpgrade) &&
+                                        [4, 9].indexOf(v.sourceService) > -1 &&
+                                        v.vhrReportProperties.indexOf('LienExpressesOrdered') < 0
+                                    ) {
+                                        reportUpgradeLinks.find('a:not(".open-payment"),p').remove();
+                                    }
+
+                                    else if ([4, 9].indexOf(v.sourceService) > -1 && v.encryptedLienReportId === '' && v.vhrReportProperties.indexOf('LienExpressesOrdered') < 0 &&
+                                    ((featFlags.indexOf('HasVerifiedSubscription') > -1 && featFlags.indexOf('AddLienCheck') > -1 && (v.sourceService === 9 ? getDayDiff(new Date(data.serverDateTime), new Date(v.reportDate)) === 0 : true)) ||
+                                        (allowNonSubscriberUpgrade && getDayDiff(new Date(data.serverDateTime), new Date(v.reportDate)) === 0))) {
+                                        reportUpgradeLinks.find('a:not(".add-verified"),p').remove();
+                                    }
+                                    else if (featFlags.indexOf('AddLienExpress') > -1 &&
+                                        v.vhrReportProperties.indexOf('LienExpressesOrdered') < 0 &&
+                                        [4, 9].indexOf(v.sourceService) > -1 &&
+                                        (v.sourceService === 9 && featFlags.indexOf('AddLienCheck') > -1 ? getDayDiff(new Date(data.serverDateTime), new Date(v.reportDate)) > 0 : true)) {
+                                        reportUpgradeLinks.find('a:not(".add-lien"),p').remove();
+                                    }
+                                    else {
+                                        reportUpgradeLinks.find('a').remove();
+                                    }
+                                }
+
+                                // Tools
+                                if (v.vhrReportProperties.indexOf('IsLimitedView') >= 0) { // Customer Acknowledgement
+                                    newLine.find('a.ui-dp-table-myreports-toolbox-ico-auth').remove();
+                                }
+                                if (v.disclosureId > 0) { // Disclosure
+                                    newLine.find('a.disclosure-form-icon.new-disclosure').addClass('hidden');
+                                    newLine.find('[data-discloaded=""]').attr('data-discloaded', true);
+                                } else {
+                                    newLine.find('a.disclosure-form-icon.open-saved-disclosure').addClass('hidden');
+                                    newLine.find('[data-discloaded=""]').attr('data-discloaded', false);
+                                }
+                                if (v.vhrReportProperties.indexOf('CanReskin') <= -1) { // Reskin
+                                    newLine.find('a.ui-dp-table-myreports-toolbox-ico-reskin').remove();
+                                }
+                                if (v.vhrReportProperties.indexOf('ShowVwCpo') <= -1) { // VW CPO
+                                    newLine.find('a.cpo-icon.cpo-icon-vw').remove();
+                                }
+                                if (v.vhrReportProperties.indexOf('ShowAudiCpo') <= -1) { // Audi CPO
+                                    newLine.find('a.cpo-icon.cpo-icon-audi').remove();
+                                }
+
+                                // Tool Data
+                                newLine.find('[data-vid=""]').attr('data-vid', v.encryptedUvipRequestId);
+                                newLine.find('[data-cpo-id=""]').attr('data-cpo-id', v.encryptedUvipRequestId);
+                                newLine.find('[data-url=""]').attr('data-url', thisInstance.linkTemplate + v.encryptedUvipRequestId);
+                                newLine.find('a.ui-dp-table-myreports-toolbox-ico-email').attr('href', 'mailto:?body=' + thisInstance.linkTemplate + v.encryptedUvipRequestId);
+                                newLine.find('[data-report-date=""]').attr('data-report-date', v.reportDate);
+                                newLine.find('a.ui-dp-table-myreports-toolbox-ico-auth').attr('href', 'ReleaseForm/GetReleaseForm?ReportNumber=' + v.reportNumber);
+                                newLine.find('a.disclosure-form-icon')
+                                    .attr('href', 'https://disclosure.carfax.ca' + '/' + thisInstance.language + '/Disclosure/index?id=vhr.' + encodeURIComponent(v.encryptedUvipRequestId));
+
+                            newLine.find('tr').appendTo(tBody);
+                        }
+                    );
+                    }
+                    refreshPagination();
+                    if (onListLoaded !== undefined) {
+                        onListLoaded();
+                    }
+                    rebindRowEvents();
+                }
+
+                function convertReportType(reportType) {
+                    switch (reportType.toLowerCase()) {
+                        case ReportTypes.ARAA:
+                            return 'ARAA';
+                        case ReportTypes.Verified:
+                            return 'Vehicle History Report + Lien Check';
+                        case ReportTypes.VerifiedBC:
+                            return 'Vehicle History Report + Lien Check (BC)';
+                        case ReportTypes.ClaimsBC:
+                            return 'Vehicle History Report (BC)';
+                        case ReportTypes.Claims:
+                            return 'Vehicle History Report';
+                        case ReportTypes.Lien:
+                            return 'CARFAX Canada Lien';
+                        case ReportTypes.LienExpress:
+                            return 'CARFAX Canada Lien Express';
+                        case ReportTypes.USExpress:
+                            return 'US Express';
+                        case ReportTypes.AlbertaUVIP:
+                            return 'Alberta UVIP';
+                        case ReportTypes.QuickProof:
+                            return 'QuickProof';
+                        case ReportTypes.ODVR:
+                            return reportType;
+                        default:
+                            return reportType;
+                    }
+                }
+
+                function setAutosearchTimer() {
+                    clearAutosearchTimer();
+                    autoSearchTimer = setTimeout(fetchResults, 400);
+                }
+
+                function viewCpo(element) {
+                    var w = 475;
+                    var h = 310;
+
+                    var type = $(element).data('cpo-type');
+                    var id = $(element).data('cpo-id');
+
+                    // type vw en /vw_cpo.aspx?id=
+                    // type vw fr /fr/cpo/vwcpo?id=
+                    // type audi en /audi_cpo.aspx?id=
+                    // type audi fr /fr/cpo/audicpo?id=
+
+                    var fullUrl = 'https://vhr-legacy.carfax.ca';
+
+                    if (type === 'vw') {
+                        fullUrl = fullUrl + (thisInstance.language !== 'fr-CA' ? '/vw_cpo.aspx?id=' : '/fr/cpo/vwcpo?id=');
+                    } else {
+                        fullUrl = fullUrl + (thisInstance.language !== 'fr-CA' ? '/audi_cpo.aspx?id=' : '/fr/cpo/audicpo?id=');
+                    }
+
+                    fullUrl = fullUrl + id;
+
+                    if (fullUrl.length > 0) {
+                        if (w === 0 || w === null)
+                            w = screen.availWidth / 3 * 2;
+                        if (h === 0 || h === null)
+                            h = screen.availHeight - 200;
+                        var winl = (screen.width - w) / 2;
+                        var wint = (screen.height - h) / 2;
+                        var winprops = 'height=' + h + ',width=' + w + ',top=' + wint + ',left=' + winl + ',scrollbars=no,menubar=no,toolbar=no,location=no,status=no,resizable=no';
+                        var win2 = window.open(fullUrl, "", winprops);
+                        if (parseInt(navigator.appVersion) >= 4) win2.window.focus();
+                    }
+                }
+
+                function clearAutosearchTimer() {
+                    if (autoSearchTimer !== null) {
+                        clearTimeout(autoSearchTimer);
+                    }
+                }
+
+                function refreshPagination() {
+                    //TODO: remove and build pagination, it doesn't need to have a parameter because all the required params are in
+                    $('.ui-dp-table-container .paging_simple_numbers').remove();
+                    var totalPages = thisInstance.totalPages();
+                    if (thisInstance.totalReports === 0) {
+                        return;
+                    }
+
+                    var pagination = $('#my-reports-pagination-template > .paging_simple_numbers').clone();
+                    var paginationNumbers = pagination.find('.pagination-numbers');
+
+                    if (thisInstance.pageNumber > 1) {
+                        pagination.find('.previous').removeClass('disabled');
+                    }
+
+                    if (thisInstance.pageNumber < totalPages) {
+                        pagination.find('.next').removeClass('disabled');
+                    }
+                    var i = (thisInstance.pageNumber - 2 >= 1 ? thisInstance.pageNumber - 2 : 1), totalPagesAdded = 0;
+                    for (i; i <= (thisInstance.pageNumber + 4 > totalPages ? totalPages : thisInstance.pageNumber + 4); i++) {
+                        var pCurrent = $('#my-reports-pagination-number-template > .paginate_button').clone();
+                        if (i === thisInstance.pageNumber) {
+                            pCurrent.addClass('current');
+                        }
+                        pCurrent.text(i);
+                        pCurrent.data('dt-idx', i);
+                        pCurrent.appendTo(paginationNumbers);
+                        if (++totalPagesAdded === 5) {
+                            break;
+                        }
+                    }
+                    pagination.find('.previous').data('dt-idx', thisInstance.pageNumber > 1 ? thisInstance.pageNumber - 1 : 1);
+                    pagination.find('.next').data('dt-idx', thisInstance.pageNumber < totalPages ? thisInstance.pageNumber + 1 : totalPages);
+                    pagination.appendTo($('#my-reports-table_wrapper'));
+                }
+
+                if (!isInitialized) initialize();
+                fetchResults();
+            },
+            setSearchBoxPlaceholder: function () {
+                var initialized = false;
+                function setPlaceholder() {
+                    if (!initialized) {
+                        initialize();
+                    }
+                    $('.searchbox.searchVehicle').attr('placeholder', $('#searchReportsBy').find('input[name="SearchReports"]:checked').data('placeholder'));
+                }
+                function initialize() {
+                    $('input[name="SearchReports"]').unbind('change').change(function () {
+                        setPlaceholder();
+                        var searchScope = $('#searchReportsBy').find('input[name="SearchReports"]:checked').val();
+                        var tBody = $('#my-reports-table > tbody');
+                        var loadingRow = $('#my-reports-loading-template tr').clone();
+                        tBody.empty();
+                        loadingRow.appendTo(tBody);
+                        $('.ui-dp-table-container .paging_simple_numbers').remove();
+                        if (searchScope === 2 ? $('.searchbar .searchbox.searchVehicle').val().length > 0 : true) {
+                            vhrs.loadList({ pNum:1 });
+                        }
+                    });
+                    initialized = true;
+                }
+                setPlaceholder();
+            }
+        };
+    };
+
+    var vhrs = vhrListModule();
+    var userConfig = JSON.parse('{"ReportItemModel":null,"SearchListVinsAndYMM":null,"IsVhrSubscriber":false,"IsVhrVerifiedSubscriber":true,"IsVhrSubscriptionAdmin":true,"IsAllowedToSearchGlobalVinArchives":true,"SearchReports":null,"searchVehicle":null,"AllowNonSubscribersVerifiedUpdate":false,"UnopenedReportsCount":0,"UserIdEncrypted":"JISObzzIRvOrZ4Gr8LeS4Q==","HasVhrVvrIntegration":false,"ShowQuickLienOrder":false,"CreditCardRequiredButNotProvided":false,"EftInfoRequiredButNotProvided":false}');
+    $(document).ready(function () {
+        vhrs.loadList(
+        {
+            config: userConfig,
+            sessionData: JSON.parse('{"LoggedInUserCompany":{"User":{"UserId":85385,"Username":"matrixmotorsyeg@gmail.com_44847","Auth0Username":"matrixmotorsyeg@gmail.com","ContactEmail":"matrixmotorsyeg@gmail.com","FirstName":"Yahya","LastName":"Arsali","PreferredLanguage":"en-CA","AllowOrder":true,"UserKey":"c67f6a13-8404-48ec-b769-f54a229ef4f3"},"Company":{"CompanyId":44847,"CompanyName":"Matrix Motors YEG Ltd","Industry":2,"TerritoryId":38,"TerritoryName":"Edmonton","CompCode":"","Province":8}},"SelectedUserCompany":{"CompanyToken":null,"FeatureFlags":["EmailIsVerified","ViewMyVhrs","CreateVhrs","ViewDisclosures","CreateDisclosures","RequireToAcceptSubscriptionTC","HasEftInfo","RequireEftInfo","HasVerifiedSubscription","SearchGlobalArchives","SubscriptionAdmin","OpenClaimsPlusLienExpress","AddLienExpress","AddLienCheck","OpenUpgradedReports","AllowOrder","TestFlagForDMIVehicleService"],"User":{"UserId":85385,"Username":"matrixmotorsyeg@gmail.com_44847","Auth0Username":"matrixmotorsyeg@gmail.com","ContactEmail":"matrixmotorsyeg@gmail.com","FirstName":"Yahya","LastName":"Arsali","PreferredLanguage":"en-CA","AllowOrder":true,"UserKey":"c67f6a13-8404-48ec-b769-f54a229ef4f3"},"Company":{"CompanyId":44847,"CompanyName":"Matrix Motors YEG Ltd","Industry":2,"TerritoryId":38,"TerritoryName":"Edmonton","CompCode":"","Province":8}},"DefaultCompanyId":null,"AvailableCompanies":[{"CompanyName":"Matrix Motors YEG Ltd","CompanyAddress":"9728 111 avenue NW, Edmonton, AB","CompanyId":44847,"HasVhrSubscription":false,"HasVhrVerifiedSubscription":true}],"Roles":[],"TimeToExecuteSqlQuery":3,"AcceptedDealerPortalConditionsOfUse":true,"AcceptedDealerPortalSubscriptionTerms":true,"AcceptedDealerPortalPrivacypolicy":true,"LanguageToggleClicked":false,"IsMfaForced":null,"IsMfaEnabled":false}'),
+            onListLoaded: function () {
+                if (enableNewVhr) {
+                    rebindLienLinks();
+                    vhrVvrIntegration.expandFirst();
+                }
+            }
+        });
+        vhrs.setSearchBoxPlaceholder();
+    });
+
+    document.getElementById('global-archive').addEventListener('click', function () {
+        dataLayer.push({
+            'event': 'dealerPortal',
+            'dpActivity': 'global_archive_click'
+        });
+    });
+
+    document.getElementById('get-report-button').addEventListener('click', function () {
+        dataLayer.push({
+            'event': 'dealerPortal',
+            'dpActivity': 'get_report_vhr_click'
+        });
+    });
+    
+</script>
+
+
+<script>
+    const hubAutoFraudUrl = 'https://autofraud-syncservice.carfax.ca/api';
+    const groupName = '44847';
+
+    async function startAutoFraudSignal(numberOfPendingReports) {
+    let enableAutoFraudSignalR = 'true';
+
+    if (numberOfPendingReports > 0 && enableAutoFraudSignalR) {
+        const signalRClient = new SignalRClient(groupName, hubAutoFraudUrl);
+
+        try {
+            // Await the startConnection method if it's asynchronous
+            await signalRClient.startConnection(onMessageReceived);
+        } catch (error) {
+            // Catch any errors during the SignalR connection
+            console.error("Error starting SignalR connection:", error);
+        }
+    }
+}
+</script>
+
+<script src="/bundles/autoFraudSignalR?v=6P_l8FiMfz4TQyS1CszQhaFsvNgV8lxrDiw7JzCubiQ1"></script>
+
+
+
+
+
+
+
+<section id="new-vhr-summary-template" class="new-vhr-summary-flyout">
+    <div class="row row-eh">
+        <div class="col-xs-9 new-vhr-summary-container">
+            <h4>Vehicle History Summary</h4>
+            <div class="summary-tile-container static-vhr">
+                <div id="vhr-loading-spinner" class="summary-tile loading-tile">
+                    <div class="spinner"></div>
+                    <span class="tile-title">Loading...</span>
+                </div>
+                <iframe class="vhr-frame hidden"></iframe>
+                <a class="tile-vhr-link ui-dp-btn-blue btn button no-top-margin" href="#" target="_blank" data-href="#">OPEN VHR</a>
+            </div>
+        </div>
+
+        <div class="col-xs-3 new-vvr-summary-container">
+            <div class="ui-vhr-summary-box-right-container loading">
+                <div class="summary-tile-container">
+                    <div class="summary-tile loading-tile">
+                        <div class="spinner"></div>
+                        <span class="tile-title">Loading...</span>
+                    </div>
+                </div>
+            </div>
+            <div id="mvSummary" class="ui-vhr-summary-box-right-container hidden">
+                <h4 class="new-vhr-summary-flyout-run-title">Valuation</h4>
+                <div class="run-mv-summary-box-text"></div>
+                <div class="tile-mv-link ui-dp-btn-blue btn button"></div>
+            </div>
+            <div id="openMvSummary" class="ui-vhr-summary-box-right-container hidden">
+                <h4 class="new-vhr-summary-flyout-open-title">Market View</h4>
+                <div class="mv-summary-box-text"></div>
+                <div class="tile-open-mv-link ui-dp-btn-blue btn button"></div>
+                <div class="new-vvr-summary-container-divider hidden"></div>
+            </div>
+
+            <div id="vvrSummary" class="ui-vhr-summary-box-right-container hidden">
+                <h4 class="new-vhr-summary-flyout-open-title">VVR</h4>
+                <div class="vvr-summary-box-text"></div>
+                <div class="tile-open-vvr-link ui-dp-btn-blue btn button no-top-margin"></div>
+            </div>
+            <div id="errorSummary" class="ui-vhr-summary-box-right-container hidden">
+                <div class="error-summary-box-text">We&#39;re unable to provide valuations for model years prior to 2000 due to limited comparable data.</div>
+            </div>
+        </div>
+    </div>
+</section>
+<table id="vhr-list-item-template"  class="hidden">
+    <tr cplogid="" isReportComplete="" data-encrypted-uvip-requestid="">      
+        <td>
+            <div class="vinFlags">
+                <div class="ico-summary-expand bind-vhr-summary-tr-icon"></div>
+                <a target="_blank" href="#" class="reportLink"><span class="hide-for-mobile vin"></span><span class="show-for-mobile shortvin"></span></a>
+                <div class="flag-icon">
+                    <div id="flag-icon-row" class="flag-icon" data-vin data-reportid>
+                        <img id="fraud-flag" class="fraud-flag hide" src="/Images/MyReports/fraud-vin.png" width="24" height="24" data-vid="" data-discloaded="" data-toggle="modal" data-target="" data-reportid />
+                        <img id="stolen-flag" class="stolen-flag hide" src="/Images/MyReports/stolen-vin.png" width="24" height="24" style="background-color:#FCE8E9" data-vid="" data-discloaded="" data-toggle="modal" data-target="#stolen-vin-modal" data-reportid />
+                    </div>
+                </div>
+            </div>
+        </td>
+        <td><span class="yearMakeModel"></span></td>
+        <td><span class="reportDate"></span></td>
+        <td>
+            <a target="_blank" href="#" class="condReportLink">
+                <span class="reportType"></span>
+                <span class="reportNumber"></span>
+            </a>
+            <a style="color:#000; border:none;" target="_blank" href="#" class="condReportLink hasBcRegistrationOnNonBcReport"><img style="margin-left:5px;" src="/Assets/MyReports/ico-bc-upgrade.png" /></a>
+        </td>
+        <td class="quickLien">
+            <a href="#" class="quick-lien-activate" data-vin="" data-lienurl=""></a>
+        </td>
+        <td class="upgradedReports subscription-lien-order">
+            <p class="lienexpressprop"></p>
+            <a class="subscription-lien-activate add-lien" data-sourceService="" data-lienurl="" data-encryptedid="" data-vin="" data-serviceType="claims_plus_liens" href="#" data-toggle="modal" data-target="#popupModal"><span>Add Lien Express</span></a>
+            <a class="subscription-lien-activate add-verified" data-sourceService="" data-lienurl="" data-encryptedid="" data-vin="" data-serviceType="verified" data-toggle="modal" data-target="#popupModal" href="#"><span>Add Vehicle History Report + Lien Check</span></a>
+            <a class="open-payment" href="/paymentoptions">Add Lien Express</a>
+            <a target="_blank" href="" class="open-liensearch"><span>Open Vehicle History Report + Lien Express</span></a>
+            <a target="_blank" href="" class="open-verified"><span>Open Vehicle History Report + Lien Check</span></a>
+        </td>
+        <td class="show-nonsubscription-lien-order upgradedReports">
+            <a href="#" class="add-verified nonsubscriber-verfied-upgrade" data-toggle="modal" data-target="#popupModal" data-sourceService="" data-encryptedid="" data-vin="" data-lienurl="">Add Vehicle History Report + Lien Check</a>
+            <a target="_blank" href="" class="open-verified"><span>Open Vehicle History Report + Lien Check</span></a>
+            <a class="open-payment" href="/paymentoptions">Add Lien Express</a>
+        </td>
+        <td>
+            <span class="ui-dp-table-ref-input">
+                <input type="text" id="vhr-reference-reportNumber" onkeydown="if(event.keyCode===13){return false;}" value="" onchange="updateReference('reportNumber');" />
+                <span class="reference"></span>
+            </span>
+        </td>
+        <td>
+            <img class="ui-dp-table-myreports-toolbox-toggle hide-for-mobile" src="/Images/MyReports/ico-select-tool.png" alt="SELECT A TOOL" title="SELECT A TOOL" width="42" height="33" data-vid="" data-discloaded="" />
+            <a class="ui-dp-table-myreports-toolbox-vhr show-for-mobile" cplogevent="4" href="#"><img src="/Images/MyReports/ico-email-vhr-en.png" alt="Email VHR" /></a>
+            <div class="ui-dp-table-myreports-toolbox" data-vid="">
+                <a data-url="" class="ui-dp-table-myreports-toolbox-ico-email" cplogevent="4" href="">
+                    Email
+                    <p>Email VHR</p>
+                </a>
+
+                <a data-id="" data-report-date="" class="ui-dp-table-myreports-toolbox-ico-print" cplogevent="3" href="#">
+                    Print
+                    <p>Print VHR</p>
+                </a>
+
+                <a class="ui-dp-table-myreports-toolbox-ico-auth" onclick="pushGAEvent('customer_acknowledgement_form_click')" cplogevent="10" href="" target="_blank">
+                    Customer Acknowledgement
+                    <p>Generate form</p>
+                </a>
+                <a class="disclosure-form-icon open-saved-disclosure ga-event" href="" target="_blank" data-ga-category="Disclosure" data-ga-label="VHR MyReportsTool - Opened Saved Disclosure Form">
+                    Open Saved Disclosure
+                    <p>
+                        Disclosure Form
+                    </p>
+                </a>
+                <a class="disclosure-form-icon new-disclosure ga-event" onclick="pushGAEvent('disclosure_form_click')" href="" target="_blank" data-ga-category="Disclosure" data-ga-label="VHR MyReportsTool - Opened New Disclosure Form">
+                    New Disclosure
+                    <p>
+                        Disclosure Form
+                    </p>
+                </a>
+                <a class="ui-dp-table-myreports-toolbox-ico-reskin" cplogevent="6" href="#" data-encrypted-uvip-requestid-hl="">
+                    Reskin
+                    <p>Reskin to VHR/VHR (BC)</p>
+                </a>
+
+                <a data-cpo-id="" data-cpo-type="vw" cplogevent="7" class="cpo-icon cpo-icon-vw" href="#">CPO<p>Check CPO eligibility</p></a>
+                <a data-cpo-id="" data-cpo-type="audi" cplogevent="7" class="cpo-icon cpo-icon-audi" href="#">CPO<p>Check CPO eligibility</p></a>
+            </div>
+        </td>
+    </tr>
+    <tr class="tbl-summary-row dn ui-vhr-summary-flyout-tr" data-cplogid="" data-reporttype="" vin="" data-year="" data-mvid="" data-encryptedVvrId="">
+        <td class="tbl-vhr-summary-cell" colspan="7">
+            <div class="tbl-vhr-summary-container left-table-toggle"></div>
+        </td>
+        <td class="dn"><span class="yearMakeModel"></span></td>
+        <td class="dn"><span class="reportDate"></span></td>
+        <td class="dn"></td>
+        <td class="dn"></td>
+        <td class="dn"></td>
+        <td class="dn"></td>
+    </tr>
+</table>
+<script type="text/javascript">
+
+    function pushGAEvent(activityName) {
+        dataLayer.push({
+            'event': 'dealerPortal',
+            'dpActivity': activityName
+        });
+    }
+
+</script>
+
+
+<div class="ui-vvr-summary-flyout-generic-template" style="display: none;">
+    <div class="ui-vhr-summary-box-right-container">
+        <div class="ui-vhr-summary-box-right-heading">Server Outage</div>
+        <div class="ui-vhr-summary-box-right-txt-generic">Server Outage</div>
+    </div>
+</div>
+
+<div id="popupModal" class="modal fade modal-sm modal-width-100" tabindex="-1" role="dialog" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-body">
+
+                <div id="closebutton-lien-popup" data-dismiss="modal" data-target="#popupModal"
+                     style="cursor: pointer;
+            position: absolute;
+            top: 5px;
+            right: 5px;
+            padding: 3px 8px;
+            border-radius: 100px;
+            -webkit-border-radius: 100px;
+            -moz-border-radius: 100px;
+            color: white;
+            background-color: grey;
+            text-align:center;">x</div>
+
+                    <div id="titlebar" class="modal-popup-title">Purchase Vehicle History Report + Lien Check</div>
+                    <div id="info" class="modal-popup-info">A CARFAX Canada Vehicle History Report + Lien Check searches government records in each Canadian province and territory (excluding Northwest Territories) where the vehicle is currently registered and where it has historically been registered.</div>
+
+                <div id="details">
+                    <div id="detailVin">
+                        <div id="vinString">VIN:</div>
+                        <div id="actualVin"></div>
+                    </div>
+                    <table id="provPriceTable"></table>
+                    <div id="totalDetails">
+                    </div>
+                </div>
+
+                <div>
+                    <input type="button" value="Buy Now" class="modal-btn-red" style="font-size: 12px;">
+                </div>
+
+                <div style='clear:both'></div>
+
+
+                <div id="footer-spacer"></div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script type="text/javascript">
+    var inputData = 44847;
+    var isFrench = false;
+    function OpenNewTab(n){if(n.length>0){var t=window.open(n,"_blank");parseInt(navigator.appVersion)>=4&&t.window.focus()}}function OpenPopup(n,t,i){if(n.length>0){(t==0||t==null)&&(t=screen.availWidth/3*2);(i==0||i==null)&&(i=screen.availHeight-200);var r=(screen.width-t)/2,u=(screen.height-i)/2,f="height="+i+",width="+t+",top="+u+",left="+r+",scrollbars=yes,resizable=yes,location=yes",e=window.open(n,"",f);parseInt(navigator.appVersion)>=4&&e.window.focus()}}function updateReference(n){var i="#vhr-reference-"+n,t=$(i).val();t===""&&(t="NA");$.ajax({cache:!1,type:"POST",url:"/api/Ajax/updateReference?reportNumber="+n+"&reference="+t})}var currentTab="myvhrs"
+</script>
+
+
+<script src="/Scripts/typeahead.bundle.js" type="text/javascript"></script>
+<script src="/Scripts/ui-tab.js" type="text/javascript"></script>
+<script type="text/javascript">
+    
+    function rebindLienLinks() {
+        $('.subscription-lien-activate').unbind('click').click(function (e) {
+            e.preventDefault();
+        var _this = $(this);
+        $('#ajaxCallCompleted').remove();
+        var buttonTitle = $(this).text().trim();
+        var lienUrl = $(this).data("lienurl").trim();
+        var encryptedId = encodeURIComponent($(this).data("encryptedid"));
+        var sourceService = $(this).data("sourceService");
+        var selectedVin = $(this).data("vin");
+        $("#actualVin").html($(this).data("vin"));
+        var lienSearchAdd = $('<div />').html('Add Lien Express').text();
+        var verifiedSearchAdd = $('<div />').html('Purchase Vehicle History Report + Lien Check').text();
+        if(buttonTitle === lienSearchAdd && 'True'.toLowerCase() === 'true'){
+            $(".modal-popup-title").text(lienSearchAdd);
+        }
+        else if(buttonTitle === "Add Vehicle History Report + Lien Check" && 'True'.toLowerCase() === 'true'){
+            $(".modal-popup-title").text(verifiedSearchAdd);
+        }
+            if (lienUrl !== "") {
+				window.open(lienUrl);
+        } else {
+            $("#provPriceTable").empty();
+            $("#totalDetails").empty();
+            $(".modal-btn-red").hide();
+            $.ajax({
+                cache: false,
+                type: "GET",
+                url: "/api/Ajax/GetVhrReportUpgradePrice?encryptedUvipRequestId=" + encryptedId + '&username=matrixmotorsyeg@gmail.com_44847',
+                success: function( data ) {
+                    var incomplete = false;
+                    var total = 0;
+                    var payload = data ? data.ResponseData : undefined;
+
+                    if (!data || data.ResultCode !== 1) {
+                        $("#provPriceTable").append("<tr><td>Your CARFAX Canada Vehicle History Report report is pending. Please wait until it’s complete before adding a Lien Express.</td></tr>");
+                        $(".modal-btn-red").hide();
+                        $(".modal-popup-info").hide();
+                        $("#footer-details").hide();
+                        $("#totalDetails").hide();
+                        $("#footer-spacer").show();
+                    } else {
+                        total = payload.Total >= 0 ? payload.Total : 0;
+                        $.each(payload.UpgradePricing, function (key, val) {
+
+                            var provinceName = '';
+                            switch (key.toUpperCase()) {
+                            case 'AB': provinceName = 'Alberta'; break;
+                            case 'BC': provinceName = 'British Columbia'; break;
+                            case 'MB': provinceName = 'Manitoba'; break;
+                            case 'NB': provinceName = 'New Brunswick'; break;
+                            case 'NF': provinceName = 'Newfoundland and Labrador'; break;
+                            case 'NL': provinceName = 'Newfoundland and Labrador'; break;
+                            case 'NS': provinceName = 'Nova Scotia'; break;
+                            case 'ON': provinceName = 'Ontario'; break;
+                            case 'PE': provinceName = 'Prince Edward Island'; break;
+                            case 'QC': provinceName = 'Quebec'; break;
+                            case 'SK': provinceName = 'Saskatchewan'; break;
+                            case 'NT': provinceName = 'Northwest Territories'; break;
+                            case 'NU': provinceName = 'Nunavut'; break;
+                            case 'YT': provinceName = 'Yukon'; break;
+                            case 'VERIFIED': provinceName = 'Purchase Vehicle History Report + Lien Check'; break;
+                            case 'VERIFIEDBC': provinceName = 'Purchase Vehicle History Report + Lien Check(BC)'; break;
+
+                            }
+
+                            if (isFrench) {
+                                $("#provPriceTable").append('<tr><td class="provNameTable">' + provinceName + ':</td><td class="provPriceTable">' + val.toFixed(2).replace('.',',') + ' $</td></tr>');
+                            }
+                            else {
+                                $("#provPriceTable").append('<tr><td class="provNameTable">' + provinceName + ':</td><td class="provPriceTable">$' + val.toFixed(2) + '</td></tr>');
+                            }
+
+                        });
+
+                        if (buttonTitle === lienSearchAdd && 'True'.toLowerCase() === 'true') {
+                            var popupInfo = $('<div />').html('We have identified vehicle registration records pertaining to this vehicle in the provinces and territories below as of the date this report was generated. Would you like to search for liens which may be registered against this vehicle in these provinces and territories?').text();
+                            $(".modal-popup-info").text(popupInfo);
+                        }
+
+                        else if (buttonTitle == "Add Vehicle History Report + Lien Check" && 'True'.toLowerCase() === 'true') {
+                            var popupInfo = $('<div />').html('A CARFAX Canada Vehicle History Report + Lien Check searches government records in each Canadian province and territory (excluding Northwest Territories) where the vehicle is currently registered and where it has historically been registered.').text();
+                            $(".modal-popup-info").text(popupInfo);
+                        }
+
+                        if (isFrench) {
+                            $("#totalDetails").append('<div id="totalString">Your Total:</div><div id="totalAmount">' + total.toFixed(2).replace('.',',') + ' $</div>');
+                        }
+                        else {
+                            $("#totalDetails").append('<div id="totalString">Your Total:</div><div id="totalAmount">$' + total.toFixed(2) + '</div>');
+                        }
+
+                        $(".modal-btn-red").show();
+                        $(".modal-popup-info").show();
+                        $("#footer-details").show();
+                        $("#totalDetails").show();
+                        $("#footer-spacer").hide();
+                    }
+
+                    $('<div id="ajaxCallCompleted" style="display:hidden;"></div>').appendTo('body');
+                },
+                error: function (request, status, error) {
+                    //alert(request.responseText);
+                    $("#provPriceTable").empty();
+                    $("#provPriceTable").append("<tr><td>Your CARFAX Canada Vehicle History Report report is pending. Please wait until it’s complete before adding a Lien Express.</tr></td>");
+                    $(".modal-btn-red").hide();
+                    $(".modal-popup-info").hide();
+                    $("#footer-details").hide();
+                    $("#totalDetails").hide();
+                    $("#footer-spacer").show();
+                }
+            });
+
+            $(".modal-btn-red").unbind("click");
+            $(".modal-btn-red").click(function () {
+                var website = window.open('', '_blank');
+                $.ajax({
+                    type: "POST",
+                    url: '/api/Ajax/UpgradeVhrToClaimsPlusLiens?encryptedUvipRequestId=' + encryptedId + '&username=matrixmotorsyeg@gmail.com_44847',
+                    success: function (data) {
+                        if (!data || data.ResultCode !== 1) {
+                            $("#provPriceTable").append("<tr><td>ERROR</td></tr>");
+                            $(".modal-btn-red").hide();
+                            return;
+                        }
+
+                        $("#popupModal").modal("hide");
+                        website.location.href = 'https://vhr.carfax.ca/?id=' + data.ResponseData;
+                        location.reload();
+                    },
+                    error: function () {
+                        $("#provPriceTable").append("<tr><td>ERROR</td></tr>");
+                        $(".modal-btn-red").hide();
+                    }
+                });
+                $('#popupModal').modal('hide');
+            });
+        }
+    });
+        $('.quick-lien-activate').unbind('click').click(function (e) {
+            e.preventDefault();
+
+            var _this = $(this);
+            var lienUrl = $(this).data("lienurl");
+
+            if (lienUrl !== "") {
+                window.open(lienUrl);
+            } else {
+                var vin = $(this).data("vin");
+                _this.text('Ordering...');
+                _this.attr('disabled', 'disabled');
+                $.ajax({
+                        cache: false,
+                        type: "GET",
+                        url: "/api/Ajax/orderreport?vin=" + vin + "&reportType=5"
+                    })
+                    .done(function (url) {
+                        url = url.substr(url.indexOf('=') + 1);
+                        url = 'https://vhr.carfax.ca/?id=' + url;
+                        _this.data("lienurl", url);
+                        _this.text('View');
+                        _this.removeAttr('disabled');
+
+                        window.open(url);
+                    });
+            }
+        });
+
+        $(".nonsubscriber-verfied-upgrade").click(function () {
+            var _this = $(this);
+            var buttonTitle = $(this).text().trim();
+            var lienUrl = $(this).data("lienurl").trim();
+            var encryptedId = $(this).data("encryptedid");
+            var sourceService = $(this).data("sourceService");
+            $("#actualVin").html($(this).data("vin"));
+            var total = 0;
+            if (lienUrl !== "") {
+                window.open(lienUrl);
+            }
+            else {
+                $("#provPriceTable").empty();
+                $("#totalDetails").empty();
+                $(".modal-btn-red").hide();
+                $.ajax({
+                    cache: false,
+                    type: "GET",
+                    url: "/api/Ajax/getProvinceList?EncryptedId=" + encryptedId + '&Language=en',
+                    success: function (data) {
+                        var items = [];
+                        var incomplete = false;
+                        $.each(data, function (key, val) {
+                            var provinceName = '';
+                            switch (key.toUpperCase()) {
+                                case 'VERIFIED': provinceName = 'Purchase Verified'; break;
+                                case 'VERIFIEDBC': provinceName = 'Purchase Verified BC'; break;
+                                case 'INCOMPLETE': provinceName = ''; incomplete = true; break;
+                            }
+                            if (key.toUpperCase() != "INCOMPLETE") {
+                                if (isFrench) {
+                                    $("#provPriceTable").append('<tr><td class="provNameTable">' + provinceName + ':</td><td class="provPriceTable">' + val.toFixed(2) + ' $</td></tr>');
+                                }
+                                else {
+                                    $("#provPriceTable").append('<tr><td class="provNameTable">' + provinceName + ':</td><td class="provPriceTable">$' + val.toFixed(2) + '</td></tr>');
+                                }
+                                total = total + val;
+                            }
+                        });
+                        if (incomplete) {
+                            $("#provPriceTable").append("<tr><td>Your CARFAX Canada Claims report is pending. Please wait until it's complete before adding a lien search.</td></tr>");
+                            $(".modal-btn-red").hide();
+                            $(".modal-popup-info").hide();
+                            $("#footer-details").hide();
+                            $("#totalDetails").hide();
+                            $("#footer-spacer").show();
+                        }
+                        else {
+                            if (isFrench) {
+                                $("#totalDetails").append('<div id="totalString">Your Total:</div><div id="totalAmount">' + total.toFixed(2) + ' $</div>');
+                            }
+                            else {
+                                $("#totalDetails").append('<div id="totalString">Your Total:</div><div id="totalAmount">$' + total.toFixed(2) + '</div>');
+                            }
+                            $(".modal-btn-red").show();
+                            $(".modal-popup-info").show();
+                            $("#footer-details").show();
+                            $("#totalDetails").show();
+                            $("#footer-spacer").hide();
+                        }
+                    },
+                    error: function (request, status, error) {
+                        //alert(request.responseText);
+                        $("#provPriceTable").empty();
+                        $("#provPriceTable").append("<tr><td>Your CARFAX Canada Claims report is pending. Please wait until it's complete before adding a lien search.</td></tr>");
+                        $(".modal-btn-red").hide();
+                        $(".modal-popup-info").hide();
+                        $("#footer-details").hide();
+                        $("#totalDetails").hide();
+                        $("#footer-spacer").show();
+                    }
+                });
+                $(".modal-btn-red").unbind("click");
+                $(".modal-btn-red").click(function () {
+                    var website = window.open('', '_blank');
+                    $.ajax({
+                        type: "GET",
+                        url: '/api/ajax/upgradetoclaimsplusliens?id=' + encryptedId,
+                        success: function (data) {
+                            $("#popupModal").modal("hide");
+                            website.location.href = data;
+                            location.reload();
+                        },
+                        error: function () {
+                            $("#provPriceTable").append("<tr><td>ERROR</td></tr>");
+                            $(".modal-btn-red").hide();
+                        }
+                    });
+                    $("#popupModal").modal("hide");
+                });
+            }
+        });
+    }
+
+    $(document).ready(function () {
+        rebindLienLinks();
+    });
+    
+</script>
+
+<script type="text/javascript">
+    var enableNewVhr = true;
+    var hasVhrVvrIntegration = ('False'.toLowerCase() === 'true');
+    var vhrLinkTemplate = 'https://vhr.carfax.ca/?id=';
+    function ViewCPO(n,t,i){if(n.length>0){(t==0||t==null)&&(t=screen.availWidth/3*2);(i==0||i==null)&&(i=screen.availHeight-200);var r=(screen.width-t)/2,u=(screen.height-i)/2,f="height="+i+",width="+t+",top="+u+",left="+r+",scrollbars=no,menubar=no,toolbar=no,location=no,status=no,resizable=no",e=window.open(n,"",f);parseInt(navigator.appVersion)>=4&&e.window.focus()}}var flyoutModule=function(){return{firstLoadComplete:!1,onFirstLoad:function(n){typeof n=="function"&&(this.onFirstLoadCallback=n)},expandFlyout:function(n){var i=function(n,t){var i=$("#new-vhr-summary-template").clone(),u,r;hasVhrVvrIntegration||(u=i.find(".new-vhr-summary-container"),u.removeClass("col-xs-9"),u.addClass("col-xs-12"),i.find(".new-vvr-summary-container").remove());i.removeAttr("id");i.attr("data-reqid",t);i.find(".tile-vhr-link").attr("href",vhrLinkTemplate+encodeURIComponent(t));i.find(".vhr-frame").attr("src","https://vhr.carfax.ca/flyout?id="+encodeURIComponent(t));$(n).html("");r=$("<td/>");r.attr("colspan",7);r.addClass("no-v-padding");r.addClass("no-h-padding");i.appendTo(r);r.appendTo(n)},t;n!==undefined&&(t=$('tr[data-cplogid="'+n.attr("cplogid")+'"]'),t.data("vhr-complete")!=="true")&&(n.next().removeData("status-vvr"),i(t,n.attr("cplogid")))}}},vhrVvrIntegration=null,vhrVvrIntegrationModule=function(){var t="",r=null,n=null,u={},f=null,e=null,i=flyoutModule(),o;return i.onFirstLoad=enableNewVhr?startTour:null,window.addEventListener("message",function(n){var t,u,r;n.origin==="https://vhr.carfax.ca"&&(t=document.querySelector("tr[data-cplogid='"+n.data.ReportId+"']"),t!==null&&(n.data.IsReportComplete!==undefined&&(r=t.querySelector(".vhr-frame"),u=t.querySelector(".loading-tile"),u!==null&&u.classList.add("hidden"),r.classList.remove("hidden"),i.firstLoadComplete===!1&&typeof i.onFirstLoad=="function"&&i.onFirstLoad.call(),i.firstLoadComplete===!1&&startTour(),i.firstLoadComplete=!0,n.data.IsReportComplete&&$(t).data("vhr-complete","true")),n.data.FrameHeight!==undefined&&(r=t.querySelector(".vhr-frame"),r.style.height=n.data.FrameHeight)))}),o=function(){f=vhrIntegrationModule();e=vvrIntegrationModule();$("#my-reports-table").on("click",".bind-vhr-summary-tr-icon",function(){vhrVvrIntegration.expandContract($(this).closest("tr").first())})},u.expandFirst=function(){$("#my-reports-table div.bind-vhr-summary-tr-icon").first().trigger("click")},u.expandContract=function(u){var s,o;u!==undefined&&(r&&r.removeClass("ui-vhr-summary-tr-expanded active-data-row"),n&&n.hide(),s=u.attr("cplogid"),s===t?(t="",r=null,n=null):(o=!1,t=s,r=u,n=$(".ui-vhr-summary-flyout-tr[data-cplogid='"+t+"']"),n.length?n.show():(n=$(".ui-vhr-summary-flyout-tr-template .ui-vhr-summary-flyout-tr").clone(),n.attr("data-cplogid",t),r.after(n),o=!0),r.addClass("ui-vhr-summary-tr-expanded active-data-row"),enableNewVhr===!1?f.expand(t,n,o):(i.expandFlyout(u),f.expand(t,n,o)),hasVhrVvrIntegration&&e.expand(t,n,o)))},u.langCode="en",o(),u},vhrIntegrationModule=function(){var n={},t=function(n){return vhrLinkTemplate+n},r=function(){$("#my-reports-table").on("click","a.bind-vhr-summary-open-vhr",function(n){n.preventDefault();var i=t($(this).closest("tr").data("cplogid"));$(this).closest("tr").data("status-vhr")==="complete"&&(i+=$(this).attr("href"));OpenPopup(i,920,0)});$("#my-reports-table").on("click","input.bind-vhr-summary-open-vhr",function(n){n.preventDefault();OpenNewTab(t($(this).closest("tr").data("cplogid")))})},i=function(n,t,r){t.data("status-vhr","inprogress");var f=function(){setTimeout(function(){t.prev().hasClass("ui-vhr-summary-tr-expanded")?(e(t),i(n,t,!1)):t.data("status-vhr","")},6e4)};$.getJSON("/api/Ajax/GetVhrSummaryReportsList?id="+n+"&langcode="+vhrVvrIntegration.langCode,function(n){n?n.Message?f():(n.LienExpressIsVisible&&u(t,n),t.find(".ui-vhr-summary-loading-left").remove(),r&&t.find(".ui-vhr-summary-loading").remove(),n.IsExpired&&($(".ui-vhr-summary-box-left-scroll").css("display","none"),$(".ui-vhr-summary-box-left-expired").css("display","block")),n.IsComplete?t.data("status-vhr","complete"):f()):f()}).fail(function(){f()})},u=function(n,t){switch(t.LienExpressProvince){case"Alberta":t.LienExpressProvince="Alberta";break;case"BritishColumbia":t.LienExpressProvince="British Columbia";break;case"Manitoba":t.LienExpressProvince="Manitoba";break;case"New Brunswick":t.LienExpressProvince="New Brunswick";break;case"Newfoundland":t.LienExpressProvince="Newfoundland and Labrador";break;case"NewfoundlandandLabrador":t.LienExpressProvince="Newfoundland and Labrador";break;case"NovaScotia":t.LienExpressProvince="Nova Scotia";break;case"NorthwestTerritories":t.LienExpressProvince="Northwest Territories";break;case"Nunavut":t.LienExpressProvince="Nunavut";break;case"Ontario":t.LienExpressProvince="Ontario";break;case"PrinceEdwardIsland":t.LienExpressProvince="Prince Edward Island";break;case"Quebec":t.LienExpressProvince="Quebec";break;case"Saskatchewan":t.LienExpressProvince="Saskatchewan";break;case"YukonTerritories":t.LienExpressProvince="Yukon"}var i=t.LienExpressProvince?"<span>"+t.LienExpressProvince+"<\/span>":"";i+=t.LienText;f(n,t.LienExpressIsVisible,i,"lien-express")},f=function(n,t,i,r){if(t){var u=".ui-vhr-summary-"+r+"-wrap";n.find(u+" .bind-vhr-summary-"+r+"-value").html(i);n.find(u).removeClass("ui-vhr-summary-item-isloading")}},e=n=>{const t=n.find(".vhr-frame");t.attr("src",t.attr("src"))};return n.expand=function(n,t,r){t.data("status-vhr")||i(n,t,r)},r(),n},vvrIntegrationModule=function(){var i="https://vvr.carfax.ca/en-ca/Report?id=",t={},n=function(n){n.find(".bind-vvr-summary-view").html($(".ui-vvr-summary-flyout-generic-template").html())},r=function(){$("#my-reports-table").on("click",".bind-vvr-summary-open-vvr",function(n){n.preventDefault();window.open(i+$(this).data("navigation"))});$("#my-reports-table").on("click",".bind-vvr-summary-open-generic",function(n){n.preventDefault();window.open("/vvr")})};return t.expand=function(t,i){var r;if(i.data("status-vvr")!=="complete"){var e=$("tr[data-cplogId='"+t+"']").attr("vin"),f=$("tr[data-cplogId='"+t+"']").attr("data-year"),u=$("tr[data-cplogId='"+t+"']").attr("data-encryptedVvrId");i[0].dataset.reporttype!=="Lien"&&i[0].dataset.reporttype!=="Lien Express"?$.ajax({url:"/api/Ajax/GetVvrUrl?uvipRequestId="+encodeURIComponent(t),success:function(n){let e=i.attr("vin"),r=`mvDecodeModalListItem.open(vinDecodeService, "${e}", "${t}","${u}", false, false)`;if(i.find("#errorSummary").addClass("hidden"),i.find("#openMvSummary").addClass("hidden"),i.find("#vvrSummary").addClass("hidden"),i.find("#mvSummary").removeClass("hidden"),i.find(".run-mv-summary-box-text").text("Launch Market View to see this vehicle's market performance and generate a VVR to begin your appraisal."),i.find(".tile-mv-link").text("Run"),i.find(".tile-mv-link").attr("onclick",r),f<2e3)i.find("#mvSummary").addClass("hidden"),i.find("#errorSummary").removeClass("hidden");else if(i.attr("data-mvid")){i.find(".new-vvr-summary-container-divider").removeClass("hidden");i.find("#mvSummary").addClass("hidden");i.find("#openMvSummary").removeClass("hidden");r="window.open('"+n.mvUrl+"', '_blank','noreferrer');";i.find(".mv-summary-box-text").text("Assess this vehicle's market performance.");i.find(".tile-open-mv-link").text("Open");i.find(".tile-open-mv-link").attr("onclick",r);var o=n.vvrUrl?"window.open('"+n.vvrUrl+"', '_blank');":`mvDecodeModalListItem.open(vinDecodeService, "${e}", "${t}","${u}", true, true);`;i.find("#vvrSummary").removeClass("hidden");n.vvrUrl?i.find(".tile-open-vvr-link").text("Open"):i.find(".tile-open-vvr-link").text("Run");i.find(".vvr-summary-box-text").text("Appraise this vehicle and prepare a customer-facing Offer Sheet.");i.find(".tile-open-vvr-link").attr("onclick",o)}},error:function(){if(enableNewVhr===!0){var t=i.find(".ui-vhr-summary-box-right-container.loading").find(".loading-tile");t.removeClass("loading-tile");t.addClass("error-tile");t.find(".tile-icon").remove();t.text("Error Loading VVR")}else n(i)},complete:function(){i.find(".new-vvr-summary-container .loading").remove();i.data("status-vvr","complete")}}):(r=i.find(".new-vhr-summary-container"),r.removeClass("col-xs-9"),r.addClass("col-xs-12"),i.find(".new-vvr-summary-container").remove());return}},r(),t};$(function(){vhrVvrIntegration=vhrVvrIntegrationModule();enableNewVhr||vhrVvrIntegration.expandFirst()})
+</script>
+
+
+<script src="/bundles/vhr-js-body?v=ef7fZgRD7UqYSQMUgUzA_aMEKtmVy8mezA_OtiWsVRI1"></script>
+    <script type="text/javascript">
+
+
+        function runIntro(){var n=introJs();n.setOptions({steps:[{element:".ui-vhr-summary-flyout-tr",hideSkipLabel:!1,hidePrev:!0,position:"top-right-aligned",intro:"<h4>New Vehicle History Summary Section<\/h4><span>You can now view key vehicle history information directly from the My VHRs tab by clicking on the down pointing arrow beside your ordered reports. Click on any of the icons to go directly to that section of the report.<\/span>"}],nextLabel:"Next",hidePrev:!0,exitOnEsc:!1,exitOnOverlayClick:!1,showStepNumbers:!1,showBullets:!1,showProgress:!1,doneLabel:"Got it"});n.oncomplete(CompleteTour);n.start()}function startTour(){hasVhrVvrIntegration||$.ajax({type:"GET",url:"/api/ajax/GetCompletedActionByUserId?completedAction=NewVhrNoVvrSub",success:function(n){n===!1&&runIntro()}})}function CompleteTour(){hasVhrVvrIntegration||$.ajax({type:"POST",url:"/api/ajax/SetCompletedAction",contentType:"application/json",dataType:"json",data:"{ 'UserId': '85385', 'CompletedAction' : 'NewVhrNoVvrSub' }"})}
+    </script>
+
+            </div>
+        </div>
+    </div>
+
+    
+<div data-main-footer class="ui-dp-footer container-fluid">
+    <div class="col-lg-12 ui-dp-footer-box">
+        <div class="ui-dp-footer-social">
+            <a href="https://www.facebook.com/CARFAXCanada/" target="_blank"><img src="/Images/Shared/ico-social-fb.png" alt="Facebook" /></a>
+            <a href="https://twitter.com/CARFAXca" target="_blank"><img src="/Images/Shared/ico-social-twitter.png" alt="Twitter" /></a>
+            <a href="https://www.youtube.com/channel/UCeGH8famHJtLdiA276UHgXQ" target="_blank"><img src="/Images/Shared/ico-social-youtube.png" alt="YouTube" /></a>
+            <a href="https://www.linkedin.com/company/carfax-canada/" target="_blank"><img src="/Images/Shared/ico-social-linkedin.png" alt="LinkedIn" /></a>
+        </div>
+        <div class="ico-dp-footer-contact">100 Kellogg Lane, Suite 301<span class="footer-pipe">|</span>London, ON N5W 0B4<span class="footer-pipe">|</span><a href="/AboutUs/PrivacyLegal">Privacy/Legal</a><span class="footer-pipe">|</span><a href="https://www.carfax.ca/about-carfax/accessibility" target="_blank">Accessibility</a><span class="footer-pipe">|<wbr></span><a href="mailto:support@carfax.ca">support@carfax.ca</a></div>
+        <div class="ico-dp-footer-copyright">
+            &copy; Copyright 2005 -
+            2026
+            CARFAX Canada ULC. All rights reserved.
+        </div>
+        <div class="mb20">Google Play and the Google Play logo are trademarks of Google Inc.<br />Apple and the Apple logo are trademarks of Apple Inc., registered in the U.S. and other countries. App Store is a service mark of Apple Inc., registered in the U.S. and other countries.</div>
+    </div>
+</div>
+
+<script>
+    $(document).ready(function() {
+        NextPopup();
+    });
+</script>
+
+    <div class="modal fade" tabindex="-1" role="dialog" id="sessionExpirationLoggedOutModal" data-keyboard="false" data-backdrop="static">
+    <div class="modal-dialog" role="document" style="top:20vh;">
+        <div class="modal-content">
+            <div class="modal-body">
+                <p class="modal-title topmargin-35 bottommargin-25">Your session has expired.</p>
+                <p class="modal-text bottommargin-25 leftpadding-20 rightpadding-20">You have been logged out due to inactivity. <br class="hidden-xs" />Login again to pick up where you left off.</p>
+                <button class="button-lg bottommargin-25 margin-top-10" onclick="document.location.href = '/login?ReturnUrl=%2FMyReports';" class="btn">Login</button>
+            </div>
+        </div>
+    </div>
+</div>
+<div class="modal fade" tabindex="-1" role="dialog" id="multiSessionLoggedOutModal" data-keyboard="false" data-backdrop="static">
+    <div class="modal-dialog" role="document" style="top:20vh;">
+        <div class="modal-content">
+            <div class="modal-body">
+                <p class="modal-title topmargin-35 bottommargin-25">Your session has expired.</p>
+                <p class="modal-text bottommargin-25 leftpadding-20 rightpadding-20">You have been logged out this session because you are logged in on another device. Login again to pick up where you left off.</p>
+                <button class="button-lg bottommargin-25 margin-top-10" onclick="document.location.href = '/login?ReturnUrl=%2FMyReports';" class="btn">Login</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/microsoft-signalr/3.1.3/signalr.min.js"></script>
+    <script src="/bundles/dealerui?v=HH8oeXjHAlz21q9gZkRoFc7dNCR-qntFqS5MYG3W7DA1"></script>
+
+    <script type="text/javascript" charset="utf-8">
+        var cdnUrl = 'https://cdn.carfax.ca';
+        $(document).ready(function () {
+            $("#tipDiv").buildMbExtruder({
+                position: "right",
+                width: 230,
+                top: 0,
+                onExtOpen: function () { },
+                onExtContentLoad: function () { },
+                onExtClose: function () { }
+            });
+
+            var asInitVals = new Array();
+            /*
+             * Support functions to provide a little bit of 'user friendlyness' to the textboxes in
+             * the footer
+             */
+            $(".search_init").keyup(function () {
+                /* Filter on the column (the index) of this element */
+                table.fnFilter(this.value);
+            });
+
+            $(".search_init").each(function (i) {
+                asInitVals[i] = this.value;
+            });
+
+            $(".search_init").focus(function () {
+                if (this.className == "search_init") {
+                    this.className = "";
+                    this.value = "";
+                }
+            });
+
+            $(".search_init").blur(function (i) {
+                if (this.value == "") {
+                    this.className = "search_init";
+                    this.value = asInitVals[$(".search_init").index(this)];
+                }
+            });
+
+            // Allow footer resize override
+            if (typeof resizeFooter === "undefined") {
+                $(function () {
+                    var footerHeight = $(".ui-dp-footer").height();
+                    $("body").css("margin-bottom", footerHeight + 80);
+                    $(".ui-dp-footer").css("margin-top", -footerHeight);
+                });
+            }
+        });
+    </script>
+    <script>
+        hubUrl = 'https://dealerapi.carfax.ca/sessionhub';
+        autoExpireSession = reconnect = JSON.parse(true);
+    </script>
+    
+</body>
+</html>
