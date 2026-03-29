@@ -533,11 +533,17 @@ function searchTypesense(site, vin) {
     var docVin = doc.vin ? doc.vin.toString().trim().toUpperCase() : "";
     if (docVin !== vin.toUpperCase()) return null;
 
-    // Build the URL slug from the document fields
-    var id   = doc.id        || doc.post_id    || doc.vehicle_id || "";
-    var slug = doc.slug      || doc.url_slug   || doc.page_url   || "";
+    // page_url already contains the complete relative path, e.g. "inventory/2013-volkswagen-tiguan-s/391"
+    // Use it directly — do NOT prepend "/inventory/" or append the id again.
+    if (doc.page_url) {
+      var path = doc.page_url.toString().trim().replace(/^\/+|\/+$/g, "");
+      return site.siteUrl + "/" + path + "/";
+    }
 
-    // If no pre-built slug, construct one from year/make/model/trim
+    // Fallback: construct from separate slug + id fields if page_url is absent
+    var id   = doc.id    || doc.post_id  || doc.vehicle_id || "";
+    var slug = doc.slug  || doc.url_slug || "";
+
     if (!slug && doc.year && doc.make && doc.model) {
       slug = [doc.year, doc.make, doc.model, doc.trim || ""]
         .filter(function(part) { return String(part).trim() !== ""; })
@@ -548,7 +554,7 @@ function searchTypesense(site, vin) {
     }
 
     if (!id || !slug) return null;
-    return site.siteUrl + "/inventory/" + slug + "/" + id;
+    return site.siteUrl + "/inventory/" + slug + "/" + id + "/";
   } catch (err) {
     return null;
   }
