@@ -1,0 +1,35 @@
+=== CARFAX AUTOMATION v1.1 ===
+
+[9:18:16 p.m.] Reading VINs from spreadsheet...
+[9:18:21 p.m.] Found 94 VINs that need Carfax links.
+
+[9:18:21 p.m.] Launching Chrome... (a browser window will open — do not close it)
+
+
+ERROR: Could not launch Chrome: browserType.launchPersistentContext: Target page, context or browser has been closed
+Browser logs:
+
+<launching> C:\Program Files\Google\Chrome\Application\chrome.exe --disable-field-trial-config --disable-background-networking --disable-background-timer-throttling --disable-backgrounding-occluded-windows --disable-back-forward-cache --disable-breakpad --disable-client-side-phishing-detection --disable-component-extensions-with-background-pages --disable-component-update --no-default-browser-check --disable-default-apps --disable-dev-shm-usage --disable-extensions --disable-features=AvoidUnnecessaryBeforeUnloadCheckSync,BoundaryEventDispatchTracksNodeRemoval,DestroyProfileOnBrowserClose,DialMediaRouteProvider,GlobalMediaControls,HttpsUpgrades,LensOverlay,MediaRouter,PaintHolding,ThirdPartyStoragePartitioning,Translate,AutoDeElevate,RenderDocument,OptimizationHints --enable-features=CDPScreenshotNewSurface --allow-pre-commit-input --disable-hang-monitor --disable-ipc-flooding-protection --disable-popup-blocking --disable-prompt-on-repost --disable-renderer-backgrounding --force-color-profile=srgb --metrics-recording-only --no-first-run --password-store=basic --use-mock-keychain --no-service-autorun --export-tagged-pdf --disable-search-engine-choice-screen --unsafely-disable-devtools-self-xss-warnings --edge-skip-compat-layer-relaunch --disable-infobars --disable-search-engine-choice-screen --disable-sync --enable-unsafe-swiftshader --no-sandbox --profile-directory=Default --disable-blink-features=AutomationControlled --no-first-run --no-default-browser-check --user-data-dir=C:\Users\ijomh\AppData\Local\Google\Chrome\User Data --remote-debugging-pipe about:blank
+<launched> pid=61324
+[pid=61324][out] Opening in existing browser session.
+Call log:
+  - <launching> C:\Program Files\Google\Chrome\Application\chrome.exe --disable-field-trial-config --disable-background-networking --disable-background-timer-throttling --disable-backgrounding-occluded-windows --disable-back-forward-cache --disable-breakpad --disable-client-side-phishing-detection --disable-component-extensions-with-background-pages --disable-component-update --no-default-browser-check --disable-default-apps --disable-dev-shm-usage --disable-extensions --disable-features=AvoidUnnecessaryBeforeUnloadCheckSync,BoundaryEventDispatchTracksNodeRemoval,DestroyProfileOnBrowserClose,DialMediaRouteProvider,GlobalMediaControls,HttpsUpgrades,LensOverlay,MediaRouter,PaintHolding,ThirdPartyStoragePartitioning,Translate,AutoDeElevate,RenderDocument,OptimizationHints --enable-features=CDPScreenshotNewSurface --allow-pre-commit-input --disable-hang-monitor --disable-ipc-flooding-protection --disable-popup-blocking --disable-prompt-on-repost --disable-renderer-backgrounding --force-color-profile=srgb --metrics-recording-only --no-first-run --password-store=basic --use-mock-keychain --no-service-autorun --export-tagged-pdf --disable-search-engine-choice-screen --unsafely-disable-devtools-self-xss-warnings --edge-skip-compat-layer-relaunch --disable-infobars --disable-search-engine-choice-screen --disable-sync --enable-unsafe-swiftshader --no-sandbox --profile-directory=Default --disable-blink-features=AutomationControlled --no-first-run --no-default-browser-check --user-data-dir=C:\Users\ijomh\AppData\Local\Google\Chrome\User Data --remote-debugging-pipe about:blank
+  - <launched> pid=61324
+  - [pid=61324][out] Opening in existing browser session.
+  - [pid=61324] <gracefully close start>
+  - [pid=61324] <kill>
+  - [pid=61324] <will force kill>
+  - [pid=61324] taskkill stderr: ERROR: The process "61324" not found.
+  - [pid=61324] <process did exit: exitCode=0, signal=null>
+  - [pid=61324] starting temporary directories cleanup
+  - [pid=61324] finished temporary directories cleanup
+  - [pid=61324] <gracefully close end>
+
+
+Possible fixes:
+  1. Make sure Google Chrome is installed.
+  2. Close all Chrome windows before running this script.
+  3. Set CHROME_PROFILE_PATH in your .env file.
+
+
+C:\Users\ijomh\Downloads\carfax-automation>
