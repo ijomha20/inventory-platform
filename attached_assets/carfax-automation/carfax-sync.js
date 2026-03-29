@@ -81,9 +81,85 @@ function sleep(ms) {
   return new Promise(function(r) { setTimeout(r, ms); });
 }
 
+function rand(min, max) {
+  return Math.floor(Math.random() * (max - min + 1)) + min;
+}
+
 function humanDelay(base) {
-  var jitter = Math.floor(Math.random() * 1000);
-  return sleep(base + jitter);
+  return sleep(base + rand(0, 1000));
+}
+
+// Move the mouse from its current position to the target element
+// along a curved path with slight wobble, then click.
+// This simulates a real human moving the cursor across the screen.
+async function humanClick(page, element) {
+  var box = await element.boundingBox();
+  if (!box) {
+    await element.click();
+    return;
+  }
+
+  // Target: a random point inside the element (not always dead center)
+  var targetX = box.x + rand(Math.floor(box.width * 0.2), Math.floor(box.width * 0.8));
+  var targetY = box.y + rand(Math.floor(box.height * 0.2), Math.floor(box.height * 0.8));
+
+  // Start from a plausible "last position" somewhere on the screen
+  var startX = rand(100, 900);
+  var startY = rand(100, 600);
+
+  // Move in small steps with slight random wobble
+  var steps = rand(12, 22);
+  for (var i = 0; i <= steps; i++) {
+    var t     = i / steps;
+    // Ease in-out curve
+    var ease  = t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t;
+    var x     = startX + (targetX - startX) * ease + rand(-3, 3);
+    var y     = startY + (targetY - startY) * ease + rand(-3, 3);
+    await page.mouse.move(x, y);
+    await sleep(rand(8, 22));
+  }
+
+  // Small pause before clicking, like a human settling the cursor
+  await sleep(rand(60, 180));
+  await page.mouse.click(targetX, targetY);
+}
+
+// Type a string with variable per-character timing and occasional pauses,
+// simulating the natural rhythm of human typing.
+async function humanType(element, text) {
+  await element.click();
+  await sleep(rand(80, 200));
+
+  for (var i = 0; i < text.length; i++) {
+    await element.type(text[i], { delay: 0 });
+
+    // Base keystroke gap: 60-160ms
+    var charDelay = rand(60, 160);
+
+    // Occasionally pause mid-word as if thinking (every ~4-7 chars)
+    if (i > 0 && i % rand(4, 7) === 0) {
+      charDelay += rand(150, 400);
+    }
+
+    await sleep(charDelay);
+  }
+
+  // Brief pause after finishing typing before pressing Enter
+  await sleep(rand(200, 500));
+}
+
+// Perform a small natural scroll as a human would while waiting
+// for a page to load or scanning results.
+async function humanScroll(page) {
+  var scrollY = rand(60, 220);
+  var direction = Math.random() > 0.3 ? 1 : -1;
+  await page.mouse.wheel(0, scrollY * direction);
+  await sleep(rand(300, 700));
+  // Sometimes scroll back a little
+  if (Math.random() > 0.6) {
+    await page.mouse.wheel(0, -rand(20, 80));
+    await sleep(rand(200, 400));
+  }
 }
 
 function getChromePath() {
@@ -254,18 +330,22 @@ async function processVin(page, vin, screenshotDir) {
       return 'ERROR';
     }
 
-    // Clear any existing text and type the VIN
-    await searchInput.click({ clickCount: 3 });
-    await searchInput.fill('');
-    await humanDelay(300);
-    await searchInput.type(vin, { delay: 80 });
-    await humanDelay(500);
+    // Clear any existing text, then type the VIN with human-like keystrokes
+    await humanClick(page, searchInput);
+    await searchInput.selectText().catch(function() {});
+    await page.keyboard.press('Control+A');
+    await sleep(rand(80, 180));
+    await page.keyboard.press('Backspace');
+    await sleep(rand(100, 250));
+    await humanType(searchInput, vin);
+    await humanScroll(page);
     await searchInput.press('Enter');
     await humanDelay(2000);
 
     // Wait for results to load
     await page.waitForLoadState('domcontentloaded');
     await humanDelay(1500);
+    await humanScroll(page);
 
     // Check for a report link in "My VHRs" results
     var reportLink = await findReportLink(page);
@@ -283,21 +363,24 @@ async function processVin(page, vin, screenshotDir) {
       // Try to click the Global Archive toggle
       var archiveToggle = await findElement(page, SELECTORS.globalArchiveToggle, 3000);
       if (archiveToggle) {
-        await archiveToggle.click();
+        await humanClick(page, archiveToggle);
         await humanDelay(2000);
 
         // Search again with the VIN
         var searchInput2 = await findElement(page, SELECTORS.vinSearchInput, 4000);
         if (searchInput2) {
-          await searchInput2.click({ clickCount: 3 });
-          await searchInput2.fill('');
-          await humanDelay(300);
-          await searchInput2.type(vin, { delay: 80 });
-          await humanDelay(500);
+          await humanClick(page, searchInput2);
+          await page.keyboard.press('Control+A');
+          await sleep(rand(80, 180));
+          await page.keyboard.press('Backspace');
+          await sleep(rand(100, 250));
+          await humanType(searchInput2, vin);
+          await humanScroll(page);
           await searchInput2.press('Enter');
           await humanDelay(2500);
           await page.waitForLoadState('domcontentloaded');
           await humanDelay(1500);
+          await humanScroll(page);
 
           var reportLink2 = await findReportLink(page);
           if (reportLink2) {
