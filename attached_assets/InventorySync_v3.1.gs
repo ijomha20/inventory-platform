@@ -1,5 +1,5 @@
 // =============================================================================
-// MATRIX INVENTORY SYNC v3.1
+// MATRIX INVENTORY SYNC v3.2
 // =============================================================================
 // Pulls directly from the shared Matrix spreadsheet into "My List".
 // No intermediate Source List tab required.
@@ -16,6 +16,7 @@
 //   I  Price Changed   (timestamp of last price change, auto-written)
 //   J  Carfax          (populated by the Carfax automation script)
 //   K  Website         (inventory URL; Parkdale preferred, Matrix fallback)
+//   L  Online Price    (current retail price from dealer website via Typesense)
 //
 // Rows are sorted by column I descending (most recently changed at top).
 //
@@ -37,7 +38,8 @@ var COL_NOTES         = 7;
 var COL_PRICE_CHANGED = 8;
 var COL_CARFAX        = 9;
 var COL_WEBSITE       = 10;
-var TOTAL_COLS        = 11;
+var COL_ONLINE_PRICE  = 11;
+var TOTAL_COLS        = 12;
 
 // Website link lookup (Typesense — same engine both sites use)
 var TYPESENSE_HOST = "v6eba1srpfohj89dp-1.a1.typesense.net";
@@ -74,6 +76,7 @@ function onOpen() {
     .createMenu("Inventory Sync")
     .addItem("Sync Now", "syncNow")
     .addItem("Fetch Website Links", "fetchWebsiteLinks")
+    .addItem("Fetch Online Prices", "fetchOnlinePrices")
     .addSeparator()
     .addItem("First-Time Setup", "firstTimeSetup")
     .addItem("Setup Auto-Notifications", "setupNotificationTrigger")
@@ -147,11 +150,20 @@ function firstTimeSetup() {
 
   if (!ss.getSheetByName(TAB_MY_LIST)) {
     var m  = ss.insertSheet(TAB_MY_LIST);
-    var mh = ["Location", "VIN", "Year/Make", "Model", "Mileage", "Price", "Prev Price", "Notes", "Price Changed", "Carfax", "Website"];
+    var mh = ["Location", "VIN", "Year/Make", "Model", "Mileage", "Price", "Prev Price", "Notes", "Price Changed", "Carfax", "Website", "Online Price"];
     m.getRange(1, 1, 1, mh.length).setValues([mh]).setFontWeight("bold");
     m.setFrozenRows(1);
     m.setColumnWidth(COL_PRICE_CHANGED + 1, 145);
+    m.setColumnWidth(COL_ONLINE_PRICE  + 1, 120);
     created.push(TAB_MY_LIST);
+  } else {
+    // Ensure the Online Price header exists on existing sheets
+    var existingSheet = ss.getSheetByName(TAB_MY_LIST);
+    var headerVal = existingSheet.getRange(1, COL_ONLINE_PRICE + 1).getValue();
+    if (!headerVal || headerVal.toString().trim() === "") {
+      existingSheet.getRange(1, COL_ONLINE_PRICE + 1).setValue("Online Price").setFontWeight("bold");
+      existingSheet.setColumnWidth(COL_ONLINE_PRICE + 1, 120);
+    }
   }
 
   if (created.length > 0) {
@@ -257,7 +269,8 @@ function performSync(isHeadless) {
   for (var r = 0; r < rawRows.length; r++) {
     var sVin = rawRows[r][1] ? rawRows[r][1].toString().trim().toLowerCase() : "";
     if (sVin === "" || currentVinSet[sVin]) continue;
-    newRows.push(["MM", rawRows[r][1], rawRows[r][2], rawRows[r][3], rawRows[r][4], rawRows[r][5], "", "", "", ""]);
+    // 12 columns: A-L (Online Price starts blank; filled by fetchOnlinePrices)
+    newRows.push(["MM", rawRows[r][1], rawRows[r][2], rawRows[r][3], rawRows[r][4], rawRows[r][5], "", "", "", "", "", ""]);
     newVins.push(sVin);
   }
   if (newRows.length > 0) {
@@ -276,6 +289,7 @@ function performSync(isHeadless) {
     mySheet.getRange(2, COL_MILEAGE + 1,       dataRows, 1).setNumberFormat("#,##0").setHorizontalAlignment("left");
     mySheet.getRange(2, COL_PRICE + 1,         dataRows, 2).setNumberFormat("$#,##0.00");
     mySheet.getRange(2, COL_PRICE_CHANGED + 1, dataRows, 1).setNumberFormat("yyyy-MM-dd HH:mm").setHorizontalAlignment("center");
+    mySheet.getRange(2, COL_ONLINE_PRICE + 1,  dataRows, 1).setNumberFormat("$#,##0.00");
     dataRange.setBackground(null);
   }
 
@@ -291,8 +305,8 @@ function performSync(isHeadless) {
       var floc = finalData[f][COL_LOCATION] ? finalData[f][COL_LOCATION].toString().trim().toUpperCase() : "";
       var fvin = finalData[f][COL_VIN]      ? finalData[f][COL_VIN].toString().trim().toLowerCase()      : "";
       if (floc !== "MM" || fvin === "") continue;
-      if (newVinSet[fvin])          cyanRanges.push("A" + (f + 1) + ":J" + (f + 1));
-      else if (changedVinSet[fvin]) yellowRanges.push("A" + (f + 1) + ":J" + (f + 1));
+      if (newVinSet[fvin])          cyanRanges.push("A" + (f + 1) + ":K" + (f + 1));
+      else if (changedVinSet[fvin]) yellowRanges.push("A" + (f + 1) + ":K" + (f + 1));
     }
     if (cyanRanges.length > 0)   mySheet.getRangeList(cyanRanges).setBackground("#00FFFF");
     if (yellowRanges.length > 0) mySheet.getRangeList(yellowRanges).setBackground("#FFFF00");
@@ -610,5 +624,111 @@ function fetchWebsiteLinks() {
     "  Links found : " + found    + "\n" +
     "  Not found   : " + missing  + "\n" +
     "  Skipped     : " + skipped
+  );
+}
+
+// =============================================================================
+// ONLINE PRICE LOOKUP (Column L)
+// Queries each dealer's Typesense index for the current retail price.
+// Parkdale is tried first; Matrix used if not found there.
+// Updates ALL rows on every run so prices stay current.
+// Run this from the "Inventory Sync" menu: Fetch Online Prices.
+// =============================================================================
+
+/**
+ * Searches one dealer's Typesense collection for a VIN and returns the
+ * current retail price as a number, or null if not found.
+ * Uses special_price when active, otherwise falls back to regular price.
+ */
+function searchTypesensePrice(site, vin) {
+  var endpoint = "https://" + TYPESENSE_HOST +
+    "/collections/" + site.collection +
+    "/documents/search" +
+    "?q="            + encodeURIComponent(vin) +
+    "&query_by=vin"  +
+    "&num_typos=0"   +
+    "&per_page=1"    +
+    "&x-typesense-api-key=" + site.apiKey;
+
+  try {
+    var resp = UrlFetchApp.fetch(endpoint, { muteHttpExceptions: true });
+    if (resp.getResponseCode() !== 200) return null;
+    var body = JSON.parse(resp.getContentText());
+    if (!body.hits || body.hits.length === 0) return null;
+
+    var doc = body.hits[0].document;
+
+    // Verify exact VIN match
+    var docVin = doc.vin ? doc.vin.toString().trim().toUpperCase() : "";
+    if (docVin !== vin.toUpperCase()) return null;
+
+    var specialOn    = parseInt(doc.special_price_on) === 1;
+    var specialPrice = parseFloat(doc.special_price);
+    var regularPrice = parseFloat(doc.price);
+
+    var price = (specialOn && !isNaN(specialPrice) && specialPrice > 0) ? specialPrice : regularPrice;
+
+    if (isNaN(price) || price <= 0) return null;
+    return price;
+  } catch (err) {
+    return null;
+  }
+}
+
+/**
+ * Fetches the current online retail price for every row in My List and
+ * writes it to column L (Online Price).  Updates all rows every time so
+ * prices stay fresh.  Run from "Inventory Sync > Fetch Online Prices".
+ */
+function fetchOnlinePrices() {
+  var ss    = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getSheetByName(TAB_MY_LIST);
+  if (!sheet) {
+    SpreadsheetApp.getUi().alert("My List tab not found.");
+    return;
+  }
+
+  // Ensure header exists
+  sheet.getRange(1, COL_ONLINE_PRICE + 1).setValue("Online Price").setFontWeight("bold");
+
+  var data    = sheet.getDataRange().getValues();
+  var found   = 0;
+  var missing = 0;
+  var skipped = 0;
+
+  for (var i = 1; i < data.length; i++) {
+    var vin = data[i][COL_VIN] ? data[i][COL_VIN].toString().trim() : "";
+
+    if (!vin || vin.length < 6) { skipped++; continue; }
+
+    var price = null;
+    // Try each site in order: Parkdale first, Matrix second
+    for (var s = 0; s < DEALER_SITES.length; s++) {
+      price = searchTypesensePrice(DEALER_SITES[s], vin);
+      if (price !== null) break;
+    }
+
+    if (price !== null) {
+      sheet.getRange(i + 1, COL_ONLINE_PRICE + 1).setValue(price);
+      found++;
+    } else {
+      sheet.getRange(i + 1, COL_ONLINE_PRICE + 1).setValue("NOT FOUND");
+      missing++;
+    }
+
+    Utilities.sleep(300);
+  }
+
+  // Format column L as currency for all data rows
+  var dataRows = data.length - 1;
+  if (dataRows > 0) {
+    sheet.getRange(2, COL_ONLINE_PRICE + 1, dataRows, 1).setNumberFormat("$#,##0.00");
+  }
+
+  SpreadsheetApp.getUi().alert(
+    "Online price lookup complete.\n\n" +
+    "  Prices found : " + found   + "\n" +
+    "  Not found    : " + missing + "\n" +
+    "  Skipped      : " + skipped
   );
 }
