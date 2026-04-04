@@ -326,25 +326,57 @@ async function ensureLoggedIn(browser: any, page: any): Promise<boolean> {
 // VIN lookup — uses dealer portal search, same as desktop script
 // ---------------------------------------------------------------------------
 
+function isValidReportHref(href: string | null): boolean {
+  if (!href) return false;
+  const h = href.trim();
+  // Reject placeholders, fragments-only, javascript links, empty
+  if (!h || h === "#" || h.startsWith("javascript:") || h === "about:blank") return false;
+  return true;
+}
+
+async function getRawHref(el: any): Promise<string | null> {
+  // Use getAttribute for raw HTML value — mirrors original Playwright getAttribute behaviour
+  // Avoids Puppeteer's getProperty('href') which resolves relative/fragment URLs into full URLs
+  try {
+    return await el.evaluate((a: Element) => a.getAttribute("href"));
+  } catch (_) { return null; }
+}
+
 async function findReportLink(page: any): Promise<string | null> {
   for (const sel of REPORT_LINK_SELECTORS) {
     try {
-      const el = await page.$(sel);
+      // visible:true mirrors Playwright's default — skips hidden template/placeholder elements
+      const el = await page.$(sel + ":not([style*='display: none']):not([style*='display:none'])");
       if (el) {
-        let href = await el.getProperty("href").then((p: any) => p.jsonValue());
-        if (href) {
-          if (href.startsWith("/")) href = "https://dealer.carfax.ca" + href;
-          return href;
+        const visible = await el.evaluate((e: Element) => {
+          const s = window.getComputedStyle(e);
+          return s.display !== "none" && s.visibility !== "hidden" && (e as HTMLElement).offsetParent !== null;
+        }).catch(() => false);
+        if (!visible) continue;
+
+        const href = await getRawHref(el);
+        if (isValidReportHref(href)) {
+          let resolved = href!;
+          if (resolved.startsWith("/")) resolved = "https://dealer.carfax.ca" + resolved;
+          return resolved;
         }
       }
     } catch (_) { /* try next */ }
   }
-  // Fallback: scan all links
+  // Fallback: scan all visible links for known report URL patterns
   try {
     const links = await page.$$("a[href]");
     for (const link of links) {
-      const h: string = await link.getProperty("href").then((p: any) => p.jsonValue()).catch(() => "");
-      if (h && (h.includes("cfm/display_cfm") || h.includes("cfm/vhr") || h.includes("vehicle-history") || h.includes("carfax.ca/cfm"))) {
+      const href = await getRawHref(link);
+      if (!isValidReportHref(href)) continue;
+      const h = href!;
+      if (
+        h.includes("cfm/display_cfm") ||
+        h.includes("cfm/vhr") ||
+        h.includes("vehicle-history") ||
+        h.includes("vhr.carfax.ca") ||
+        h.includes("carfax.ca/cfm")
+      ) {
         return h.startsWith("/") ? "https://dealer.carfax.ca" + h : h;
       }
     }
@@ -379,10 +411,19 @@ async function lookupVinOnDealerPortal(
     await sleep(rand(80, 180));
     await humanType(page, searchInput, vin);
 
-    // Wait for results — My VHRs tab
+    // Human scroll after typing — mirrors original desktop script exactly.
+    // Gives the AJAX search time to fire and load results before we check.
+    await page.mouse.wheel({ deltaY: rand(60, 220) * (Math.random() > 0.3 ? 1 : -1) });
+    await sleep(rand(300, 700));
+    if (Math.random() > 0.6) {
+      await page.mouse.wheel({ deltaY: -rand(20, 80) });
+      await sleep(rand(200, 400));
+    }
+
+    // Wait for a VISIBLE reportLink — visible:true skips hidden DOM placeholders
     let found = false;
     try {
-      await page.waitForSelector("a.reportLink", { timeout: 10_000 });
+      await page.waitForSelector("a.reportLink", { visible: true, timeout: 10_000 });
       found = true;
     } catch (_) { found = false; }
 
@@ -405,7 +446,7 @@ async function lookupVinOnDealerPortal(
     await humanClick(page, archiveToggle);
     let found2 = false;
     try {
-      await page.waitForSelector("a.reportLink", { timeout: 6_000 });
+      await page.waitForSelector("a.reportLink", { visible: true, timeout: 6_000 });
       found2 = true;
     } catch (_) { found2 = false; }
 
