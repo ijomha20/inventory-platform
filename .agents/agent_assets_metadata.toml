@@ -6,3 +6,9 @@ id = "ktT5tIlH2-srenEc1uOF4"
 uri = "file://downloads/carfaxWorker.pdf"
 type = "pdf"
 title = "carfaxWorker.ts — Carfax Cloud Worker"
+
+[[outputs]]
+id = "T_0tOJXwyTkyNFggxyhrv"
+uri = "file://downloads/inventory-platform-full-code.md"
+type = "text"
+title = "Inventory Platform — Complete Source Code"
