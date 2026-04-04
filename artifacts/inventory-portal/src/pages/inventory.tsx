@@ -7,7 +7,8 @@ import {
 } from "@workspace/api-client-react";
 import {
   Search, ExternalLink, FileText, AlertCircle, ChevronUp, ChevronDown,
-  ChevronsUpDown, Copy, Check, RefreshCw, Camera, X, ChevronLeft, ChevronRight,
+  ChevronsUpDown, Copy, Check, RefreshCw, Camera, X, ChevronLeft,
+  ChevronRight, SlidersHorizontal,
 } from "lucide-react";
 import { useLocation } from "wouter";
 import { FullScreenSpinner } from "@/components/ui/spinner";
@@ -15,10 +16,29 @@ import { FullScreenSpinner } from "@/components/ui/spinner";
 type SortKey = "location" | "vehicle" | "vin" | "price" | "km";
 type SortDir = "asc" | "desc";
 
+interface Filters {
+  yearMin:   string;
+  yearMax:   string;
+  kmMax:     string;
+  priceMin:  string;
+  priceMax:  string;
+}
+
+const EMPTY_FILTERS: Filters = { yearMin: "", yearMax: "", kmMax: "", priceMin: "", priceMax: "" };
+
+function parseNum(s: string): number {
+  return parseFloat(s.replace(/[^0-9.]/g, "")) || 0;
+}
+
+function extractYear(vehicle: string): number {
+  const y = parseInt(vehicle.trim().split(/\s+/)[0] ?? "0", 10);
+  return y > 1900 && y < 2100 ? y : 0;
+}
+
 function formatPrice(raw: string | undefined): string {
   if (!raw || raw === "NOT FOUND") return "—";
-  const n = parseFloat(raw.replace(/[^0-9.]/g, ""));
-  if (isNaN(n) || n === 0) return "—";
+  const n = parseNum(raw);
+  if (!n) return "—";
   return "$" + Math.round(n).toLocaleString("en-US");
 }
 
@@ -33,7 +53,7 @@ function timeAgo(iso: string | null | undefined): string {
 function SortIcon({ active, dir }: { active: boolean; dir: SortDir }) {
   if (!active) return <ChevronsUpDown className="w-3.5 h-3.5 opacity-30 inline ml-1" />;
   return dir === "asc"
-    ? <ChevronUp className="w-3.5 h-3.5 text-blue-600 inline ml-1" />
+    ? <ChevronUp   className="w-3.5 h-3.5 text-blue-600 inline ml-1" />
     : <ChevronDown className="w-3.5 h-3.5 text-blue-600 inline ml-1" />;
 }
 
@@ -51,7 +71,7 @@ function CopyVin({ vin }: { vin: string }) {
       <span className="font-mono text-xs">{vin}</span>
       {copied
         ? <Check className="w-3.5 h-3.5 text-green-600 shrink-0" />
-        : <Copy className="w-3.5 h-3.5 opacity-0 group-hover:opacity-40 shrink-0 transition-opacity" />}
+        : <Copy  className="w-3.5 h-3.5 opacity-0 group-hover:opacity-40 shrink-0 transition-opacity" />}
     </button>
   );
 }
@@ -64,55 +84,43 @@ function PhotoGallery({ vin, onClose }: { vin: string; onClose: () => void }) {
 
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-      if (e.key === "ArrowRight") setIdx((i) => Math.min(i + 1, urls.length - 1));
-      if (e.key === "ArrowLeft")  setIdx((i) => Math.max(i - 1, 0));
+      if (e.key === "Escape")      onClose();
+      if (e.key === "ArrowRight")  setIdx((i) => Math.min(i + 1, urls.length - 1));
+      if (e.key === "ArrowLeft")   setIdx((i) => Math.max(i - 1, 0));
     };
     window.addEventListener("keydown", handleKey);
     return () => window.removeEventListener("keydown", handleKey);
   }, [urls.length, onClose]);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4"
-      onClick={onClose}>
-      <div className="relative max-w-4xl w-full bg-white rounded-xl overflow-hidden shadow-2xl"
-        onClick={(e) => e.stopPropagation()}>
-
-        <button onClick={onClose}
-          className="absolute top-3 right-3 z-10 p-1.5 bg-white/90 rounded-full shadow hover:bg-gray-100">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4" onClick={onClose}>
+      <div className="relative max-w-4xl w-full bg-white rounded-xl overflow-hidden shadow-2xl" onClick={(e) => e.stopPropagation()}>
+        <button onClick={onClose} className="absolute top-3 right-3 z-10 p-1.5 bg-white/90 rounded-full shadow hover:bg-gray-100">
           <X className="w-5 h-5 text-gray-700" />
         </button>
-
         {isLoading ? (
-          <div className="flex items-center justify-center h-64">
-            <RefreshCw className="w-8 h-8 text-gray-400 animate-spin" />
-          </div>
+          <div className="flex items-center justify-center h-64"><RefreshCw className="w-8 h-8 text-gray-400 animate-spin" /></div>
         ) : urls.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-64 text-gray-400">
-            <Camera className="w-10 h-10 mb-2" />
-            <p className="text-sm">No photos available</p>
+            <Camera className="w-10 h-10 mb-2" /><p className="text-sm">No photos available</p>
           </div>
         ) : (
           <>
             <div className="relative bg-black flex items-center justify-center" style={{ height: "420px" }}>
-              <img src={urls[idx]} alt={`Photo ${idx + 1}`}
-                className="max-h-full max-w-full object-contain" />
+              <img src={urls[idx]} alt={`Photo ${idx + 1}`} className="max-h-full max-w-full object-contain" />
               {urls.length > 1 && (
                 <>
-                  <button onClick={() => setIdx((i) => Math.max(i - 1, 0))}
-                    disabled={idx === 0}
+                  <button onClick={() => setIdx((i) => Math.max(i - 1, 0))} disabled={idx === 0}
                     className="absolute left-3 p-2 bg-white/80 rounded-full shadow disabled:opacity-30 hover:bg-white transition-colors">
                     <ChevronLeft className="w-5 h-5 text-gray-700" />
                   </button>
-                  <button onClick={() => setIdx((i) => Math.min(i + 1, urls.length - 1))}
-                    disabled={idx === urls.length - 1}
+                  <button onClick={() => setIdx((i) => Math.min(i + 1, urls.length - 1))} disabled={idx === urls.length - 1}
                     className="absolute right-3 p-2 bg-white/80 rounded-full shadow disabled:opacity-30 hover:bg-white transition-colors">
                     <ChevronRight className="w-5 h-5 text-gray-700" />
                   </button>
                 </>
               )}
             </div>
-            {/* Thumbnail strip */}
             {urls.length > 1 && (
               <div className="flex gap-1.5 p-3 overflow-x-auto bg-gray-50">
                 {urls.map((url, i) => (
@@ -133,14 +141,12 @@ function PhotoGallery({ vin, onClose }: { vin: string; onClose: () => void }) {
   );
 }
 
-// Thumbnail button that opens the gallery
 function PhotoThumb({ vin }: { vin: string }) {
   const [open, setOpen] = useState(false);
   return (
     <>
-      <button onClick={() => setOpen(true)}
-        className="p-1.5 rounded text-gray-400 hover:text-blue-600 hover:bg-blue-50 transition-colors"
-        title="View photos">
+      <button onClick={() => setOpen(true)} title="View photos"
+        className="p-1.5 rounded text-gray-400 hover:text-blue-600 hover:bg-blue-50 transition-colors">
         <Camera className="w-4 h-4" />
       </button>
       {open && <PhotoGallery vin={vin} onClose={() => setOpen(false)} />}
@@ -148,9 +154,7 @@ function PhotoThumb({ vin }: { vin: string }) {
   );
 }
 
-// Mobile card for a single vehicle
 function VehicleCard({ item, isGuest }: { item: any; isGuest: boolean }) {
-  const [open, setOpen] = useState(false);
   return (
     <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
       <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
@@ -197,41 +201,74 @@ function VehicleCard({ item, isGuest }: { item: any; isGuest: boolean }) {
   );
 }
 
-export default function Inventory() {
-  const [search, setSearch]   = useState("");
-  const [sortKey, setSortKey] = useState<SortKey>("vehicle");
-  const [sortDir, setSortDir] = useState<SortDir>("asc");
-  const [, setLocation]       = useLocation();
+// ─── Range input pair ────────────────────────────────────────────────────────
+function RangeInputs({
+  label, minVal, maxVal, minPlaceholder, maxPlaceholder,
+  onMinChange, onMaxChange, prefix = "",
+}: {
+  label: string; minVal: string; maxVal: string;
+  minPlaceholder: string; maxPlaceholder: string;
+  onMinChange: (v: string) => void; onMaxChange: (v: string) => void;
+  prefix?: string;
+}) {
+  return (
+    <div>
+      <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide mb-1.5">{label}</p>
+      <div className="flex items-center gap-2">
+        <div className="relative flex-1">
+          {prefix && <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 text-xs pointer-events-none">{prefix}</span>}
+          <input type="number" value={minVal} onChange={(e) => onMinChange(e.target.value)}
+            placeholder={minPlaceholder}
+            className={`w-full ${prefix ? "pl-5" : "pl-2.5"} pr-2.5 py-1.5 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-400`} />
+        </div>
+        <span className="text-gray-300 text-sm">—</span>
+        <div className="relative flex-1">
+          {prefix && <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 text-xs pointer-events-none">{prefix}</span>}
+          <input type="number" value={maxVal} onChange={(e) => onMaxChange(e.target.value)}
+            placeholder={maxPlaceholder}
+            className={`w-full ${prefix ? "pl-5" : "pl-2.5"} pr-2.5 py-1.5 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-400`} />
+        </div>
+      </div>
+    </div>
+  );
+}
 
-  const lastKnownUpdate = useRef<string | null>(null);
+// ─── Active filter chip ──────────────────────────────────────────────────────
+function FilterChip({ label, onRemove }: { label: string; onRemove: () => void }) {
+  return (
+    <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-blue-50 text-blue-700 text-xs font-medium rounded-full border border-blue-200">
+      {label}
+      <button onClick={onRemove} className="hover:text-blue-900 transition-colors"><X className="w-3 h-3" /></button>
+    </span>
+  );
+}
+
+// ─── Main page ───────────────────────────────────────────────────────────────
+export default function Inventory() {
+  const [search,      setSearch]      = useState("");
+  const [sortKey,     setSortKey]     = useState<SortKey>("vehicle");
+  const [sortDir,     setSortDir]     = useState<SortDir>("asc");
+  const [showFilters, setShowFilters] = useState(false);
+  const [filters,     setFilters]     = useState<Filters>(EMPTY_FILTERS);
+  const [, setLocation]               = useLocation();
+  const lastKnownUpdate               = useRef<string | null>(null);
 
   const { data: me } = useGetMe({ query: { retry: false } });
   const isGuest = me?.role === "guest";
 
-  const { data: inventory, isLoading, error, refetch: refetchInventory } = useGetInventory({
-    query: { retry: false },
-  });
+  const { data: inventory, isLoading, error, refetch: refetchInventory } = useGetInventory({ query: { retry: false } });
 
-  const { data: cacheStatus } = useGetCacheStatus({
-    query: {
-      refetchInterval: 60_000,
-      retry: false,
-    },
-  });
+  const { data: cacheStatus } = useGetCacheStatus({ query: { refetchInterval: 60_000, retry: false } });
 
   useEffect(() => {
     if (!cacheStatus?.lastUpdated) return;
-    if (lastKnownUpdate.current === null) {
-      lastKnownUpdate.current = cacheStatus.lastUpdated;
-      return;
-    }
+    if (lastKnownUpdate.current === null) { lastKnownUpdate.current = cacheStatus.lastUpdated; return; }
     if (cacheStatus.lastUpdated !== lastKnownUpdate.current) {
       lastKnownUpdate.current = cacheStatus.lastUpdated;
       refetchInventory();
     }
   }, [cacheStatus?.lastUpdated, refetchInventory]);
 
-  // Detect mobile
   const [isMobile, setIsMobile] = useState(false);
   useEffect(() => {
     const check = () => setIsMobile(window.innerWidth < 768);
@@ -260,26 +297,56 @@ export default function Inventory() {
     else { setSortKey(key); setSortDir("asc"); }
   };
 
+  const setFilter = (key: keyof Filters) => (val: string) =>
+    setFilters((f) => ({ ...f, [key]: val }));
+
+  const clearFilters = () => setFilters(EMPTY_FILTERS);
+
+  const hasFilters = Object.values(filters).some(Boolean);
+
   // Deduplicate by VIN — keep lowest price
   const parseNumericPrice = (p: string) => parseFloat(p.replace(/[^0-9.]/g, "")) || Infinity;
   type Item = NonNullable<typeof inventory>[number];
   const dedupedMap = new Map<string, Item>();
   for (const item of (inventory ?? [])) {
     const existing = dedupedMap.get(item.vin);
-    if (!existing || parseNumericPrice(item.price) < parseNumericPrice(existing.price)) {
+    if (!existing || parseNumericPrice(item.price) < parseNumericPrice(existing.price))
       dedupedMap.set(item.vin, item);
-    }
   }
   const deduped = Array.from(dedupedMap.values());
 
+  // Derive year min/max from data for placeholders
+  const years = deduped.map((i) => extractYear(i.vehicle)).filter(Boolean);
+  const dataYearMin = years.length ? Math.min(...years) : 2000;
+  const dataYearMax = years.length ? Math.max(...years) : new Date().getFullYear();
+  const kms   = deduped.map((i) => parseNum(i.km)).filter(Boolean);
+  const dataKmMax = kms.length ? Math.max(...kms) : 300000;
+  const prices = deduped.map((i) => parseNum(i.price)).filter(Boolean);
+  const dataPriceMax = prices.length ? Math.max(...prices) : 100000;
+
+  // Apply all filters + search
   const filtered = deduped.filter((item) => {
-    if (!search) return true;
-    const term = search.toLowerCase();
-    return (
-      item.vehicle.toLowerCase().includes(term) ||
-      item.vin.toLowerCase().includes(term) ||
-      item.location.toLowerCase().includes(term)
-    );
+    // Text search
+    if (search) {
+      const term = search.toLowerCase();
+      if (!item.vehicle.toLowerCase().includes(term) &&
+          !item.vin.toLowerCase().includes(term) &&
+          !item.location.toLowerCase().includes(term)) return false;
+    }
+    // Year
+    const year = extractYear(item.vehicle);
+    if (filters.yearMin && year && year < parseInt(filters.yearMin)) return false;
+    if (filters.yearMax && year && year > parseInt(filters.yearMax)) return false;
+    // KM
+    const km = parseNum(item.km);
+    if (filters.kmMax && km && km > parseNum(filters.kmMax)) return false;
+    // Price (only for non-guests)
+    if (!isGuest) {
+      const price = parseNum(item.price);
+      if (filters.priceMin && price && price < parseNum(filters.priceMin)) return false;
+      if (filters.priceMax && price && price > parseNum(filters.priceMax)) return false;
+    }
+    return true;
   });
 
   const sorted = [...filtered].sort((a, b) => {
@@ -289,54 +356,114 @@ export default function Inventory() {
     return sortDir === "asc" ? cmp : -cmp;
   });
 
+  // Active filter chips
+  const activeChips: { label: string; clear: () => void }[] = [
+    ...(filters.yearMin || filters.yearMax ? [{
+      label: `Year: ${filters.yearMin || dataYearMin}–${filters.yearMax || dataYearMax}`,
+      clear: () => setFilters((f) => ({ ...f, yearMin: "", yearMax: "" })),
+    }] : []),
+    ...(filters.kmMax ? [{
+      label: `KM ≤ ${parseInt(filters.kmMax).toLocaleString("en-US")}`,
+      clear: () => setFilter("kmMax")(""),
+    }] : []),
+    ...(!isGuest && (filters.priceMin || filters.priceMax) ? [{
+      label: `Cost: $${filters.priceMin || "0"}–$${filters.priceMax || "∞"}`,
+      clear: () => setFilters((f) => ({ ...f, priceMin: "", priceMax: "" })),
+    }] : []),
+  ];
+
   const emptyState = (
     <div className="flex flex-col items-center justify-center py-20 text-center rounded-lg border border-gray-200 bg-white">
       <Search className="w-8 h-8 text-gray-300 mb-3" />
       <p className="text-sm font-medium text-gray-700 mb-1">No vehicles found</p>
-      <p className="text-sm text-gray-400">
-        {search ? `No results for "${search}"` : "No vehicles in inventory yet."}
-      </p>
-      {search && (
-        <button onClick={() => setSearch("")}
+      <p className="text-sm text-gray-400">Try adjusting your search or filters.</p>
+      {(search || hasFilters) && (
+        <button onClick={() => { setSearch(""); clearFilters(); }}
           className="mt-4 px-4 py-1.5 rounded-lg border border-gray-200 text-sm text-gray-600 hover:bg-gray-50 transition-colors">
-          Clear search
+          Clear all
         </button>
       )}
     </div>
   );
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-4">
 
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row gap-4 justify-between items-start sm:items-center">
-        <div>
-          <h1 className="text-xl font-semibold text-gray-900">Vehicle Inventory</h1>
-          <p className="text-sm text-gray-500 mt-0.5">
-            {sorted.length} {sorted.length === 1 ? "vehicle" : "vehicles"}
-            {search ? ` matching "${search}"` : ""}
-          </p>
-          {cacheStatus?.lastUpdated && (
-            <p className="text-xs text-gray-400 mt-0.5 flex items-center gap-1">
-              {cacheStatus.isRefreshing
-                ? <><RefreshCw className="w-3 h-3 animate-spin" /> Updating…</>
-                : <>Updated {timeAgo(cacheStatus.lastUpdated)}</>}
+      {/* Header + search + filter toggle */}
+      <div className="flex flex-col gap-3">
+        <div className="flex flex-col sm:flex-row gap-3 justify-between items-start sm:items-center">
+          <div>
+            <h1 className="text-xl font-semibold text-gray-900">Vehicle Inventory</h1>
+            <p className="text-sm text-gray-500 mt-0.5">
+              {sorted.length} {sorted.length === 1 ? "vehicle" : "vehicles"}
+              {sorted.length !== deduped.length ? ` of ${deduped.length} total` : ""}
             </p>
-          )}
+            {cacheStatus?.lastUpdated && (
+              <p className="text-xs text-gray-400 mt-0.5 flex items-center gap-1">
+                {cacheStatus.isRefreshing
+                  ? <><RefreshCw className="w-3 h-3 animate-spin" /> Updating…</>
+                  : <>Updated {timeAgo(cacheStatus.lastUpdated)}</>}
+              </p>
+            )}
+          </div>
+          <div className="flex items-center gap-2 w-full sm:w-auto">
+            <div className="relative flex-1 sm:w-64">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
+              <input type="text"
+                className="w-full pl-9 pr-3 py-2 text-sm bg-white border border-gray-200 rounded-lg text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-400 transition-all"
+                placeholder="Search vehicle, VIN, location…"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)} />
+            </div>
+            <button onClick={() => setShowFilters((s) => !s)}
+              className={`flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-lg border transition-colors ${
+                showFilters || hasFilters
+                  ? "bg-blue-600 text-white border-blue-600"
+                  : "bg-white text-gray-700 border-gray-200 hover:bg-gray-50"
+              }`}>
+              <SlidersHorizontal className="w-4 h-4" />
+              Filters
+              {hasFilters && <span className="bg-white text-blue-600 text-xs font-bold w-4 h-4 rounded-full flex items-center justify-center">{activeChips.length}</span>}
+            </button>
+          </div>
         </div>
-        <div className="relative w-full sm:w-64">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
-          <input
-            type="text"
-            className="w-full pl-9 pr-3 py-2 text-sm bg-white border border-gray-200 rounded-lg text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-400 transition-all"
-            placeholder="Search vehicle, VIN, location…"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-          />
-        </div>
+
+        {/* Filter panel */}
+        {showFilters && (
+          <div className="bg-white rounded-lg border border-gray-200 shadow-sm p-4">
+            <div className={`grid gap-4 ${isGuest ? "grid-cols-1 sm:grid-cols-2" : "grid-cols-1 sm:grid-cols-3"}`}>
+              <RangeInputs label="Year" minVal={filters.yearMin} maxVal={filters.yearMax}
+                minPlaceholder={String(dataYearMin)} maxPlaceholder={String(dataYearMax)}
+                onMinChange={setFilter("yearMin")} onMaxChange={setFilter("yearMax")} />
+              <RangeInputs label="Max KM" minVal="" maxVal={filters.kmMax}
+                minPlaceholder="0" maxPlaceholder={Math.round(dataKmMax / 1000) * 1000 + ""}
+                onMinChange={() => {}} onMaxChange={setFilter("kmMax")} />
+              {!isGuest && (
+                <RangeInputs label="Your Cost" minVal={filters.priceMin} maxVal={filters.priceMax}
+                  minPlaceholder="0" maxPlaceholder={Math.round(dataPriceMax / 1000) * 1000 + ""}
+                  onMinChange={setFilter("priceMin")} onMaxChange={setFilter("priceMax")} prefix="$" />
+              )}
+            </div>
+            {hasFilters && (
+              <button onClick={clearFilters}
+                className="mt-3 text-xs text-gray-400 hover:text-gray-600 underline underline-offset-2 transition-colors">
+                Clear all filters
+              </button>
+            )}
+          </div>
+        )}
+
+        {/* Active filter chips */}
+        {activeChips.length > 0 && (
+          <div className="flex flex-wrap gap-2">
+            {activeChips.map((chip) => (
+              <FilterChip key={chip.label} label={chip.label} onRemove={chip.clear} />
+            ))}
+          </div>
+        )}
       </div>
 
-      {/* Mobile card view */}
+      {/* Mobile cards */}
       {isMobile ? (
         sorted.length === 0 ? emptyState : (
           <div className="space-y-3">
@@ -346,24 +473,21 @@ export default function Inventory() {
           </div>
         )
       ) : (
-        /* Desktop table view */
+        /* Desktop table */
         sorted.length === 0 ? emptyState : (
           <div className="rounded-lg border border-gray-200 overflow-hidden bg-white shadow-sm">
-
-            {/* Header row */}
             <div className="flex items-center gap-3 px-4 py-2.5 bg-gray-50 border-b border-gray-200">
               {[
-                { key: "location" as SortKey, label: "Location",  cls: "w-24 shrink-0" },
-                { key: "vehicle"  as SortKey, label: "Vehicle",   cls: "flex-1 min-w-0" },
-                { key: "vin"      as SortKey, label: "VIN",       cls: "w-40 shrink-0" },
+                { key: "location" as SortKey, label: "Location",   cls: "w-24 shrink-0" },
+                { key: "vehicle"  as SortKey, label: "Vehicle",    cls: "flex-1 min-w-0" },
+                { key: "vin"      as SortKey, label: "VIN",        cls: "w-40 shrink-0" },
                 ...(isGuest ? [] : [{ key: "price" as SortKey, label: "Your Cost", cls: "w-24 shrink-0" }]),
-                { key: "km"       as SortKey, label: "KM",        cls: "w-24 shrink-0" },
+                { key: "km"       as SortKey, label: "KM",         cls: "w-24 shrink-0" },
               ].map((col) => (
                 <div key={col.label} className={col.cls}>
                   <button onClick={() => handleSort(col.key)}
                     className="flex items-center text-xs font-semibold uppercase tracking-wide text-gray-500 hover:text-gray-800 transition-colors">
-                    {col.label}
-                    <SortIcon active={sortKey === col.key} dir={sortDir} />
+                    {col.label}<SortIcon active={sortKey === col.key} dir={sortDir} />
                   </button>
                 </div>
               ))}
@@ -372,13 +496,10 @@ export default function Inventory() {
               <div className="w-8 shrink-0 text-center text-xs font-semibold uppercase tracking-wide text-gray-500">CFX</div>
               <div className="w-8 shrink-0 text-center text-xs font-semibold uppercase tracking-wide text-gray-500">Link</div>
             </div>
-
-            {/* Data rows */}
             <div>
               {sorted.map((item, i) => (
                 <div key={`${item.vin}-${i}`}
                   className={`flex items-center gap-3 px-4 py-3 hover:bg-gray-50 transition-colors ${i < sorted.length - 1 ? "border-b border-gray-100" : ""}`}>
-
                   <div className="w-24 shrink-0 text-sm text-gray-700 truncate font-medium">{item.location || "—"}</div>
                   <div className="flex-1 min-w-0 text-sm text-gray-900 font-medium truncate">{item.vehicle}</div>
                   <div className="w-40 shrink-0"><CopyVin vin={item.vin} /></div>
@@ -387,30 +508,22 @@ export default function Inventory() {
                     {item.km ? Number(item.km.replace(/[^0-9]/g, "")).toLocaleString("en-US") + " km" : "—"}
                   </div>
                   <div className="w-28 shrink-0 text-sm text-gray-700">{formatPrice(item.onlinePrice)}</div>
-
-                  {/* Photos */}
+                  <div className="w-8 shrink-0 flex justify-center"><PhotoThumb vin={item.vin} /></div>
                   <div className="w-8 shrink-0 flex justify-center">
-                    <PhotoThumb vin={item.vin} />
+                    {item.carfax && item.carfax !== "NOT FOUND"
+                      ? <a href={item.carfax} target="_blank" rel="noopener noreferrer"
+                          className="p-1 text-gray-500 hover:text-gray-900 hover:bg-gray-100 rounded transition-colors" title="Carfax">
+                          <FileText className="w-4 h-4" />
+                        </a>
+                      : <span className="text-gray-200 text-sm">—</span>}
                   </div>
-
-                  {/* Carfax */}
                   <div className="w-8 shrink-0 flex justify-center">
-                    {item.carfax && item.carfax !== "NOT FOUND" ? (
-                      <a href={item.carfax} target="_blank" rel="noopener noreferrer"
-                        className="p-1 text-gray-500 hover:text-gray-900 hover:bg-gray-100 rounded transition-colors" title="View Carfax">
-                        <FileText className="w-4 h-4" />
-                      </a>
-                    ) : <span className="text-gray-200 text-sm">—</span>}
-                  </div>
-
-                  {/* Listing */}
-                  <div className="w-8 shrink-0 flex justify-center">
-                    {item.website && item.website !== "NOT FOUND" ? (
-                      <a href={item.website} target="_blank" rel="noopener noreferrer"
-                        className="p-1 text-blue-500 hover:text-blue-700 hover:bg-blue-50 rounded transition-colors" title="View Listing">
-                        <ExternalLink className="w-4 h-4" />
-                      </a>
-                    ) : <span className="text-gray-200 text-sm">—</span>}
+                    {item.website && item.website !== "NOT FOUND"
+                      ? <a href={item.website} target="_blank" rel="noopener noreferrer"
+                          className="p-1 text-blue-500 hover:text-blue-700 hover:bg-blue-50 rounded transition-colors" title="View Listing">
+                          <ExternalLink className="w-4 h-4" />
+                        </a>
+                      : <span className="text-gray-200 text-sm">—</span>}
                   </div>
                 </div>
               ))}
