@@ -1,0 +1,503 @@
+# Complete Implementation Guide for Replit
+
+## Table of Contents
+1. [Project Structure Setup](#project-structure-setup)
+2. [Backend API Server (Node.js/Express)](#backend-api-server)
+3. [Google Apps Script - Master List](#google-apps-script-master-list)
+4. [Google Apps Script - Shared List](#google-apps-script-shared-list)
+5. [External Carfax Automation Script](#external-carfax-automation-script)
+6. [Frontend React Application](#frontend-react-application)
+7. [Environment Configuration](#environment-configuration)
+8. [Deployment Instructions](#deployment-instructions)
+
+---
+
+## Project Structure Setup
+
+Create this folder structure in your Replit project:
+
+```
+/
+├── server/
+│   ├── index.js
+│   ├── routes/
+│   │   ├── inventory.js
+│   │   ├── priceLookup.js
+│   │   ├── vehicleImages.js
+│   │   └── auth.js
+│   ├── middleware/
+│   │   ├── auth.js
+│   │   └── errorHandler.js
+│   ├── services/
+│   │   ├── googleSheets.js
+│   │   ├── typesense.js
+│   │   ├── imageExtractor.js
+│   │   └── accessControl.js
+│   └── utils/
+│       ├── cache.js
+│       ├── logger.js
+│       └── mutex.js
+├── client/
+│   ├── src/
+│   │   ├── components/
+│   │   │   ├── InventoryTable.jsx
+│   │   │   ├── ImageGallery.jsx
+│   │   │   ├── Login.jsx
+│   │   │   ├── MobileView.jsx
+│   │   │   └── AdminPanel.jsx
+│   │   ├── hooks/
+│   │   │   ├── useInventory.js
+│   │   │   └── useAuth.js
+│   │   ├── context/
+│   │   │   └── AuthContext.jsx
+│   │   ├── utils/
+│   │   │   └── api.js
+│   │   ├── App.jsx
+│   │   └── index.jsx
+│   ├── public/
+│   └── package.json
+├── scripts/
+│   ├── MasterListSync.gs
+│   ├── SharedListPublish.gs
+│   └── CarfaxAutomation.gs
+├── .env
+├── package.json
+└── README.md
+```
+
+---
+
+## Backend API Server (Node.js/Express)
+
+### 1. **package.json** (Root)
+
+```json
+{
+  "name": "inventory-sync-system",
+  "version": "4.0.0",
+  "description": "Advanced inventory synchronization with image gallery and role-based access",
+  "main": "server/index.js",
+  "scripts": {
+    "start": "node server/index.js",
+    "dev": "nodemon server/index.js",
+    "build": "cd client && npm run build",
+    "install-all": "npm install && cd client && npm install"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "cors": "^2.8.5",
+    "dotenv": "^16.3.1",
+    "googleapis": "^126.0.0",
+    "axios": "^1.6.0",
+    "cheerio": "^1.0.0-rc.12",
+    "node-cache": "^5.1.2",
+    "helmet": "^7.1.0",
+    "express-rate-limit": "^7.1.5",
+    "jsonwebtoken": "^9.0.2",
+    "cookie-parser": "^1.4.6",
+    "winston": "^3.11.0",
+    "compression": "^1.7.4"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.2"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
+```
+
+### 2. **server/index.js**
+
+```javascript
+require('dotenv').config();
+const express = require('express');
+const cors = require('cors');
+const helmet = require('helmet');
+const compression = require('compression');
+const cookieParser = require('cookie-parser');
+const path = require('path');
+
+const logger = require('./utils/logger');
+const errorHandler = require('./middleware/errorHandler');
+
+// Route imports
+const inventoryRoutes = require('./routes/inventory');
+const priceLookupRoutes = require('./routes/priceLookup');
+const vehicleImagesRoutes = require('./routes/vehicleImages');
+const authRoutes = require('./routes/auth');
+
+const app = express();
+const PORT = process.env.PORT || 3000;
+
+// Security middleware
+app.use(helmet({
+  contentSecurityPolicy: false,
+  crossOriginEmbedderPolicy: false
+}));
+
+// CORS configuration
+app.use(cors({
+  origin: process.env.FRONTEND_URL || '*',
+  credentials: true
+}));
+
+// Body parsing middleware
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+app.use(cookieParser());
+app.use(compression());
+
+// Request logging
+app.use((req, res, next) => {
+  logger.info(`${req.method} ${req.path}`, {
+    ip: req.ip,
+    userAgent: req.get('user-agent')
+  });
+  next();
+});
+
+// API Routes
+app.use('/api/auth', authRoutes);
+app.use('/api/inventory', inventoryRoutes);
+app.use('/api/price-lookup', priceLookupRoutes);
+app.use('/api/vehicle-images', vehicleImagesRoutes);
+
+// Health check
+app.get('/api/health', (req, res) => {
+  res.json({ 
+    status: 'healthy', 
+    timestamp: new Date().toISOString(),
+    uptime: process.uptime()
+  });
+});
+
+// Serve static React build in production
+if (process.env.NODE_ENV === 'production') {
+  app.use(express.static(path.join(__dirname, '../client/build')));
+  app.get('*', (req, res) => {
+    res.sendFile(path.join(__dirname, '../client/build/index.html'));
+  });
+}
+
+// Error handling
+app.use(errorHandler);
+
+// Start server
+app.listen(PORT, () => {
+  logger.info(`Server running on port ${PORT}`);
+  logger.info(`Environment: ${process.env.NODE_ENV || 'development'}`);
+});
+
+// Graceful shutdown
+process.on('SIGTERM', () => {
+  logger.info('SIGTERM received, shutting down gracefully');
+  process.exit(0);
+});
+
+module.exports = app;
+```
+
+### 3. **server/middleware/auth.js**
+
+```javascript
+const jwt = require('jsonwebtoken');
+const logger = require('../utils/logger');
+const AccessControl = require('../services/accessControl');
+
+const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-in-production';
+
+/**
+ * Verify JWT token from cookie or Authorization header
+ */
+const verifyToken = (req, res, next) => {
+  try {
+    const token = req.cookies.auth_token || 
+                  (req.headers.authorization && req.headers.authorization.split(' ')[1]);
+
+    if (!token) {
+      return res.status(401).json({ error: 'Authentication required' });
+    }
+
+    const decoded = jwt.verify(token, JWT_SECRET);
+    req.user = decoded;
+    next();
+  } catch (error) {
+    logger.error('Token verification failed', { error: error.message });
+    return res.status(401).json({ error: 'Invalid or expired token' });
+  }
+};
+
+/**
+ * Check if user has permission to view cost prices
+ */
+const canViewCostPrices = async (req, res, next) => {
+  try {
+    const accessControl = new AccessControl();
+    const hasAccess = await accessControl.canViewCostPrices(req.user.email);
+    
+    req.user.canViewCostPrices = hasAccess;
+    next();
+  } catch (error) {
+    logger.error('Access control check failed', { error: error.message });
+    req.user.canViewCostPrices = false;
+    next();
+  }
+};
+
+/**
+ * Require admin role
+ */
+const requireAdmin = async (req, res, next) => {
+  try {
+    const accessControl = new AccessControl();
+    const isAdmin = await accessControl.isAdmin(req.user.email);
+    
+    if (!isAdmin) {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+    
+    next();
+  } catch (error) {
+    logger.error('Admin check failed', { error: error.message });
+    return res.status(403).json({ error: 'Access denied' });
+  }
+};
+
+/**
+ * Verify API key for external services (Carfax automation, etc.)
+ */
+const verifyApiKey = (req, res, next) => {
+  const apiKey = req.headers['x-api-key'];
+  
+  if (!apiKey || apiKey !== process.env.API_KEY) {
+    logger.warn('Invalid API key attempt', { ip: req.ip });
+    return res.status(401).json({ error: 'Invalid API key' });
+  }
+  
+  next();
+};
+
+module.exports = {
+  verifyToken,
+  canViewCostPrices,
+  requireAdmin,
+  verifyApiKey
+};
+```
+
+### 4. **server/middleware/errorHandler.js**
+
+```javascript
+const logger = require('../utils/logger');
+
+const errorHandler = (err, req, res, next) => {
+  logger.error('Error occurred', {
+    error: err.message,
+    stack: err.stack,
+    path: req.path,
+    method: req.method
+  });
+
+  // Default error
+  let statusCode = err.statusCode || 500;
+  let message = err.message || 'Internal server error';
+
+  // Google API errors
+  if (err.code === 403 && err.message.includes('Google')) {
+    statusCode = 503;
+    message = 'Google Sheets service unavailable';
+  }
+
+  // Typesense errors
+  if (err.message.includes('Typesense')) {
+    statusCode = 503;
+    message = 'Search service unavailable';
+  }
+
+  // Rate limit errors
+  if (err.message.includes('rate limit')) {
+    statusCode = 429;
+    message = 'Too many requests, please try again later';
+  }
+
+  res.status(statusCode).json({
+    error: message,
+    ...(process.env.NODE_ENV === 'development' && { stack: err.stack })
+  });
+};
+
+module.exports = errorHandler;
+```
+
+### 5. **server/utils/logger.js**
+
+```javascript
+const winston = require('winston');
+
+const logger = winston.createLogger({
+  level: process.env.LOG_LEVEL || 'info',
+  format: winston.format.combine(
+    winston.format.timestamp(),
+    winston.format.errors({ stack: true }),
+    winston.format.json()
+  ),
+  transports: [
+    new winston.transports.Console({
+      format: winston.format.combine(
+        winston.format.colorize(),
+        winston.format.simple()
+      )
+    })
+  ]
+});
+
+module.exports = logger;
+```
+
+### 6. **server/utils/cache.js**
+
+```javascript
+const NodeCache = require('node-cache');
+
+class CacheManager {
+  constructor() {
+    // Main cache with 5 minute TTL
+    this.cache = new NodeCache({ 
+      stdTTL: 300,
+      checkperiod: 60,
+      useClones: false
+    });
+
+    // Long-term cache for fallback data (24 hours)
+    this.fallbackCache = new NodeCache({ 
+      stdTTL: 86400,
+      checkperiod: 3600,
+      useClones: false
+    });
+  }
+
+  get(key) {
+    return this.cache.get(key);
+  }
+
+  set(key, value, ttl) {
+    return this.cache.set(key, value, ttl);
+  }
+
+  del(key) {
+    return this.cache.del(key);
+  }
+
+  flush() {
+    return this.cache.flushAll();
+  }
+
+  // Store fallback data
+  setFallback(key, value) {
+    return this.fallbackCache.set(key, value);
+  }
+
+  // Get fallback data
+  getFallback(key) {
+    return this.fallbackCache.get(key);
+  }
+
+  // Get with fallback
+  getWithFallback(key) {
+    const current = this.get(key);
+    if (current !== undefined) return current;
+    
+    const fallback = this.getFallback(key);
+    return fallback;
+  }
+}
+
+module.exports = new CacheManager();
+```
+
+### 7. **server/utils/mutex.js**
+
+```javascript
+class Mutex {
+  constructor() {
+    this.locks = new Map();
+  }
+
+  async acquire(key, timeout = 300000) { // 5 minute default timeout
+    const startTime = Date.now();
+
+    while (this.locks.get(key)) {
+      if (Date.now() - startTime > timeout) {
+        throw new Error(`Mutex timeout for key: ${key}`);
+      }
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
+
+    this.locks.set(key, true);
+  }
+
+  release(key) {
+    this.locks.delete(key);
+  }
+
+  isLocked(key) {
+    return this.locks.get(key) || false;
+  }
+}
+
+module.exports = new Mutex();
+```
+
+### 8. **server/services/accessControl.js**
+
+```javascript
+const { google } = require('googleapis');
+const logger = require('../utils/logger');
+const cache = require('../utils/cache');
+
+class AccessControl {
+  constructor() {
+    this.auth = new google.auth.GoogleAuth({
+      credentials: JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT),
+      scopes: ['https://www.googleapis.com/auth/spreadsheets']
+    });
+    
+    this.spreadsheetId = process.env.MASTER_SPREADSHEET_ID;
+    this.settingsSheet = 'Settings';
+  }
+
+  /**
+   * Get access control list from Settings sheet
+   */
+  async getAccessList() {
+    const cacheKey = 'access_control_list';
+    const cached = cache.get(cacheKey);
+    if (cached) return cached;
+
+    try {
+      const sheets = google.sheets({ version: 'v4', auth: this.auth });
+      
+      const response = await sheets.spreadsheets.values.get({
+        spreadsheetId: this.spreadsheetId,
+        range: `${this.settingsSheet}!A:C`
+      });
+
+      const rows = response.data.values || [];
+      
+      // Expected format:
+      // Row 1: Headers (Email | Role | Can View Cost Prices)
+      // Row 2+: Data
+      
+      const accessList = {
+        admins: [],
+        costViewers: [],
+        regularUsers: []
+      };
+
+      for (let i = 1; i < rows.length; i++) {
+        const [email, role, canViewCost] = rows[i];
+        if (!email) continue;
+
+        const normalizedEmail = email.toLowerCase().trim();
+        const isAdmin = role?.toLowerCase() === '
