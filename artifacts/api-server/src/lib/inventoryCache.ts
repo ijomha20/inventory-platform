@@ -27,6 +27,76 @@ export function getCacheState(): CacheState {
   return state;
 }
 
+// ---------------------------------------------------------------------------
+// Typesense — batch price enrichment
+// ---------------------------------------------------------------------------
+
+const TYPESENSE_HOST = "v6eba1srpfohj89dp-1.a1.typesense.net";
+
+const PRICE_COLLECTIONS = [
+  {
+    collection: "37042ac7ece3a217b1a41d6f54ba6855", // Parkdale (checked first — preferred)
+    apiKey:     "bENlSmdIaVJWNGhTcjBnZ3BaN2JxajBINWcvdzREZ21hQnFMZWM3OWJBRT1oZmUweyJmaWx0ZXJfYnkiOiJzdGF0dXM6W0luc3RvY2tdICYmIHZpc2liaWxpdHk6PjAgJiYgZGVsZXRlZF9hdDo9MCJ9",
+  },
+  {
+    collection: "cebacbca97920d818d57c6f0526d7413", // Matrix
+    apiKey:     "ZWoxa3NxVmJLWFBOK2dWcUFBM1V0aTJyb09wUDhFZ0R5Vnc1blc2RW9Kdz1oZmUweyJmaWx0ZXJfYnkiOiJzdGF0dXM6W0luc3RvY2ssIFNvbGRdICYmIHZpc2liaWxpdHk6PjAgJiYgZGVsZXRlZF9hdDo9MCJ9",
+  },
+];
+
+/**
+ * Fetch online (retail) prices for a set of VINs from Typesense.
+ * Uses a single batch request per collection (max 250 results).
+ * Returns a map of VIN (uppercase) → formatted price string.
+ */
+async function fetchOnlinePricesFromTypesense(
+  vins: string[],
+): Promise<Map<string, string>> {
+  const priceMap = new Map<string, string>();
+  if (vins.length === 0) return priceMap;
+
+  // Typesense filter_by with array of VINs — e.g. vin:=[VIN1,VIN2,...]
+  const vinList  = vins.map((v) => v.toUpperCase()).join(",");
+  const filterBy = encodeURIComponent(`vin:=[${vinList}]`);
+
+  for (const col of PRICE_COLLECTIONS) {
+    try {
+      const url =
+        `https://${TYPESENSE_HOST}/collections/${col.collection}/documents/search` +
+        `?q=*&filter_by=${filterBy}&per_page=250&x-typesense-api-key=${col.apiKey}`;
+
+      const resp = await fetch(url, { signal: AbortSignal.timeout(10_000) });
+      if (!resp.ok) continue;
+
+      const body: any = await resp.json();
+      const hits: any[] = body.hits ?? [];
+
+      for (const hit of hits) {
+        const doc = hit.document ?? {};
+        const vin = (doc.vin ?? "").toString().trim().toUpperCase();
+        if (!vin || priceMap.has(vin)) continue; // prefer first-collection result
+
+        const specialOn    = Number(doc.special_price_on) === 1;
+        const specialPrice = parseFloat(doc.special_price);
+        const regularPrice = parseFloat(doc.price);
+        const raw          = specialOn && specialPrice > 0 ? specialPrice : regularPrice;
+
+        if (!isNaN(raw) && raw > 0) {
+          priceMap.set(vin, String(Math.round(raw)));
+        }
+      }
+    } catch (err) {
+      logger.warn({ err, collection: col.collection }, "Typesense price fetch failed for collection");
+    }
+  }
+
+  return priceMap;
+}
+
+// ---------------------------------------------------------------------------
+// Cache refresh
+// ---------------------------------------------------------------------------
+
 export async function refreshCache(): Promise<void> {
   if (state.isRefreshing) return;
   state.isRefreshing = true;
@@ -38,15 +108,52 @@ export async function refreshCache(): Promise<void> {
       return;
     }
 
-    const response = await fetch(dataUrl);
+    const response = await fetch(dataUrl, { signal: AbortSignal.timeout(15_000) });
     if (!response.ok) throw new Error(`Upstream HTTP ${response.status}`);
 
-    const data: InventoryItem[] = await response.json();
-    state.data        = data;
+    const raw: any[] = await response.json();
+
+    // Normalise each item — guard against differing field names / missing keys
+    const items: InventoryItem[] = raw.map((r) => ({
+      location:    String(r.location    ?? "").trim(),
+      vehicle:     String(r.vehicle     ?? "").trim(),
+      vin:         String(r.vin         ?? "").trim().toUpperCase(),
+      price:       String(r.price       ?? "").trim(),
+      km:          String(r.km          ?? "").trim(),
+      carfax:      String(r.carfax      ?? "").trim(),
+      website:     String(r.website     ?? "").trim(),
+      onlinePrice: String(r.onlinePrice ?? "").trim(),
+    }));
+
+    // -----------------------------------------------------------------------
+    // Enrich with Typesense prices for items where Apps Script didn't send one
+    // (handles old Apps Script, missing Column L, or first-run before "Fetch Online Prices")
+    // -----------------------------------------------------------------------
+    const needPrice = items.filter(
+      (item) => !item.onlinePrice || item.onlinePrice === "NOT FOUND",
+    );
+
+    if (needPrice.length > 0) {
+      const vins     = [...new Set(needPrice.map((item) => item.vin).filter(Boolean))];
+      const priceMap = await fetchOnlinePricesFromTypesense(vins);
+
+      for (const item of items) {
+        if (!item.onlinePrice || item.onlinePrice === "NOT FOUND") {
+          const fetched = priceMap.get(item.vin.toUpperCase());
+          if (fetched) item.onlinePrice = fetched;
+        }
+      }
+
+      logger.info(
+        { enriched: priceMap.size, total: items.length },
+        "Typesense price enrichment complete",
+      );
+    }
+
+    state.data        = items;
     state.lastUpdated = new Date();
-    logger.info({ count: data.length }, "Inventory cache refreshed");
+    logger.info({ count: items.length }, "Inventory cache refreshed");
   } catch (err) {
-    // Keep existing stale data on failure — stale is better than empty
     logger.error({ err }, "Inventory cache refresh failed — serving stale data");
   } finally {
     state.isRefreshing = false;
@@ -54,12 +161,10 @@ export async function refreshCache(): Promise<void> {
 }
 
 export function startBackgroundRefresh(intervalMs = 60 * 60 * 1000): void {
-  // Populate cache immediately on startup
   refreshCache().catch((err) =>
     logger.error({ err }, "Initial inventory cache fetch failed"),
   );
 
-  // Re-fetch on the given interval (default: 1 hour)
   setInterval(() => {
     refreshCache().catch((err) =>
       logger.error({ err }, "Background inventory cache refresh failed"),
