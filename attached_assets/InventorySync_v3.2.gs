@@ -661,6 +661,7 @@ function doGetInventory() {
   var result = [];
   for (var i = 1; i < data.length; i++) {
     var yourCost = data[i][COL_NOTES] ? data[i][COL_NOTES].toString().trim() : "";
+    if (!yourCost) continue;
 
     var vin        = data[i][COL_VIN]          ? data[i][COL_VIN].toString().trim()          : "";
     var yearMake   = data[i][COL_YEAR_MAKE]     ? data[i][COL_YEAR_MAKE].toString().trim()    : "";
