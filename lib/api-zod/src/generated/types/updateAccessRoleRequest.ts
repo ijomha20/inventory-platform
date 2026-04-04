@@ -6,7 +6,6 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export interface AddAccessRequest {
-  email: string;
-  role?: string;
+export interface UpdateAccessRoleRequest {
+  role: string;
 }

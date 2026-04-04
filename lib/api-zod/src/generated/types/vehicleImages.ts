@@ -6,6 +6,7 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type PriceLookupParams = {
-  url: string;
-};
+export interface VehicleImages {
+  vin: string;
+  urls: string[];
+}

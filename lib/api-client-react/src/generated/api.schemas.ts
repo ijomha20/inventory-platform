@@ -14,6 +14,7 @@ export interface User {
   name: string;
   picture?: string;
   isOwner: boolean;
+  role: string;
 }
 
 export interface InventoryItem {
@@ -33,18 +34,35 @@ export interface CacheStatus {
   count: number;
 }
 
+export interface VehicleImages {
+  vin: string;
+  urls: string[];
+}
+
 export interface AccessEntry {
   email: string;
   addedAt: string;
   addedBy: string;
+  role: string;
 }
 
 export interface AddAccessRequest {
   email: string;
+  role?: string;
 }
 
-export interface PriceLookupResult {
-  price: string | null;
+export interface UpdateAccessRoleRequest {
+  role: string;
+}
+
+export interface AuditLogEntry {
+  id: number;
+  action: string;
+  targetEmail: string;
+  changedBy: string;
+  roleFrom?: string | null;
+  roleTo?: string | null;
+  timestamp: string;
 }
 
 export interface ErrorResponse {
@@ -55,6 +73,6 @@ export interface SuccessResponse {
   ok: boolean;
 }
 
-export type PriceLookupParams = {
-  url: string;
+export type GetVehicleImagesParams = {
+  vin: string;
 };

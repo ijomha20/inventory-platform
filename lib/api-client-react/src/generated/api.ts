@@ -19,14 +19,16 @@ import type {
 import type {
   AccessEntry,
   AddAccessRequest,
+  AuditLogEntry,
   CacheStatus,
   ErrorResponse,
+  GetVehicleImagesParams,
   HealthStatus,
   InventoryItem,
-  PriceLookupParams,
-  PriceLookupResult,
   SuccessResponse,
+  UpdateAccessRoleRequest,
   User,
+  VehicleImages,
 } from "./api.schemas";
 
 import { customFetch } from "../custom-fetch";
@@ -327,9 +329,9 @@ export function useGetCacheStatus<
 }
 
 /**
- * @summary Scrape retail price from a vehicle listing URL
+ * @summary Get photo gallery URLs for a vehicle by VIN
  */
-export const getPriceLookupUrl = (params: PriceLookupParams) => {
+export const getGetVehicleImagesUrl = (params: GetVehicleImagesParams) => {
   const normalizedParams = new URLSearchParams();
 
   Object.entries(params || {}).forEach(([key, value]) => {
@@ -341,32 +343,34 @@ export const getPriceLookupUrl = (params: PriceLookupParams) => {
   const stringifiedParams = normalizedParams.toString();
 
   return stringifiedParams.length > 0
-    ? `/api/price-lookup?${stringifiedParams}`
-    : `/api/price-lookup`;
+    ? `/api/vehicle-images?${stringifiedParams}`
+    : `/api/vehicle-images`;
 };
 
-export const priceLookup = async (
-  params: PriceLookupParams,
+export const getVehicleImages = async (
+  params: GetVehicleImagesParams,
   options?: RequestInit,
-): Promise<PriceLookupResult> => {
-  return customFetch<PriceLookupResult>(getPriceLookupUrl(params), {
+): Promise<VehicleImages> => {
+  return customFetch<VehicleImages>(getGetVehicleImagesUrl(params), {
     ...options,
     method: "GET",
   });
 };
 
-export const getPriceLookupQueryKey = (params?: PriceLookupParams) => {
-  return [`/api/price-lookup`, ...(params ? [params] : [])] as const;
+export const getGetVehicleImagesQueryKey = (
+  params?: GetVehicleImagesParams,
+) => {
+  return [`/api/vehicle-images`, ...(params ? [params] : [])] as const;
 };
 
-export const getPriceLookupQueryOptions = <
-  TData = Awaited<ReturnType<typeof priceLookup>>,
+export const getGetVehicleImagesQueryOptions = <
+  TData = Awaited<ReturnType<typeof getVehicleImages>>,
   TError = ErrorType<ErrorResponse>,
 >(
-  params: PriceLookupParams,
+  params: GetVehicleImagesParams,
   options?: {
     query?: UseQueryOptions<
-      Awaited<ReturnType<typeof priceLookup>>,
+      Awaited<ReturnType<typeof getVehicleImages>>,
       TError,
       TData
     >;
@@ -375,43 +379,44 @@ export const getPriceLookupQueryOptions = <
 ) => {
   const { query: queryOptions, request: requestOptions } = options ?? {};
 
-  const queryKey = queryOptions?.queryKey ?? getPriceLookupQueryKey(params);
+  const queryKey =
+    queryOptions?.queryKey ?? getGetVehicleImagesQueryKey(params);
 
-  const queryFn: QueryFunction<Awaited<ReturnType<typeof priceLookup>>> = ({
-    signal,
-  }) => priceLookup(params, { signal, ...requestOptions });
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getVehicleImages>>
+  > = ({ signal }) => getVehicleImages(params, { signal, ...requestOptions });
 
   return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
-    Awaited<ReturnType<typeof priceLookup>>,
+    Awaited<ReturnType<typeof getVehicleImages>>,
     TError,
     TData
   > & { queryKey: QueryKey };
 };
 
-export type PriceLookupQueryResult = NonNullable<
-  Awaited<ReturnType<typeof priceLookup>>
+export type GetVehicleImagesQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getVehicleImages>>
 >;
-export type PriceLookupQueryError = ErrorType<ErrorResponse>;
+export type GetVehicleImagesQueryError = ErrorType<ErrorResponse>;
 
 /**
- * @summary Scrape retail price from a vehicle listing URL
+ * @summary Get photo gallery URLs for a vehicle by VIN
  */
 
-export function usePriceLookup<
-  TData = Awaited<ReturnType<typeof priceLookup>>,
+export function useGetVehicleImages<
+  TData = Awaited<ReturnType<typeof getVehicleImages>>,
   TError = ErrorType<ErrorResponse>,
 >(
-  params: PriceLookupParams,
+  params: GetVehicleImagesParams,
   options?: {
     query?: UseQueryOptions<
-      Awaited<ReturnType<typeof priceLookup>>,
+      Awaited<ReturnType<typeof getVehicleImages>>,
       TError,
       TData
     >;
     request?: SecondParameter<typeof customFetch>;
   },
 ): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
-  const queryOptions = getPriceLookupQueryOptions(params, options);
+  const queryOptions = getGetVehicleImagesQueryOptions(params, options);
 
   const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
     queryKey: QueryKey;
@@ -582,6 +587,93 @@ export const useAddAccessEntry = <
 };
 
 /**
+ * @summary Update a user's role (owner only)
+ */
+export const getUpdateAccessRoleUrl = (email: string) => {
+  return `/api/access/${email}`;
+};
+
+export const updateAccessRole = async (
+  email: string,
+  updateAccessRoleRequest: UpdateAccessRoleRequest,
+  options?: RequestInit,
+): Promise<AccessEntry> => {
+  return customFetch<AccessEntry>(getUpdateAccessRoleUrl(email), {
+    ...options,
+    method: "PATCH",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(updateAccessRoleRequest),
+  });
+};
+
+export const getUpdateAccessRoleMutationOptions = <
+  TError = ErrorType<ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof updateAccessRole>>,
+    TError,
+    { email: string; data: BodyType<UpdateAccessRoleRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof updateAccessRole>>,
+  TError,
+  { email: string; data: BodyType<UpdateAccessRoleRequest> },
+  TContext
+> => {
+  const mutationKey = ["updateAccessRole"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof updateAccessRole>>,
+    { email: string; data: BodyType<UpdateAccessRoleRequest> }
+  > = (props) => {
+    const { email, data } = props ?? {};
+
+    return updateAccessRole(email, data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type UpdateAccessRoleMutationResult = NonNullable<
+  Awaited<ReturnType<typeof updateAccessRole>>
+>;
+export type UpdateAccessRoleMutationBody = BodyType<UpdateAccessRoleRequest>;
+export type UpdateAccessRoleMutationError = ErrorType<ErrorResponse>;
+
+/**
+ * @summary Update a user's role (owner only)
+ */
+export const useUpdateAccessRole = <
+  TError = ErrorType<ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof updateAccessRole>>,
+    TError,
+    { email: string; data: BodyType<UpdateAccessRoleRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof updateAccessRole>>,
+  TError,
+  { email: string; data: BodyType<UpdateAccessRoleRequest> },
+  TContext
+> => {
+  return useMutation(getUpdateAccessRoleMutationOptions(options));
+};
+
+/**
  * @summary Remove an email from the access list (owner only)
  */
 export const getRemoveAccessEntryUrl = (email: string) => {
@@ -664,3 +756,78 @@ export const useRemoveAccessEntry = <
 > => {
   return useMutation(getRemoveAccessEntryMutationOptions(options));
 };
+
+/**
+ * @summary Get audit log of access changes (owner only)
+ */
+export const getGetAuditLogUrl = () => {
+  return `/api/audit-log`;
+};
+
+export const getAuditLog = async (
+  options?: RequestInit,
+): Promise<AuditLogEntry[]> => {
+  return customFetch<AuditLogEntry[]>(getGetAuditLogUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetAuditLogQueryKey = () => {
+  return [`/api/audit-log`] as const;
+};
+
+export const getGetAuditLogQueryOptions = <
+  TData = Awaited<ReturnType<typeof getAuditLog>>,
+  TError = ErrorType<ErrorResponse>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getAuditLog>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetAuditLogQueryKey();
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof getAuditLog>>> = ({
+    signal,
+  }) => getAuditLog({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getAuditLog>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetAuditLogQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getAuditLog>>
+>;
+export type GetAuditLogQueryError = ErrorType<ErrorResponse>;
+
+/**
+ * @summary Get audit log of access changes (owner only)
+ */
+
+export function useGetAuditLog<
+  TData = Awaited<ReturnType<typeof getAuditLog>>,
+  TError = ErrorType<ErrorResponse>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getAuditLog>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetAuditLogQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}

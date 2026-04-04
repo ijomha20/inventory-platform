@@ -11,4 +11,5 @@ export interface User {
   name: string;
   picture?: string;
   isOwner: boolean;
+  role: string;
 }

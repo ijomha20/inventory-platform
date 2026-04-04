@@ -8,6 +8,35 @@ import { getCacheState, refreshCache } from "../lib/inventoryCache.js";
 
 const router = Router();
 
+const TYPESENSE_HOST = "v6eba1srpfohj89dp-1.a1.typesense.net";
+const IMAGE_CDN_BASE = "https://zopsoftware-asset.b-cdn.net";
+
+const DEALER_COLLECTIONS = [
+  {
+    name:       "Matrix",
+    collection: "cebacbca97920d818d57c6f0526d7413",
+    apiKey:     "ZWoxa3NxVmJLWFBOK2dWcUFBM1V0aTJyb09wUDhFZ0R5Vnc1blc2RW9Kdz1oZmUweyJmaWx0ZXJfYnkiOiJzdGF0dXM6W0luc3RvY2ssIFNvbGRdICYmIHZpc2liaWxpdHk6PjAgJiYgZGVsZXRlZF9hdDo9MCJ9",
+  },
+  {
+    name:       "Parkdale",
+    collection: "37042ac7ece3a217b1a41d6f54ba6855",
+    apiKey:     "bENlSmdIaVJWNGhTcjBnZ3BaN2JxajBINWcvdzREZ21hQnFMZWM3OWJBRT1oZmUweyJmaWx0ZXJfYnkiOiJzdGF0dXM6W0luc3RvY2tdICYmIHZpc2liaWxpdHk6PjAgJiYgZGVsZXRlZF9hdDo9MCJ9",
+  },
+];
+
+// Determine the calling user's role ('owner' | 'viewer' | 'guest')
+async function getUserRole(req: any): Promise<string> {
+  const user  = req.user as { email: string };
+  const email = user.email.toLowerCase();
+  if (isOwner(email)) return "owner";
+  const [entry] = await db
+    .select()
+    .from(accessListTable)
+    .where(eq(accessListTable.email, email))
+    .limit(1);
+  return entry?.role ?? "viewer";
+}
+
 async function requireAccess(req: any, res: any, next: any) {
   if (!req.isAuthenticated || !req.isAuthenticated()) {
     res.status(401).json({ error: "Not authenticated" });
@@ -15,29 +44,30 @@ async function requireAccess(req: any, res: any, next: any) {
   }
   const user  = req.user as { email: string };
   const email = user.email.toLowerCase();
-
   if (isOwner(email)) { next(); return; }
-
-  const entries = await db
+  const [entry] = await db
     .select()
     .from(accessListTable)
     .where(eq(accessListTable.email, email))
     .limit(1);
-
-  if (entries.length > 0) { next(); return; }
-
+  if (entry) { next(); return; }
   res.status(403).json({ error: "Access denied" });
 }
 
-// GET /inventory — instant response from server-side cache
-router.get("/inventory", requireAccess, (_req, res) => {
+// GET /inventory — instant response from server-side cache, role-filtered
+router.get("/inventory", requireAccess, async (req, res) => {
+  const role = await getUserRole(req);
   const { data } = getCacheState();
+
+  const items = role === "guest"
+    ? data.map((item) => ({ ...item, price: "" }))
+    : data;
+
   res.set("Cache-Control", "no-store");
-  res.json(data);
+  res.json(items);
 });
 
-// GET /cache-status — returns last updated timestamp and item count
-// Used by the portal to detect when fresh data is available
+// GET /cache-status — lightweight poll so the portal can detect updates
 router.get("/cache-status", requireAccess, (_req, res) => {
   const { lastUpdated, isRefreshing, data } = getCacheState();
   res.set("Cache-Control", "no-store");
@@ -48,9 +78,7 @@ router.get("/cache-status", requireAccess, (_req, res) => {
   });
 });
 
-// POST /refresh — trigger immediate cache refresh
-// Called by Apps Script at the end of each sync so the portal updates within seconds
-// Secured by a shared secret in the x-refresh-secret header
+// POST /refresh — webhook from Apps Script to trigger an immediate cache refresh
 router.post("/refresh", (req, res) => {
   const secret   = req.headers["x-refresh-secret"];
   const expected = process.env["REFRESH_SECRET"]?.trim();
@@ -66,6 +94,51 @@ router.post("/refresh", (req, res) => {
   );
 
   res.json({ ok: true, message: "Cache refresh triggered" });
+});
+
+// GET /vehicle-images?vin=XXX — fetch photo gallery from Typesense CDN
+router.get("/vehicle-images", requireAccess, async (req, res) => {
+  const vin = (req.query["vin"] as string ?? "").trim().toUpperCase();
+  if (!vin || vin.length < 10) {
+    res.json({ vin, urls: [] });
+    return;
+  }
+
+  const urls: string[] = [];
+
+  for (const dealer of DEALER_COLLECTIONS) {
+    try {
+      const endpoint =
+        `https://${TYPESENSE_HOST}/collections/${dealer.collection}/documents/search` +
+        `?q=${encodeURIComponent(vin)}&query_by=vin&num_typos=0&per_page=1` +
+        `&x-typesense-api-key=${dealer.apiKey}`;
+
+      const resp = await fetch(endpoint);
+      if (!resp.ok) continue;
+
+      const body: any = await resp.json();
+      if (!body.hits?.length) continue;
+
+      const doc    = body.hits[0].document;
+      const docVin = (doc.vin ?? "").toString().trim().toUpperCase();
+      if (docVin !== vin) continue;
+
+      const rawUrls: string = doc.image_urls ?? "";
+      if (!rawUrls) continue;
+
+      rawUrls.split(";").forEach((path: string) => {
+        const trimmed = path.trim();
+        if (trimmed) urls.push(IMAGE_CDN_BASE + trimmed);
+      });
+
+      break; // Stop after first successful collection
+    } catch (_err) {
+      // Silently continue to next collection
+    }
+  }
+
+  res.set("Cache-Control", "public, max-age=300"); // Cache images for 5 min
+  res.json({ vin, urls });
 });
 
 export default router;

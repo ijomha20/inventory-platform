@@ -10,4 +10,5 @@ export interface AccessEntry {
   email: string;
   addedAt: string;
   addedBy: string;
+  role: string;
 }

@@ -8,11 +8,13 @@
 
 export * from "./accessEntry";
 export * from "./addAccessRequest";
+export * from "./auditLogEntry";
 export * from "./cacheStatus";
 export * from "./errorResponse";
+export * from "./getVehicleImagesParams";
 export * from "./healthStatus";
 export * from "./inventoryItem";
-export * from "./priceLookupParams";
-export * from "./priceLookupResult";
 export * from "./successResponse";
+export * from "./updateAccessRoleRequest";
 export * from "./user";
+export * from "./vehicleImages";

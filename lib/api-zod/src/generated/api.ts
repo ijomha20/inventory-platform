@@ -22,6 +22,7 @@ export const GetMeResponse = zod.object({
   name: zod.string(),
   picture: zod.string().optional(),
   isOwner: zod.boolean(),
+  role: zod.string(),
 });
 
 /**
@@ -49,14 +50,15 @@ export const GetCacheStatusResponse = zod.object({
 });
 
 /**
- * @summary Scrape retail price from a vehicle listing URL
+ * @summary Get photo gallery URLs for a vehicle by VIN
  */
-export const PriceLookupQueryParams = zod.object({
-  url: zod.coerce.string(),
+export const GetVehicleImagesQueryParams = zod.object({
+  vin: zod.coerce.string(),
 });
 
-export const PriceLookupResponse = zod.object({
-  price: zod.string().nullable(),
+export const GetVehicleImagesResponse = zod.object({
+  vin: zod.string(),
+  urls: zod.array(zod.string()),
 });
 
 /**
@@ -66,6 +68,7 @@ export const GetAccessListResponseItem = zod.object({
   email: zod.string(),
   addedAt: zod.string(),
   addedBy: zod.string(),
+  role: zod.string(),
 });
 export const GetAccessListResponse = zod.array(GetAccessListResponseItem);
 
@@ -74,12 +77,32 @@ export const GetAccessListResponse = zod.array(GetAccessListResponseItem);
  */
 export const AddAccessEntryBody = zod.object({
   email: zod.string(),
+  role: zod.string().optional(),
 });
 
 export const AddAccessEntryResponse = zod.object({
   email: zod.string(),
   addedAt: zod.string(),
   addedBy: zod.string(),
+  role: zod.string(),
+});
+
+/**
+ * @summary Update a user's role (owner only)
+ */
+export const UpdateAccessRoleParams = zod.object({
+  email: zod.coerce.string(),
+});
+
+export const UpdateAccessRoleBody = zod.object({
+  role: zod.string(),
+});
+
+export const UpdateAccessRoleResponse = zod.object({
+  email: zod.string(),
+  addedAt: zod.string(),
+  addedBy: zod.string(),
+  role: zod.string(),
 });
 
 /**
@@ -92,3 +115,17 @@ export const RemoveAccessEntryParams = zod.object({
 export const RemoveAccessEntryResponse = zod.object({
   ok: zod.boolean(),
 });
+
+/**
+ * @summary Get audit log of access changes (owner only)
+ */
+export const GetAuditLogResponseItem = zod.object({
+  id: zod.number(),
+  action: zod.string(),
+  targetEmail: zod.string(),
+  changedBy: zod.string(),
+  roleFrom: zod.string().nullish(),
+  roleTo: zod.string().nullish(),
+  timestamp: zod.string(),
+});
+export const GetAuditLogResponse = zod.array(GetAuditLogResponseItem);

@@ -4,6 +4,7 @@ import pinoHttp from "pino-http";
 import session from "express-session";
 import connectPg from "connect-pg-simple";
 import passport from "passport";
+import rateLimit from "express-rate-limit";
 import { pool } from "@workspace/db";
 import router from "./routes/index.js";
 import { logger } from "./lib/logger.js";
@@ -11,6 +12,9 @@ import { configurePassport } from "./lib/auth.js";
 
 const app: Express = express();
 const PgSession = connectPg(session);
+
+// Trust Replit's proxy layer so express-rate-limit can identify clients correctly
+app.set("trust proxy", 1);
 
 app.use(
   pinoHttp({
@@ -35,7 +39,7 @@ app.use(
     saveUninitialized: false,
     cookie: {
       secure: process.env["NODE_ENV"] === "production",
-      maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+      maxAge: 7 * 24 * 60 * 60 * 1000,
     },
   })
 );
@@ -45,6 +49,17 @@ configurePassport();
 app.use(passport.initialize());
 app.use(passport.session());
 
+// Rate limiting — 60 requests per minute per IP, applied to all API routes
+const apiLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 60,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Too many requests, please slow down." },
+  skip: (req) => req.path === "/api/healthz",
+});
+
+app.use("/api", apiLimiter);
 app.use("/api", router);
 
 export default app;
