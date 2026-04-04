@@ -7,6 +7,15 @@ import { isOwner } from "../lib/auth.js";
 
 const router = Router();
 
+// Temp: shows exact callback URL registered with Google (helps diagnose OAuth mismatches)
+router.get("/auth/debug-callback", (_req, res) => {
+  const domain = (process.env["REPLIT_DOMAINS"] ?? "").split(",")[0]?.trim();
+  const callbackURL = domain
+    ? `https://${domain}/api/auth/google/callback`
+    : "http://localhost:8080/api/auth/google/callback";
+  res.json({ callbackURL, REPLIT_DOMAINS: process.env["REPLIT_DOMAINS"] ?? "(not set)" });
+});
+
 // Kick off Google OAuth
 router.get("/auth/google", passport.authenticate("google", { scope: ["email", "profile"] }));
 
