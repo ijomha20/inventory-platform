@@ -667,10 +667,22 @@ async function lookupVinOnDealerPortal(
 // ---------------------------------------------------------------------------
 // Public: run against real pending VINs from Apps Script
 // ---------------------------------------------------------------------------
-export async function runCarfaxWorker(): Promise<void> {
+let batchRunning = false;
+let batchStartedAt: Date | null = null;
+
+export function getCarfaxBatchStatus(): { running: boolean; startedAt: string | null } {
+  return { running: batchRunning, startedAt: batchStartedAt?.toISOString() ?? null };
+}
+
+export async function runCarfaxWorker(opts: { force?: boolean } = {}): Promise<void> {
+  if (batchRunning) {
+    logger.warn("Carfax worker: batch already in progress — skipping duplicate trigger");
+    return;
+  }
+
   logger.info("Carfax worker: starting run");
 
-  if (!CARFAX_ENABLED) {
+  if (!opts.force && !CARFAX_ENABLED) {
     logger.info("Carfax worker: DISABLED (set CARFAX_ENABLED=true to activate)");
     return;
   }
@@ -680,9 +692,13 @@ export async function runCarfaxWorker(): Promise<void> {
     return;
   }
 
+  batchRunning   = true;
+  batchStartedAt = new Date();
+
   const pendingVins = await fetchPendingVins();
   if (pendingVins.length === 0) {
     logger.info("Carfax worker: no pending VINs — nothing to do");
+    batchRunning = false; batchStartedAt = null;
     return;
   }
   logger.info({ count: pendingVins.length }, "Carfax worker: fetched pending VINs");
@@ -742,6 +758,8 @@ export async function runCarfaxWorker(): Promise<void> {
     await sendAlert("Carfax worker crashed: " + String(err));
   } finally {
     if (browser) await browser.close();
+    batchRunning   = false;
+    batchStartedAt = null;
   }
 
   logger.info({ processed, succeeded, notFound, failed }, "Carfax worker: run complete");
