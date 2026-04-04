@@ -45,45 +45,46 @@ const PRICE_COLLECTIONS = [
 ];
 
 /**
- * Fetch online (retail) prices for a set of VINs from Typesense.
- * Uses a single batch request per collection (max 250 results).
- * Returns a map of VIN (uppercase) → formatted price string.
+ * Fetch ALL currently listed vehicles from Typesense and return a
+ * VIN (uppercase) → price string map.  Downloading the full catalogue
+ * (~100–300 vehicles) is faster and more reliable than per-VIN filtering.
  */
-async function fetchOnlinePricesFromTypesense(
-  vins: string[],
-): Promise<Map<string, string>> {
+async function fetchOnlinePricesFromTypesense(): Promise<Map<string, string>> {
   const priceMap = new Map<string, string>();
-  if (vins.length === 0) return priceMap;
-
-  // Typesense filter_by with array of VINs — e.g. vin:=[VIN1,VIN2,...]
-  const vinList  = vins.map((v) => v.toUpperCase()).join(",");
-  const filterBy = encodeURIComponent(`vin:=[${vinList}]`);
 
   for (const col of PRICE_COLLECTIONS) {
     try {
-      const url =
-        `https://${TYPESENSE_HOST}/collections/${col.collection}/documents/search` +
-        `?q=*&filter_by=${filterBy}&per_page=250&x-typesense-api-key=${col.apiKey}`;
+      // Paginate if there are more than 250 vehicles in a collection
+      let page = 1;
+      while (true) {
+        const url =
+          `https://${TYPESENSE_HOST}/collections/${col.collection}/documents/search` +
+          `?q=*&per_page=250&page=${page}&x-typesense-api-key=${col.apiKey}`;
 
-      const resp = await fetch(url, { signal: AbortSignal.timeout(10_000) });
-      if (!resp.ok) continue;
+        const resp = await fetch(url, { signal: AbortSignal.timeout(10_000) });
+        if (!resp.ok) break;
 
-      const body: any = await resp.json();
-      const hits: any[] = body.hits ?? [];
+        const body: any = await resp.json();
+        const hits: any[] = body.hits ?? [];
+        if (hits.length === 0) break;
 
-      for (const hit of hits) {
-        const doc = hit.document ?? {};
-        const vin = (doc.vin ?? "").toString().trim().toUpperCase();
-        if (!vin || priceMap.has(vin)) continue; // prefer first-collection result
+        for (const hit of hits) {
+          const doc = hit.document ?? {};
+          const vin = (doc.vin ?? "").toString().trim().toUpperCase();
+          if (!vin || priceMap.has(vin)) continue; // first collection wins
 
-        const specialOn    = Number(doc.special_price_on) === 1;
-        const specialPrice = parseFloat(doc.special_price);
-        const regularPrice = parseFloat(doc.price);
-        const raw          = specialOn && specialPrice > 0 ? specialPrice : regularPrice;
+          const specialOn    = Number(doc.special_price_on) === 1;
+          const specialPrice = parseFloat(doc.special_price);
+          const regularPrice = parseFloat(doc.price);
+          const raw          = specialOn && specialPrice > 0 ? specialPrice : regularPrice;
 
-        if (!isNaN(raw) && raw > 0) {
-          priceMap.set(vin, String(Math.round(raw)));
+          if (!isNaN(raw) && raw > 0) {
+            priceMap.set(vin, String(Math.round(raw)));
+          }
         }
+
+        if (hits.length < 250) break;
+        page++;
       }
     } catch (err) {
       logger.warn({ err, collection: col.collection }, "Typesense price fetch failed for collection");
@@ -134,8 +135,7 @@ export async function refreshCache(): Promise<void> {
     );
 
     if (needPrice.length > 0) {
-      const vins     = [...new Set(needPrice.map((item) => item.vin).filter(Boolean))];
-      const priceMap = await fetchOnlinePricesFromTypesense(vins);
+      const priceMap = await fetchOnlinePricesFromTypesense();
 
       for (const item of items) {
         if (!item.onlinePrice || item.onlinePrice === "NOT FOUND") {
