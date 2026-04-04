@@ -23,7 +23,8 @@
     "passport-google-oauth20": "^2.0.0",
     "pino": "^9",
     "pino-http": "^10",
-    "puppeteer": "^24.40.0"
+    "puppeteer": "^24.40.0",
+    "resend": "^6.10.0"
   },
   "devDependencies": {
     "@types/connect-pg-simple": "^7.0.3",

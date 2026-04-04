@@ -3,6 +3,7 @@ import { db } from "@workspace/db";
 import { accessListTable, auditLogTable } from "@workspace/db";
 import { eq, desc } from "drizzle-orm";
 import { isOwner } from "../lib/auth.js";
+import { sendInvitationEmail } from "../lib/emailService.js";
 
 const router = Router();
 
@@ -62,6 +63,11 @@ router.post("/access", requireOwner, async (req, res) => {
     .returning();
 
   await writeAudit("add", rawEmail, owner, null, role);
+
+  // Send invitation email (non-blocking — failure doesn't affect response)
+  if (entry) {
+    sendInvitationEmail(rawEmail, role, owner).catch(() => {});
+  }
 
   res.json(entry ?? { email: rawEmail, addedBy: owner, addedAt: new Date().toISOString(), role });
 });
