@@ -23,7 +23,8 @@ const CARFAX_PASSWORD = process.env["CARFAX_PASSWORD"]?.trim() ?? "";
 const CARFAX_ENABLED  = process.env["CARFAX_ENABLED"]?.trim().toLowerCase() === "true";
 
 // Carfax Canada URLs — verify against current site if lookups stop working
-const CARFAX_LOGIN_URL  = "https://www.carfaxcanada.ca/en/login/";
+// Consumer login uses magic links; dealer accounts use dealer.carfax.ca (Auth0 password form)
+const CARFAX_LOGIN_URL  = "https://dealer.carfax.ca/";
 const CARFAX_REPORT_URL = "https://www.carfaxcanada.ca/vehicle-history-reports/en/";
 
 interface PendingVin {
@@ -119,9 +120,17 @@ export async function runCarfaxWorker(): Promise<void> {
   let failed       = 0;
   let captchaStop  = false;
 
+  // Resolve system Chromium path (NixOS wraps Chromium with all its dependencies)
+  let executablePath: string | undefined;
+  try {
+    const { execSync } = await import("child_process");
+    executablePath = execSync("which chromium 2>/dev/null || which chromium-browser 2>/dev/null", { encoding: "utf8" }).trim() || undefined;
+  } catch (_) { /* fall back to puppeteer's bundled browser */ }
+
   try {
     browser = await puppeteer.default.launch({
       headless: true,
+      executablePath,
       args: [
         "--no-sandbox",
         "--disable-setuid-sandbox",
@@ -151,16 +160,14 @@ export async function runCarfaxWorker(): Promise<void> {
       return;
     }
 
-    // Fill in login form
-    // NOTE: If Carfax updates their login page, these selectors may need adjustment.
-    // Common selectors for email/password fields:
+    // Fill in dealer login form (Auth0 — selectors: #username, #password, button[type='submit'])
     try {
-      await loginPage.waitForSelector("input[type='email'], input[name='email'], #email", { timeout: 10_000 });
-      await loginPage.type("input[type='email'], input[name='email'], #email", CARFAX_EMAIL, { delay: 80 });
+      await loginPage.waitForSelector("#username", { timeout: 10_000 });
+      await loginPage.type("#username", CARFAX_EMAIL, { delay: 80 });
       await randomDelay(300, 600);
-      await loginPage.type("input[type='password'], input[name='password'], #password", CARFAX_PASSWORD, { delay: 80 });
+      await loginPage.type("#password", CARFAX_PASSWORD, { delay: 80 });
       await randomDelay(400, 800);
-      await loginPage.keyboard.press("Enter");
+      await loginPage.click("button[type='submit']");
       await loginPage.waitForNavigation({ waitUntil: "networkidle2", timeout: 15_000 });
     } catch (loginErr: any) {
       logger.error({ err: loginErr }, "Carfax login failed — selectors may need updating");
