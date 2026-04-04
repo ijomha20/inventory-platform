@@ -8,6 +8,7 @@
 
 export * from "./accessEntry";
 export * from "./addAccessRequest";
+export * from "./cacheStatus";
 export * from "./errorResponse";
 export * from "./healthStatus";
 export * from "./inventoryItem";

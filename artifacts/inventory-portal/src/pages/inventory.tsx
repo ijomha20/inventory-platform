@@ -1,18 +1,25 @@
 import { useState, useCallback, useEffect, useRef } from "react";
-import { useGetInventory, priceLookup } from "@workspace/api-client-react";
-import { Search, ExternalLink, FileText, AlertCircle, ChevronUp, ChevronDown, ChevronsUpDown, Copy, Check, Loader2 } from "lucide-react";
+import { useGetInventory, useGetCacheStatus } from "@workspace/api-client-react";
+import { Search, ExternalLink, FileText, AlertCircle, ChevronUp, ChevronDown, ChevronsUpDown, Copy, Check, RefreshCw } from "lucide-react";
 import { useLocation } from "wouter";
 import { FullScreenSpinner } from "@/components/ui/spinner";
 
 type SortKey = "location" | "vehicle" | "vin" | "price" | "km";
 type SortDir = "asc" | "desc";
 
-// Format a raw price string as $12,345
-function formatPrice(raw: string): string {
-  if (!raw) return "—";
+function formatPrice(raw: string | undefined): string {
+  if (!raw || raw === "NOT FOUND") return "—";
   const n = parseFloat(raw.replace(/[^0-9.]/g, ""));
-  if (isNaN(n) || n === 0) return raw; // already formatted or non-numeric
+  if (isNaN(n) || n === 0) return "—";
   return "$" + Math.round(n).toLocaleString("en-US");
+}
+
+function timeAgo(iso: string | null | undefined): string {
+  if (!iso) return "never";
+  const diff = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
+  if (diff < 60)  return "just now";
+  if (diff < 3600) return Math.floor(diff / 60) + "m ago";
+  return Math.floor(diff / 3600) + "h ago";
 }
 
 function SortIcon({ active, dir }: { active: boolean; dir: SortDir }) {
@@ -42,45 +49,39 @@ function CopyVin({ vin }: { vin: string }) {
 }
 
 export default function Inventory() {
-  const [search, setSearch] = useState("");
+  const [search, setSearch]   = useState("");
   const [sortKey, setSortKey] = useState<SortKey>("vehicle");
   const [sortDir, setSortDir] = useState<SortDir>("asc");
-  const [onlinePrices, setOnlinePrices] = useState<Map<string, string | null>>(new Map());
-  const fetchedUrls = useRef<Set<string>>(new Set());
-  const [, setLocation] = useLocation();
+  const [, setLocation]       = useLocation();
 
-  const { data: inventory, isLoading, error } = useGetInventory({
+  // Track the server's last-updated timestamp so we know when to refetch
+  const lastKnownUpdate = useRef<string | null>(null);
+
+  const { data: inventory, isLoading, error, refetch: refetchInventory } = useGetInventory({
     query: { retry: false },
   });
 
-  // Fetch online prices in the background for all vehicles with a website URL
+  // Poll cache-status every 60 seconds — auto-refetch inventory if data changed
+  const { data: cacheStatus } = useGetCacheStatus({
+    query: {
+      refetchInterval: 60_000,
+      retry: false,
+    },
+  });
+
   useEffect(() => {
-    if (!inventory) return;
-    const toFetch = inventory.filter(
-      (item) => item.website && item.website !== "NOT FOUND" && !fetchedUrls.current.has(item.website)
-    );
-    if (toFetch.length === 0) return;
-
-    // Mark all as in-progress
-    toFetch.forEach((item) => fetchedUrls.current.add(item.website!));
-
-    // Fetch with concurrency limit of 4
-    const CONCURRENCY = 4;
-    let idx = 0;
-    async function runNext() {
-      if (idx >= toFetch.length) return;
-      const item = toFetch[idx++];
-      try {
-        const result = await priceLookup({ url: item.website! });
-        setOnlinePrices((prev) => new Map(prev).set(item.website!, result.price ?? null));
-      } catch {
-        setOnlinePrices((prev) => new Map(prev).set(item.website!, null));
-      }
-      await runNext();
+    if (!cacheStatus?.lastUpdated) return;
+    if (lastKnownUpdate.current === null) {
+      // First status read — just record it
+      lastKnownUpdate.current = cacheStatus.lastUpdated;
+      return;
     }
-    const workers = Array.from({ length: Math.min(CONCURRENCY, toFetch.length) }, () => runNext());
-    Promise.all(workers);
-  }, [inventory]);
+    if (cacheStatus.lastUpdated !== lastKnownUpdate.current) {
+      // Server has fresher data — silently refetch in the background
+      lastKnownUpdate.current = cacheStatus.lastUpdated;
+      refetchInventory();
+    }
+  }, [cacheStatus?.lastUpdated, refetchInventory]);
 
   if (error) {
     const status = (error as any)?.response?.status;
@@ -142,6 +143,14 @@ export default function Inventory() {
             {sorted.length} {sorted.length === 1 ? "vehicle" : "vehicles"}
             {search ? ` matching "${search}"` : ""}
           </p>
+          {/* Last updated indicator */}
+          {cacheStatus?.lastUpdated && (
+            <p className="text-xs text-gray-400 mt-0.5 flex items-center gap-1">
+              {cacheStatus.isRefreshing
+                ? <><RefreshCw className="w-3 h-3 animate-spin" /> Updating…</>
+                : <>Updated {timeAgo(cacheStatus.lastUpdated)}</>}
+            </p>
+          )}
         </div>
         <div className="relative w-full sm:w-64">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
@@ -183,68 +192,54 @@ export default function Inventory() {
 
           {/* Data rows */}
           <div>
-            {sorted.map((item, i) => {
-              const websiteKey = item.website && item.website !== "NOT FOUND" ? item.website : null;
-              const isFetchingPrice = websiteKey !== null && !onlinePrices.has(websiteKey);
-              const onlinePrice = websiteKey ? onlinePrices.get(websiteKey) : undefined;
+            {sorted.map((item, i) => (
+              <div
+                key={`${item.vin}-${i}`}
+                className={`flex items-center gap-4 px-4 py-3 hover:bg-gray-50 transition-colors ${i < sorted.length - 1 ? "border-b border-gray-100" : ""}`}
+              >
+                {/* Location */}
+                <div className="w-36 shrink-0 text-sm text-gray-700 truncate">{item.location || "—"}</div>
 
-              return (
-                <div
-                  key={`${item.vin}-${i}`}
-                  className={`flex items-center gap-4 px-4 py-3 hover:bg-gray-50 transition-colors ${i < sorted.length - 1 ? "border-b border-gray-100" : ""}`}
-                >
-                  {/* Location */}
-                  <div className="w-36 shrink-0 text-sm text-gray-700 truncate">{item.location || "—"}</div>
+                {/* Vehicle */}
+                <div className="flex-1 min-w-0 text-sm text-gray-700 font-medium truncate">{item.vehicle}</div>
 
-                  {/* Vehicle */}
-                  <div className="flex-1 min-w-0 text-sm text-gray-700 font-medium truncate">{item.vehicle}</div>
+                {/* VIN */}
+                <div className="w-44 shrink-0"><CopyVin vin={item.vin} /></div>
 
-                  {/* VIN */}
-                  <div className="w-44 shrink-0"><CopyVin vin={item.vin} /></div>
+                {/* Your Cost */}
+                <div className="w-28 shrink-0 text-sm text-gray-700">{formatPrice(item.price)}</div>
 
-                  {/* Your Cost */}
-                  <div className="w-28 shrink-0 text-sm text-gray-700">{formatPrice(item.price)}</div>
-
-                  {/* KM */}
-                  <div className="w-24 shrink-0 text-sm text-gray-700">
-                    {item.km ? Number(item.km.replace(/[^0-9]/g, "")).toLocaleString("en-US") + " km" : "—"}
-                  </div>
-
-                  {/* Online Price */}
-                  <div className="w-32 shrink-0 text-sm text-gray-700">
-                    {!websiteKey ? (
-                      <span className="text-gray-300">—</span>
-                    ) : isFetchingPrice ? (
-                      <Loader2 className="w-3.5 h-3.5 text-gray-400 animate-spin" />
-                    ) : onlinePrice ? (
-                      onlinePrice
-                    ) : (
-                      <span className="text-gray-300">—</span>
-                    )}
-                  </div>
-
-                  {/* Carfax */}
-                  <div className="w-20 shrink-0 flex justify-center">
-                    {item.carfax && item.carfax !== "NOT FOUND" ? (
-                      <a href={item.carfax} target="_blank" rel="noopener noreferrer" title="View Carfax"
-                        className="inline-flex items-center px-2 py-1 rounded text-xs text-gray-600 hover:text-gray-900 hover:bg-gray-100 transition-colors">
-                        <FileText className="w-4 h-4" />
-                      </a>
-                    ) : <span className="text-gray-300 text-sm">—</span>}
-                  </div>
-
-                  {/* Listing */}
-                  <div className="w-20 shrink-0 flex justify-center">
-                    {item.website && item.website !== "NOT FOUND" ? (
-                      <a href={item.website} target="_blank" rel="noopener noreferrer" title="View Listing"
-                        className="inline-flex items-center px-2 py-1 rounded text-xs text-blue-600 hover:text-blue-800 hover:bg-blue-50 transition-colors">
-                        <ExternalLink className="w-4 h-4" />
-                      </a>
-                    ) : <span className="text-gray-300 text-sm">—</span>}
-                  </div>
+                {/* KM */}
+                <div className="w-24 shrink-0 text-sm text-gray-700">
+                  {item.km ? Number(item.km.replace(/[^0-9]/g, "")).toLocaleString("en-US") + " km" : "—"}
                 </div>
-              );
-            })}
+
+                {/* Online Price — comes directly from the sheet, no extra API call */}
+                <div className="w-32 shrink-0 text-sm text-gray-700">
+                  {formatPrice(item.onlinePrice)}
+                </div>
+
+                {/* Carfax */}
+                <div className="w-20 shrink-0 flex justify-center">
+                  {item.carfax && item.carfax !== "NOT FOUND" ? (
+                    <a href={item.carfax} target="_blank" rel="noopener noreferrer" title="View Carfax"
+                      className="inline-flex items-center px-2 py-1 rounded text-xs text-gray-600 hover:text-gray-900 hover:bg-gray-100 transition-colors">
+                      <FileText className="w-4 h-4" />
+                    </a>
+                  ) : <span className="text-gray-300 text-sm">—</span>}
+                </div>
+
+                {/* Listing */}
+                <div className="w-20 shrink-0 flex justify-center">
+                  {item.website && item.website !== "NOT FOUND" ? (
+                    <a href={item.website} target="_blank" rel="noopener noreferrer" title="View Listing"
+                      className="inline-flex items-center px-2 py-1 rounded text-xs text-blue-600 hover:text-blue-800 hover:bg-blue-50 transition-colors">
+                      <ExternalLink className="w-4 h-4" />
+                    </a>
+                  ) : <span className="text-gray-300 text-sm">—</span>}
+                </div>
+              </div>
+            ))}
           </div>
         </div>
       ) : (

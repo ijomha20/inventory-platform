@@ -76,6 +76,25 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
 
+  /cache-status:
+    get:
+      operationId: getCacheStatus
+      tags: [inventory]
+      summary: Get the timestamp of the last inventory cache refresh
+      responses:
+        "200":
+          description: Cache status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CacheStatus"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
   /price-lookup:
     get:
       operationId: priceLookup
@@ -225,11 +244,27 @@ components:
           type: string
         website:
           type: string
+        onlinePrice:
+          type: string
       required:
         - location
         - vehicle
         - vin
         - price
+
+    CacheStatus:
+      type: object
+      properties:
+        lastUpdated:
+          type: string
+          nullable: true
+        isRefreshing:
+          type: boolean
+        count:
+          type: integer
+      required:
+        - isRefreshing
+        - count
 
     AccessEntry:
       type: object

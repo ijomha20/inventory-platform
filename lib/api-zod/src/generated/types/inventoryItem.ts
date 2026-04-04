@@ -14,4 +14,5 @@ export interface InventoryItem {
   km?: string;
   carfax?: string;
   website?: string;
+  onlinePrice?: string;
 }

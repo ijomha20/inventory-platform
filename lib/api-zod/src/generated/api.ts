@@ -35,8 +35,18 @@ export const GetInventoryResponseItem = zod.object({
   km: zod.string().optional(),
   carfax: zod.string().optional(),
   website: zod.string().optional(),
+  onlinePrice: zod.string().optional(),
 });
 export const GetInventoryResponse = zod.array(GetInventoryResponseItem);
+
+/**
+ * @summary Get the timestamp of the last inventory cache refresh
+ */
+export const GetCacheStatusResponse = zod.object({
+  lastUpdated: zod.string().nullish(),
+  isRefreshing: zod.boolean(),
+  count: zod.number(),
+});
 
 /**
  * @summary Scrape retail price from a vehicle listing URL

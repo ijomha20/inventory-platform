@@ -19,6 +19,7 @@ import type {
 import type {
   AccessEntry,
   AddAccessRequest,
+  CacheStatus,
   ErrorResponse,
   HealthStatus,
   InventoryItem,
@@ -242,6 +243,81 @@ export function useGetInventory<
   request?: SecondParameter<typeof customFetch>;
 }): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
   const queryOptions = getGetInventoryQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Get the timestamp of the last inventory cache refresh
+ */
+export const getGetCacheStatusUrl = () => {
+  return `/api/cache-status`;
+};
+
+export const getCacheStatus = async (
+  options?: RequestInit,
+): Promise<CacheStatus> => {
+  return customFetch<CacheStatus>(getGetCacheStatusUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetCacheStatusQueryKey = () => {
+  return [`/api/cache-status`] as const;
+};
+
+export const getGetCacheStatusQueryOptions = <
+  TData = Awaited<ReturnType<typeof getCacheStatus>>,
+  TError = ErrorType<ErrorResponse>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getCacheStatus>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetCacheStatusQueryKey();
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof getCacheStatus>>> = ({
+    signal,
+  }) => getCacheStatus({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getCacheStatus>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetCacheStatusQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getCacheStatus>>
+>;
+export type GetCacheStatusQueryError = ErrorType<ErrorResponse>;
+
+/**
+ * @summary Get the timestamp of the last inventory cache refresh
+ */
+
+export function useGetCacheStatus<
+  TData = Awaited<ReturnType<typeof getCacheStatus>>,
+  TError = ErrorType<ErrorResponse>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getCacheStatus>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetCacheStatusQueryOptions(options);
 
   const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
     queryKey: QueryKey;

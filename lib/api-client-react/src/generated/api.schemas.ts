@@ -24,6 +24,13 @@ export interface InventoryItem {
   km?: string;
   carfax?: string;
   website?: string;
+  onlinePrice?: string;
+}
+
+export interface CacheStatus {
+  lastUpdated?: string | null;
+  isRefreshing: boolean;
+  count: number;
 }
 
 export interface AccessEntry {

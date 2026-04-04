@@ -4,6 +4,7 @@ import { accessListTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { isOwner } from "../lib/auth.js";
 import { logger } from "../lib/logger.js";
+import { getCacheState, refreshCache } from "../lib/inventoryCache.js";
 
 const router = Router();
 
@@ -28,21 +29,43 @@ async function requireAccess(req: any, res: any, next: any) {
   res.status(403).json({ error: "Access denied" });
 }
 
-router.get("/inventory", requireAccess, async (_req, res) => {
-  const dataUrl = process.env["INVENTORY_DATA_URL"]?.trim();
-  if (!dataUrl) {
-    res.json([]);
+// GET /inventory — instant response from server-side cache
+router.get("/inventory", requireAccess, (_req, res) => {
+  const { data } = getCacheState();
+  res.set("Cache-Control", "no-store");
+  res.json(data);
+});
+
+// GET /cache-status — returns last updated timestamp and item count
+// Used by the portal to detect when fresh data is available
+router.get("/cache-status", requireAccess, (_req, res) => {
+  const { lastUpdated, isRefreshing, data } = getCacheState();
+  res.set("Cache-Control", "no-store");
+  res.json({
+    lastUpdated:  lastUpdated?.toISOString() ?? null,
+    isRefreshing,
+    count:        data.length,
+  });
+});
+
+// POST /refresh — trigger immediate cache refresh
+// Called by Apps Script at the end of each sync so the portal updates within seconds
+// Secured by a shared secret in the x-refresh-secret header
+router.post("/refresh", (req, res) => {
+  const secret   = req.headers["x-refresh-secret"];
+  const expected = process.env["REFRESH_SECRET"]?.trim();
+
+  if (!expected || secret !== expected) {
+    logger.warn({ ip: (req as any).ip }, "Unauthorized /refresh attempt");
+    res.status(401).json({ error: "Unauthorized" });
     return;
   }
-  try {
-    const response = await fetch(dataUrl);
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    const data = await response.json();
-    res.json(data);
-  } catch (err) {
-    logger.error({ err }, "Failed to fetch inventory data");
-    res.status(502).json({ error: "Could not fetch inventory data" });
-  }
+
+  refreshCache().catch((err) =>
+    logger.error({ err }, "Webhook-triggered refresh failed"),
+  );
+
+  res.json({ ok: true, message: "Cache refresh triggered" });
 });
 
 export default router;
