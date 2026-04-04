@@ -1,0 +1,8 @@
+uploads = []
+generated = []
+
+[[outputs]]
+id = "ktT5tIlH2-srenEc1uOF4"
+uri = "file://downloads/carfaxWorker.pdf"
+type = "pdf"
+title = "carfaxWorker.ts — Carfax Cloud Worker"
