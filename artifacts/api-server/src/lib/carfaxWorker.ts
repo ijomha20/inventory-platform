@@ -91,27 +91,46 @@ async function fetchPendingVins(): Promise<PendingVin[]> {
     logger.warn("APPS_SCRIPT_WEB_APP_URL not configured");
     return [];
   }
-  try {
-    const resp = await fetch(APPS_SCRIPT_URL);
-    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-    const data = await resp.json() as PendingVin[];
-    return Array.isArray(data) ? data : [];
-  } catch (err) {
-    logger.error({ err }, "Carfax worker: failed to fetch pending VINs");
-    return [];
+  let retries = 3;
+  while (retries > 0) {
+    try {
+      const resp = await fetch(APPS_SCRIPT_URL, { signal: AbortSignal.timeout(15_000) });
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      const data = await resp.json() as PendingVin[];
+      return Array.isArray(data) ? data : [];
+    } catch (err) {
+      retries--;
+      if (retries === 0) {
+        logger.error({ err }, "Carfax worker: failed to fetch pending VINs after 3 attempts");
+        return [];
+      }
+      logger.warn({ err, retriesLeft: retries }, "Carfax worker: fetch failed, retrying in 2s");
+      await sleep(2_000);
+    }
   }
+  return [];
 }
 
 async function writeCarfaxResult(rowIndex: number, value: string, batchComplete = false): Promise<void> {
   if (!APPS_SCRIPT_URL) return;
-  try {
-    await fetch(APPS_SCRIPT_URL, {
-      method:  "POST",
-      headers: { "Content-Type": "application/json" },
-      body:    JSON.stringify({ rowIndex, value, batchComplete }),
-    });
-  } catch (err) {
-    logger.error({ err, rowIndex, value }, "Carfax worker: failed to write result to sheet");
+  let retries = 3;
+  while (retries > 0) {
+    try {
+      await fetch(APPS_SCRIPT_URL, {
+        method:  "POST",
+        headers: { "Content-Type": "application/json" },
+        body:    JSON.stringify({ rowIndex, value, batchComplete }),
+        signal:  AbortSignal.timeout(15_000),
+      });
+      return;
+    } catch (err) {
+      retries--;
+      if (retries === 0) {
+        logger.error({ err, rowIndex, value }, "Carfax worker: failed to write result after 3 attempts");
+      } else {
+        await sleep(1_000);
+      }
+    }
   }
 }
 
@@ -158,9 +177,19 @@ function saveCookies(cookies: any[]): void {
 async function launchBrowser(): Promise<any> {
   let puppeteer: any;
   try {
-    puppeteer = (await import("puppeteer")).default;
+    // puppeteer-extra + stealth plugin — handles ~20 detection vectors automatically
+    puppeteer = (await import("puppeteer-extra")).default;
+    const StealthPlugin = (await import("puppeteer-extra-plugin-stealth")).default;
+    puppeteer.use(StealthPlugin());
+    logger.info("Carfax worker: using puppeteer-extra with stealth plugin");
   } catch (_) {
-    throw new Error("puppeteer not installed");
+    // Fallback to plain puppeteer if extra not available
+    logger.warn("Carfax worker: puppeteer-extra not available, falling back to plain puppeteer");
+    try {
+      puppeteer = (await import("puppeteer")).default;
+    } catch (__) {
+      throw new Error("puppeteer not installed");
+    }
   }
 
   let executablePath: string | undefined;
@@ -174,10 +203,9 @@ async function launchBrowser(): Promise<any> {
   } catch (_) { /* use bundled */ }
 
   const browser = await puppeteer.launch({
-    // "new" headless has significantly fewer detectable signals than classic headless: true
     headless: "new" as any,
     executablePath,
-    defaultViewport: { width: 1280, height: 900 },   // matches original desktop script exactly
+    defaultViewport: { width: 1280, height: 900 },
     args: [
       // Required for Replit/Linux container environments
       "--no-sandbox",
@@ -185,12 +213,11 @@ async function launchBrowser(): Promise<any> {
       "--disable-dev-shm-usage",
       "--disable-gpu",
       "--no-zygote",
-      // Anti-detection — matches original desktop script
+      // Anti-detection
       "--disable-blink-features=AutomationControlled",
       "--no-first-run",
       "--no-default-browser-check",
       "--disable-infobars",
-      // Additional: suppress automation-related UI that headless browsers expose
       "--disable-extensions-except=",
       "--disable-plugins-discovery",
       "--window-size=1280,900",
@@ -202,71 +229,176 @@ async function launchBrowser(): Promise<any> {
 }
 
 async function addAntiDetectionScripts(page: any): Promise<void> {
-  // User agent matches original desktop script exactly
-  await page.setUserAgent(
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
-  );
+  const USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
 
-  // Comprehensive anti-detection — runs before any page script executes
-  // Covers all properties checked by standard bot-detection fingerprinting
+  await page.setUserAgent(USER_AGENT);
+
+  // Realistic HTTP headers — every request looks like real Chrome on Windows
+  await page.setExtraHTTPHeaders({
+    "Accept-Language":           "en-CA,en-US;q=0.9,en;q=0.8,fr;q=0.7",
+    "Accept-Encoding":           "gzip, deflate, br",
+    "Accept":                    "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+    "Sec-Fetch-Site":            "none",
+    "Sec-Fetch-Mode":            "navigate",
+    "Sec-Fetch-User":            "?1",
+    "Sec-Fetch-Dest":            "document",
+    "Sec-Ch-Ua":                 '"Google Chrome";v="124", "Chromium";v="124", "Not-A.Brand";v="99"',
+    "Sec-Ch-Ua-Mobile":          "?0",
+    "Sec-Ch-Ua-Platform":        '"Windows"',
+    "Upgrade-Insecure-Requests": "1",
+    "Cache-Control":             "max-age=0",
+  });
+
+  await page.setCacheEnabled(true);
+
+  // Runs before any page script — covers all fingerprinting vectors
   await page.evaluateOnNewDocument(() => {
-    // 1. navigator.webdriver — primary automation flag (from original)
+    // 1. navigator.webdriver — primary automation flag
     Object.defineProperty(navigator, "webdriver", { get: () => undefined });
 
-    // 2. window.chrome — real Chrome has a rich chrome object (from original + expanded)
+    // 2. window.chrome — real Chrome has a rich object with callable methods
     (window as any).chrome = {
-      runtime:  {},
+      runtime: {
+        connect:       () => {},
+        sendMessage:   () => {},
+        onMessage:     { addListener: () => {}, removeListener: () => {} },
+      },
       loadTimes: () => {},
       csi:       () => {},
       app:       {},
     };
 
-    // 3. navigator.plugins — headless has 0 plugins; real Chrome has several
+    // 3. navigator.userAgentData — Chrome 90+ API; missing = instant bot flag
+    Object.defineProperty(navigator, "userAgentData", {
+      get: () => ({
+        brands: [
+          { brand: "Google Chrome", version: "124" },
+          { brand: "Chromium",      version: "124" },
+          { brand: "Not-A.Brand",   version: "99"  },
+        ],
+        mobile:   false,
+        platform: "Windows",
+        getHighEntropyValues: async (_hints: string[]) => ({
+          brands: [
+            { brand: "Google Chrome", version: "124" },
+            { brand: "Chromium",      version: "124" },
+            { brand: "Not-A.Brand",   version: "99"  },
+          ],
+          mobile:          false,
+          platform:        "Windows",
+          platformVersion: "10.0.0",
+          architecture:    "x86",
+          bitness:         "64",
+          model:           "",
+          uaFullVersion:   "124.0.6367.60",
+          fullVersionList: [
+            { brand: "Google Chrome", version: "124.0.6367.60" },
+            { brand: "Chromium",      version: "124.0.6367.60" },
+            { brand: "Not-A.Brand",   version: "99.0.0.0"      },
+          ],
+        }),
+      }),
+    });
+
+    // 4. navigator.plugins — headless has 0; real Chrome has several
     Object.defineProperty(navigator, "plugins", {
       get: () => {
         const plugins = [
-          { name: "Chrome PDF Plugin",       filename: "internal-pdf-viewer",   description: "Portable Document Format" },
-          { name: "Chrome PDF Viewer",        filename: "mhjfbmdgcfjbbpaeojofohoefgiehjai", description: "" },
-          { name: "Native Client",            filename: "internal-nacl-plugin",  description: "" },
+          { name: "Chrome PDF Plugin", filename: "internal-pdf-viewer",              description: "Portable Document Format" },
+          { name: "Chrome PDF Viewer", filename: "mhjfbmdgcfjbbpaeojofohoefgiehjai", description: "" },
+          { name: "Native Client",     filename: "internal-nacl-plugin",             description: "" },
         ];
-        return Object.assign(plugins, { item: (i: number) => plugins[i], namedItem: (n: string) => plugins.find(p => p.name === n) || null, length: plugins.length });
+        return Object.assign(plugins, {
+          item:      (i: number) => plugins[i],
+          namedItem: (n: string) => plugins.find(p => p.name === n) || null,
+          refresh:   () => {},
+          length:    plugins.length,
+        });
       },
     });
 
-    // 4. navigator.mimeTypes — headless returns empty; real Chrome has entries
+    // 5. navigator.mimeTypes
     Object.defineProperty(navigator, "mimeTypes", {
       get: () => {
         const types = [
-          { type: "application/pdf",      description: "Portable Document Format", suffixes: "pdf" },
+          { type: "application/pdf",               description: "Portable Document Format", suffixes: "pdf" },
           { type: "application/x-google-chrome-pdf", description: "Portable Document Format", suffixes: "pdf" },
         ];
-        return Object.assign(types, { item: (i: number) => types[i], namedItem: (n: string) => types.find(t => t.type === n) || null, length: types.length });
+        return Object.assign(types, {
+          item:      (i: number) => types[i],
+          namedItem: (n: string) => types.find(t => t.type === n) || null,
+          length:    types.length,
+        });
       },
     });
 
-    // 5. navigator.languages — headless often has empty or single entry
-    Object.defineProperty(navigator, "languages", { get: () => ["en-CA", "en", "fr-CA"] });
+    // 6. navigator.languages
+    Object.defineProperty(navigator, "languages", { get: () => ["en-CA", "en-US", "en", "fr-CA"] });
     Object.defineProperty(navigator, "language",  { get: () => "en-CA" });
 
-    // 6. screen dimensions — headless may report 0 or mismatched values
+    // 7. Hardware profile — server CPUs/memory differ from a desktop
+    Object.defineProperty(navigator, "hardwareConcurrency", { get: () => 8 });
+    Object.defineProperty(navigator, "deviceMemory",        { get: () => 8 });
+
+    // 8. Network connection — headless exposes server connection
+    Object.defineProperty(navigator, "connection", {
+      get: () => ({
+        effectiveType:    "4g",
+        rtt:              50 + Math.floor(Math.random() * 50),
+        downlink:         5 + Math.random() * 5,
+        saveData:         false,
+        addEventListener:    () => {},
+        removeEventListener: () => {},
+        dispatchEvent:       () => true,
+      }),
+    });
+
+    // 9. Screen dimensions — all consistent at 1280×900 to match viewport
     Object.defineProperty(screen, "width",       { get: () => 1280 });
-    Object.defineProperty(screen, "height",      { get: () => 900 });
+    Object.defineProperty(screen, "height",      { get: () => 900  });
     Object.defineProperty(screen, "availWidth",  { get: () => 1280 });
-    Object.defineProperty(screen, "availHeight", { get: () => 860 });
-    Object.defineProperty(screen, "colorDepth",  { get: () => 24 });
-    Object.defineProperty(screen, "pixelDepth",  { get: () => 24 });
-
-    // 7. window.outerWidth / outerHeight — should match viewport
+    Object.defineProperty(screen, "availHeight", { get: () => 860  });
+    Object.defineProperty(screen, "colorDepth",  { get: () => 24   });
+    Object.defineProperty(screen, "pixelDepth",  { get: () => 24   });
     Object.defineProperty(window, "outerWidth",  { get: () => 1280 });
-    Object.defineProperty(window, "outerHeight", { get: () => 900 });
+    Object.defineProperty(window, "outerHeight", { get: () => 900  });
 
-    // 8. Permissions API — headless behaves differently from real browsers
-    const originalQuery = window.navigator.permissions?.query.bind(navigator.permissions);
-    if (originalQuery) {
+    // 10. Canvas fingerprint noise — each run produces a unique fingerprint
+    const _origToDataURL   = HTMLCanvasElement.prototype.toDataURL;
+    const _origGetImageData = CanvasRenderingContext2D.prototype.getImageData;
+    const noise = () => Math.floor(Math.random() * 3) - 1; // -1, 0, or +1
+
+    HTMLCanvasElement.prototype.toDataURL = function(...args: any[]) {
+      const ctx = this.getContext("2d");
+      if (ctx) {
+        const img = ctx.getImageData(0, 0, this.width, this.height);
+        for (let i = 0; i < img.data.length; i += 4) {
+          img.data[i]   += noise();
+          img.data[i+1] += noise();
+          img.data[i+2] += noise();
+        }
+        ctx.putImageData(img, 0, 0);
+      }
+      return _origToDataURL.apply(this, args);
+    };
+
+    CanvasRenderingContext2D.prototype.getImageData = function(...args: any[]) {
+      const img = _origGetImageData.apply(this, args);
+      for (let i = 0; i < img.data.length; i += 4) {
+        img.data[i]   += noise();
+        img.data[i+1] += noise();
+        img.data[i+2] += noise();
+      }
+      return img;
+    };
+
+    // 11. Permissions API
+    const _origQuery = window.navigator.permissions?.query.bind(navigator.permissions);
+    if (_origQuery) {
       (navigator.permissions as any).query = (parameters: any) =>
         parameters.name === "notifications"
           ? Promise.resolve({ state: "denied" } as PermissionStatus)
-          : originalQuery(parameters);
+          : _origQuery(parameters);
     }
   });
 }
@@ -600,7 +732,7 @@ export async function runCarfaxWorker(): Promise<void> {
       }
 
       processed++;
-      await humanDelay(rand(3_000, 7_000));
+      await humanDelay(rand(4_000, 9_000));
     }
 
     if (processed > 0) await writeCarfaxResult(0, "", true);

@@ -100,6 +100,8 @@ async function buildAll() {
       "playwright",
       "puppeteer",
       "puppeteer-core",
+      "puppeteer-extra",
+      "puppeteer-extra-plugin-stealth",
       "electron",
     ],
     sourcemap: "linked",

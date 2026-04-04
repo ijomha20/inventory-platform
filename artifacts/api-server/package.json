@@ -24,6 +24,8 @@
     "pino": "^9",
     "pino-http": "^10",
     "puppeteer": "^24.40.0",
+    "puppeteer-extra": "^3.3.6",
+    "puppeteer-extra-plugin-stealth": "^2.11.2",
     "resend": "^6.10.0"
   },
   "devDependencies": {
