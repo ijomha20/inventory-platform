@@ -174,19 +174,26 @@ async function launchBrowser(): Promise<any> {
   } catch (_) { /* use bundled */ }
 
   const browser = await puppeteer.launch({
-    headless: true,
+    // "new" headless has significantly fewer detectable signals than classic headless: true
+    headless: "new" as any,
     executablePath,
+    defaultViewport: { width: 1280, height: 900 },   // matches original desktop script exactly
     args: [
+      // Required for Replit/Linux container environments
       "--no-sandbox",
       "--disable-setuid-sandbox",
       "--disable-dev-shm-usage",
       "--disable-gpu",
       "--no-zygote",
-      // Anti-detection — mirrors the desktop script
+      // Anti-detection — matches original desktop script
       "--disable-blink-features=AutomationControlled",
       "--no-first-run",
       "--no-default-browser-check",
       "--disable-infobars",
+      // Additional: suppress automation-related UI that headless browsers expose
+      "--disable-extensions-except=",
+      "--disable-plugins-discovery",
+      "--window-size=1280,900",
     ],
     ignoreDefaultArgs: ["--enable-automation"],
   });
@@ -195,13 +202,72 @@ async function launchBrowser(): Promise<any> {
 }
 
 async function addAntiDetectionScripts(page: any): Promise<void> {
+  // User agent matches original desktop script exactly
   await page.setUserAgent(
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
   );
-  // Override webdriver detection — mirrors the desktop script's addInitScript
+
+  // Comprehensive anti-detection — runs before any page script executes
+  // Covers all properties checked by standard bot-detection fingerprinting
   await page.evaluateOnNewDocument(() => {
+    // 1. navigator.webdriver — primary automation flag (from original)
     Object.defineProperty(navigator, "webdriver", { get: () => undefined });
-    (window as any).chrome = { runtime: {} };
+
+    // 2. window.chrome — real Chrome has a rich chrome object (from original + expanded)
+    (window as any).chrome = {
+      runtime:  {},
+      loadTimes: () => {},
+      csi:       () => {},
+      app:       {},
+    };
+
+    // 3. navigator.plugins — headless has 0 plugins; real Chrome has several
+    Object.defineProperty(navigator, "plugins", {
+      get: () => {
+        const plugins = [
+          { name: "Chrome PDF Plugin",       filename: "internal-pdf-viewer",   description: "Portable Document Format" },
+          { name: "Chrome PDF Viewer",        filename: "mhjfbmdgcfjbbpaeojofohoefgiehjai", description: "" },
+          { name: "Native Client",            filename: "internal-nacl-plugin",  description: "" },
+        ];
+        return Object.assign(plugins, { item: (i: number) => plugins[i], namedItem: (n: string) => plugins.find(p => p.name === n) || null, length: plugins.length });
+      },
+    });
+
+    // 4. navigator.mimeTypes — headless returns empty; real Chrome has entries
+    Object.defineProperty(navigator, "mimeTypes", {
+      get: () => {
+        const types = [
+          { type: "application/pdf",      description: "Portable Document Format", suffixes: "pdf" },
+          { type: "application/x-google-chrome-pdf", description: "Portable Document Format", suffixes: "pdf" },
+        ];
+        return Object.assign(types, { item: (i: number) => types[i], namedItem: (n: string) => types.find(t => t.type === n) || null, length: types.length });
+      },
+    });
+
+    // 5. navigator.languages — headless often has empty or single entry
+    Object.defineProperty(navigator, "languages", { get: () => ["en-CA", "en", "fr-CA"] });
+    Object.defineProperty(navigator, "language",  { get: () => "en-CA" });
+
+    // 6. screen dimensions — headless may report 0 or mismatched values
+    Object.defineProperty(screen, "width",       { get: () => 1280 });
+    Object.defineProperty(screen, "height",      { get: () => 900 });
+    Object.defineProperty(screen, "availWidth",  { get: () => 1280 });
+    Object.defineProperty(screen, "availHeight", { get: () => 860 });
+    Object.defineProperty(screen, "colorDepth",  { get: () => 24 });
+    Object.defineProperty(screen, "pixelDepth",  { get: () => 24 });
+
+    // 7. window.outerWidth / outerHeight — should match viewport
+    Object.defineProperty(window, "outerWidth",  { get: () => 1280 });
+    Object.defineProperty(window, "outerHeight", { get: () => 900 });
+
+    // 8. Permissions API — headless behaves differently from real browsers
+    const originalQuery = window.navigator.permissions?.query.bind(navigator.permissions);
+    if (originalQuery) {
+      (navigator.permissions as any).query = (parameters: any) =>
+        parameters.name === "notifications"
+          ? Promise.resolve({ state: "denied" } as PermissionStatus)
+          : originalQuery(parameters);
+    }
   });
 }
 
