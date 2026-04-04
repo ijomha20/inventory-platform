@@ -1,34 +1,58 @@
 /**
  * Carfax Cloud Worker
  *
- * Runs nightly at 2:15am on the Replit cloud server — no desktop required.
- * Fetches pending VINs from the Apps Script web app, opens a headless browser
- * on Replit's servers, logs into Carfax Canada, and looks up each VIN.
- * Results are written directly back into My List via the doPost endpoint.
+ * Runs nightly at 2:15am on the Replit cloud server.
+ * Modelled on the proven desktop script — uses the dealer portal VIN search
+ * at dealer.carfax.ca/MyReports, hides automation detection, and saves the
+ * login session to disk so login only happens once.
  *
  * REQUIRED ENVIRONMENT VARIABLES:
- *   APPS_SCRIPT_WEB_APP_URL  — your deployed Apps Script web app URL
- *   CARFAX_EMAIL             — your Carfax Canada login email
- *   CARFAX_PASSWORD          — your Carfax Canada login password
- *
- * OPTIONAL:
- *   CARFAX_ENABLED           — set to "true" to activate (default: disabled until credentials set)
+ *   APPS_SCRIPT_WEB_APP_URL  — deployed Apps Script web app URL
+ *   CARFAX_EMAIL             — Carfax Canada dealer login email
+ *   CARFAX_PASSWORD          — Carfax Canada dealer login password
+ *   CARFAX_ENABLED           — set to "true" to activate
  */
 
 import { logger } from "./logger.js";
+import * as fs   from "fs";
+import * as path from "path";
 
 const APPS_SCRIPT_URL = process.env["APPS_SCRIPT_WEB_APP_URL"]?.trim() ?? "";
 const CARFAX_EMAIL    = process.env["CARFAX_EMAIL"]?.trim()    ?? "";
 const CARFAX_PASSWORD = process.env["CARFAX_PASSWORD"]?.trim() ?? "";
 const CARFAX_ENABLED  = process.env["CARFAX_ENABLED"]?.trim().toLowerCase() === "true";
 
-const CARFAX_LOGIN_URL  = "https://dealer.carfax.ca/";
-const CARFAX_REPORT_URL = "https://www.carfaxcanada.ca/vehicle-history-reports/en/";
+// Dealer portal URLs — same as the desktop script
+const CARFAX_HOME      = "https://dealer.carfax.ca/";
+const CARFAX_LOGIN_URL = "https://dealer.carfax.ca/login";
+const CARFAX_VHR_URL   = "https://dealer.carfax.ca/MyReports";
 
-interface PendingVin {
-  rowIndex: number;
-  vin:      string;
-}
+// Session cookies saved to disk so login persists between server restarts
+const SESSION_FILE = path.join(process.cwd(), ".carfax-session.json");
+
+// Selectors — mirrors the desktop script exactly
+const VIN_SEARCH_SELECTORS = [
+  "input.searchVehicle",
+  "input.searchbox.searchVehicle",
+  'input[placeholder*="VIN"]',
+  "input[type=\"search\"]",
+];
+
+const REPORT_LINK_SELECTORS = [
+  "a.reportLink",
+  'a[href*="cfm/display_cfm"]',
+  'a[href*="vhr"]',
+  'a[href*="/cfm/"]',
+];
+
+const GLOBAL_ARCHIVE_SELECTORS = [
+  "label#global-archive",
+  "input#globalreports",
+];
+
+// Auth0 login selectors (dealer.carfax.ca uses Auth0)
+const AUTH0_EMAIL_SELECTORS    = ["#username", 'input[name="username"]', 'input[type="email"]'];
+const AUTH0_PASSWORD_SELECTORS = ["#password", 'input[name="password"]', 'input[type="password"]'];
 
 export interface CarfaxTestResult {
   vin:    string;
@@ -37,9 +61,34 @@ export interface CarfaxTestResult {
   error?: string;
 }
 
+interface PendingVin {
+  rowIndex: number;
+  vin:      string;
+}
+
+// ---------------------------------------------------------------------------
+// Utilities
+// ---------------------------------------------------------------------------
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
+function rand(min: number, max: number): number {
+  return Math.floor(Math.random() * (max - min + 1)) + min;
+}
+
+function humanDelay(base: number): Promise<void> {
+  return sleep(base + rand(0, 1000));
+}
+
+// ---------------------------------------------------------------------------
+// Apps Script communication
+// ---------------------------------------------------------------------------
+
 async function fetchPendingVins(): Promise<PendingVin[]> {
   if (!APPS_SCRIPT_URL) {
-    logger.warn("APPS_SCRIPT_WEB_APP_URL not configured — Carfax worker skipping");
+    logger.warn("APPS_SCRIPT_WEB_APP_URL not configured");
     return [];
   }
   try {
@@ -48,7 +97,7 @@ async function fetchPendingVins(): Promise<PendingVin[]> {
     const data = await resp.json() as PendingVin[];
     return Array.isArray(data) ? data : [];
   } catch (err) {
-    logger.error({ err }, "Failed to fetch pending VINs");
+    logger.error({ err }, "Carfax worker: failed to fetch pending VINs");
     return [];
   }
 }
@@ -62,7 +111,7 @@ async function writeCarfaxResult(rowIndex: number, value: string, batchComplete 
       body:    JSON.stringify({ rowIndex, value, batchComplete }),
     });
   } catch (err) {
-    logger.error({ err, rowIndex, value }, "Failed to write Carfax result");
+    logger.error({ err, rowIndex, value }, "Carfax worker: failed to write result to sheet");
   }
 }
 
@@ -74,35 +123,57 @@ async function sendAlert(message: string): Promise<void> {
       headers: { "Content-Type": "application/json" },
       body:    JSON.stringify({ action: "notify", message }),
     });
-  } catch (_err) {
-    logger.error({ message }, "Failed to send Carfax alert");
+  } catch (_) { /* silent */ }
+}
+
+// ---------------------------------------------------------------------------
+// Session persistence
+// ---------------------------------------------------------------------------
+
+function loadSavedCookies(): any[] {
+  try {
+    if (fs.existsSync(SESSION_FILE)) {
+      const raw = fs.readFileSync(SESSION_FILE, "utf8");
+      const cookies = JSON.parse(raw);
+      logger.info({ count: cookies.length, file: SESSION_FILE }, "Carfax worker: loaded saved session cookies");
+      return cookies;
+    }
+  } catch (_) { /* ignore corrupt file */ }
+  return [];
+}
+
+function saveCookies(cookies: any[]): void {
+  try {
+    fs.writeFileSync(SESSION_FILE, JSON.stringify(cookies, null, 2), "utf8");
+    logger.info({ count: cookies.length }, "Carfax worker: session cookies saved to disk");
+  } catch (err) {
+    logger.warn({ err }, "Carfax worker: could not save session cookies");
   }
 }
 
-function sleep(ms: number): Promise<void> {
-  return new Promise((r) => setTimeout(r, ms));
-}
+// ---------------------------------------------------------------------------
+// Browser
+// ---------------------------------------------------------------------------
 
-function randomDelay(minMs: number, maxMs: number): Promise<void> {
-  return sleep(minMs + Math.random() * (maxMs - minMs));
-}
-
-async function launchBrowser(): Promise<{ puppeteer: any; browser: any }> {
+async function launchBrowser(): Promise<any> {
   let puppeteer: any;
   try {
-    puppeteer = await import("puppeteer");
-  } catch (_err) {
-    throw new Error("puppeteer not installed — run: pnpm add puppeteer");
+    puppeteer = (await import("puppeteer")).default;
+  } catch (_) {
+    throw new Error("puppeteer not installed");
   }
 
   let executablePath: string | undefined;
   try {
     const { execSync } = await import("child_process");
-    executablePath = execSync("which chromium 2>/dev/null || which chromium-browser 2>/dev/null", { encoding: "utf8" }).trim() || undefined;
-    if (executablePath) logger.info({ executablePath }, "Using system Chromium");
-  } catch (_) { /* fall back to puppeteer's bundled browser */ }
+    const found = execSync("which chromium 2>/dev/null || which chromium-browser 2>/dev/null", { encoding: "utf8" }).trim();
+    if (found) {
+      executablePath = found;
+      logger.info({ executablePath }, "Carfax worker: using system Chromium");
+    }
+  } catch (_) { /* use bundled */ }
 
-  const browser = await puppeteer.default.launch({
+  const browser = await puppeteer.launch({
     headless: true,
     executablePath,
     args: [
@@ -111,79 +182,247 @@ async function launchBrowser(): Promise<{ puppeteer: any; browser: any }> {
       "--disable-dev-shm-usage",
       "--disable-gpu",
       "--no-zygote",
+      // Anti-detection — mirrors the desktop script
+      "--disable-blink-features=AutomationControlled",
+      "--no-first-run",
+      "--no-default-browser-check",
+      "--disable-infobars",
     ],
+    ignoreDefaultArgs: ["--enable-automation"],
   });
 
-  return { puppeteer, browser };
+  return browser;
 }
 
-async function loginToCarfax(browser: any): Promise<boolean> {
-  const loginPage = await browser.newPage();
-  await loginPage.setUserAgent(
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-  );
-
-  logger.info("Carfax worker: navigating to dealer login page");
-  await loginPage.goto(CARFAX_LOGIN_URL, { waitUntil: "networkidle2", timeout: 30_000 });
-
-  const loginCaptcha = await loginPage.$("[data-hcaptcha-widget-id], .g-recaptcha, [id*='captcha']");
-  if (loginCaptcha) {
-    logger.error("Carfax login page: CAPTCHA detected — worker stopping");
-    await loginPage.close();
-    return false;
-  }
-
-  try {
-    await loginPage.waitForSelector("#username", { timeout: 10_000 });
-    logger.info("Carfax worker: filling in credentials");
-    await loginPage.type("#username", CARFAX_EMAIL, { delay: 80 });
-    await randomDelay(300, 600);
-    await loginPage.type("#password", CARFAX_PASSWORD, { delay: 80 });
-    await randomDelay(400, 800);
-    await loginPage.click("button[type='submit']");
-    await loginPage.waitForNavigation({ waitUntil: "networkidle2", timeout: 15_000 });
-  } catch (loginErr: any) {
-    logger.error({ err: loginErr }, "Carfax login: form interaction failed — selectors may need updating");
-    await loginPage.close();
-    return false;
-  }
-
-  const currentUrl = loginPage.url();
-  if (currentUrl.includes("login") || currentUrl.includes("sign-in")) {
-    logger.error({ currentUrl }, "Carfax login: still on login page after submit — credentials may be wrong");
-    await loginPage.close();
-    return false;
-  }
-
-  await loginPage.close();
-  logger.info({ landedAt: currentUrl }, "Carfax login: SUCCESS");
-  return true;
-}
-
-async function lookupVin(browser: any, vin: string): Promise<{ status: "found" | "not_found" | "captcha"; url?: string }> {
-  const page = await browser.newPage();
+async function addAntiDetectionScripts(page: any): Promise<void> {
   await page.setUserAgent(
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
   );
-
-  await page.goto(`${CARFAX_REPORT_URL}?vin=${vin}`, {
-    waitUntil: "networkidle2",
-    timeout:   30_000,
+  // Override webdriver detection — mirrors the desktop script's addInitScript
+  await page.evaluateOnNewDocument(() => {
+    Object.defineProperty(navigator, "webdriver", { get: () => undefined });
+    (window as any).chrome = { runtime: {} };
   });
+}
 
-  const captcha = await page.$("[data-hcaptcha-widget-id], .g-recaptcha, [id*='captcha'], [class*='captcha']");
-  if (captcha) {
-    await page.close();
-    return { status: "captcha" };
+async function findSelector(page: any, selectors: string[], timeout = 5000): Promise<any> {
+  for (const sel of selectors) {
+    try {
+      const el = await page.waitForSelector(sel, { timeout });
+      if (el) return el;
+    } catch (_) { /* try next */ }
+  }
+  return null;
+}
+
+// Human-like mouse movement and click
+async function humanClick(page: any, element: any): Promise<void> {
+  const box = await element.boundingBox();
+  if (!box) { await element.click(); return; }
+  const tx = box.x + rand(Math.floor(box.width * 0.2),  Math.floor(box.width * 0.8));
+  const ty = box.y + rand(Math.floor(box.height * 0.2), Math.floor(box.height * 0.8));
+  const sx = rand(100, 900);
+  const sy = rand(100, 600);
+  const steps = rand(12, 22);
+  for (let i = 0; i <= steps; i++) {
+    const t    = i / steps;
+    const ease = t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t;
+    await page.mouse.move(
+      sx + (tx - sx) * ease + rand(-3, 3),
+      sy + (ty - sy) * ease + rand(-3, 3),
+    );
+    await sleep(rand(8, 22));
+  }
+  await sleep(rand(60, 180));
+  await page.mouse.click(tx, ty);
+}
+
+async function humanType(page: any, element: any, text: string): Promise<void> {
+  await element.click();
+  await sleep(rand(80, 200));
+  for (let i = 0; i < text.length; i++) {
+    await element.type(text[i], { delay: 0 });
+    let d = rand(60, 160);
+    if (i > 0 && i % rand(4, 7) === 0) d += rand(150, 400);
+    await sleep(d);
+  }
+  await sleep(rand(200, 500));
+}
+
+// ---------------------------------------------------------------------------
+// Login
+// ---------------------------------------------------------------------------
+
+async function isLoggedIn(page: any): Promise<boolean> {
+  await page.goto(CARFAX_HOME, { waitUntil: "domcontentloaded", timeout: 20_000 });
+  await humanDelay(1500);
+  const content = (await page.content()).toLowerCase();
+  return (
+    content.includes("sign out")  ||
+    content.includes("log out")   ||
+    content.includes("my account") ||
+    content.includes("my carfax") ||
+    content.includes("my vhrs")
+  );
+}
+
+async function loginWithAuth0(page: any): Promise<boolean> {
+  logger.info("Carfax worker: navigating to Auth0 login page");
+  await page.goto(CARFAX_LOGIN_URL, { waitUntil: "domcontentloaded", timeout: 20_000 });
+  await humanDelay(1500);
+
+  const emailInput = await findSelector(page, AUTH0_EMAIL_SELECTORS, 10_000);
+  if (!emailInput) {
+    logger.error("Carfax worker: could not find email/username input on login page");
+    return false;
+  }
+  await humanClick(page, emailInput);
+  await humanType(page, emailInput, CARFAX_EMAIL);
+
+  const passInput = await findSelector(page, AUTH0_PASSWORD_SELECTORS, 5_000);
+  if (!passInput) {
+    logger.error("Carfax worker: could not find password input on login page");
+    return false;
+  }
+  await humanClick(page, passInput);
+  await humanType(page, passInput, CARFAX_PASSWORD);
+
+  const submitBtn = await findSelector(page, ['button[type="submit"]'], 5_000);
+  if (submitBtn) {
+    await humanClick(page, submitBtn);
+    await humanDelay(3000);
+    await page.waitForNavigation({ waitUntil: "domcontentloaded", timeout: 15_000 }).catch(() => {});
+    await humanDelay(2000);
   }
 
-  const pageUrl = page.url();
-  await page.close();
-
-  if (pageUrl.includes("vehicle-history-report") && !pageUrl.includes("search")) {
-    return { status: "found", url: pageUrl };
+  const confirmed = await isLoggedIn(page);
+  if (confirmed) {
+    const cookies = await page.cookies();
+    saveCookies(cookies);
+    logger.info("Carfax worker: login successful — session saved");
+  } else {
+    logger.error("Carfax worker: login failed — still not authenticated after submit");
   }
-  return { status: "not_found" };
+  return confirmed;
+}
+
+// Try saved cookies first, fall back to full login
+async function ensureLoggedIn(browser: any, page: any): Promise<boolean> {
+  const savedCookies = loadSavedCookies();
+  if (savedCookies.length > 0) {
+    logger.info("Carfax worker: restoring saved session cookies");
+    await page.setCookie(...savedCookies);
+    const loggedIn = await isLoggedIn(page);
+    if (loggedIn) {
+      logger.info("Carfax worker: session restored — already logged in");
+      return true;
+    }
+    logger.info("Carfax worker: saved session expired — performing fresh login");
+  }
+  return loginWithAuth0(page);
+}
+
+// ---------------------------------------------------------------------------
+// VIN lookup — uses dealer portal search, same as desktop script
+// ---------------------------------------------------------------------------
+
+async function findReportLink(page: any): Promise<string | null> {
+  for (const sel of REPORT_LINK_SELECTORS) {
+    try {
+      const el = await page.$(sel);
+      if (el) {
+        let href = await el.getProperty("href").then((p: any) => p.jsonValue());
+        if (href) {
+          if (href.startsWith("/")) href = "https://dealer.carfax.ca" + href;
+          return href;
+        }
+      }
+    } catch (_) { /* try next */ }
+  }
+  // Fallback: scan all links
+  try {
+    const links = await page.$$("a[href]");
+    for (const link of links) {
+      const h: string = await link.getProperty("href").then((p: any) => p.jsonValue()).catch(() => "");
+      if (h && (h.includes("cfm/display_cfm") || h.includes("cfm/vhr") || h.includes("vehicle-history") || h.includes("carfax.ca/cfm"))) {
+        return h.startsWith("/") ? "https://dealer.carfax.ca" + h : h;
+      }
+    }
+  } catch (_) { /* ignore */ }
+  return null;
+}
+
+async function lookupVinOnDealerPortal(
+  page:    any,
+  vin:     string,
+): Promise<{ status: "found" | "not_found" | "session_expired" | "error"; url?: string }> {
+  try {
+    logger.info({ vin }, "Carfax worker: navigating to dealer VHR page");
+    await page.goto(CARFAX_VHR_URL, { waitUntil: "domcontentloaded", timeout: 20_000 });
+    await humanDelay(2000);
+
+    // Check if session expired mid-run
+    const currentUrl: string = page.url();
+    if (currentUrl.includes("login") || currentUrl.includes("signin")) {
+      logger.warn({ vin }, "Carfax worker: redirected to login mid-batch — session expired");
+      return { status: "session_expired" };
+    }
+
+    const searchInput = await findSelector(page, VIN_SEARCH_SELECTORS, 8_000);
+    if (!searchInput) {
+      logger.error({ vin }, "Carfax worker: could not find VIN search input on dealer portal");
+      return { status: "error" };
+    }
+
+    // Clear and type VIN — triple-click selects all existing text, then type replaces it
+    await searchInput.click({ clickCount: 3 });
+    await sleep(rand(80, 180));
+    await humanType(page, searchInput, vin);
+
+    // Wait for results — My VHRs tab
+    let found = false;
+    try {
+      await page.waitForSelector("a.reportLink", { timeout: 10_000 });
+      found = true;
+    } catch (_) { found = false; }
+
+    if (found) {
+      const link = await findReportLink(page);
+      if (link) {
+        logger.info({ vin, url: link }, "Carfax worker: found in My VHRs ✓");
+        return { status: "found", url: link };
+      }
+    }
+
+    // Try Global Archive
+    logger.info({ vin }, "Carfax worker: not in My VHRs — trying Global Archive");
+    const archiveToggle = await findSelector(page, GLOBAL_ARCHIVE_SELECTORS, 3_000);
+    if (!archiveToggle) {
+      logger.info({ vin }, "Carfax worker: no Global Archive toggle found — not found");
+      return { status: "not_found" };
+    }
+
+    await humanClick(page, archiveToggle);
+    let found2 = false;
+    try {
+      await page.waitForSelector("a.reportLink", { timeout: 6_000 });
+      found2 = true;
+    } catch (_) { found2 = false; }
+
+    if (found2) {
+      const link2 = await findReportLink(page);
+      if (link2) {
+        logger.info({ vin, url: link2 }, "Carfax worker: found in Global Archive ✓");
+        return { status: "found", url: link2 };
+      }
+    }
+
+    logger.info({ vin }, "Carfax worker: VIN not found in Carfax");
+    return { status: "not_found" };
+  } catch (err: any) {
+    logger.error({ vin, err }, "Carfax worker: VIN lookup error");
+    return { status: "error" };
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -196,13 +435,9 @@ export async function runCarfaxWorker(): Promise<void> {
     logger.info("Carfax worker: DISABLED (set CARFAX_ENABLED=true to activate)");
     return;
   }
-
   if (!CARFAX_EMAIL || !CARFAX_PASSWORD) {
     logger.warn("Carfax worker: CARFAX_EMAIL or CARFAX_PASSWORD not set — skipping");
-    await sendAlert(
-      "Carfax worker could not run: CARFAX_EMAIL or CARFAX_PASSWORD is not set.\n\n" +
-      "Add these secrets in Replit to activate automatic Carfax lookups."
-    );
+    await sendAlert("Carfax worker could not run: credentials not set in Replit secrets.");
     return;
   }
 
@@ -211,137 +446,110 @@ export async function runCarfaxWorker(): Promise<void> {
     logger.info("Carfax worker: no pending VINs — nothing to do");
     return;
   }
-
   logger.info({ count: pendingVins.length }, "Carfax worker: fetched pending VINs");
 
   let browser: any = null;
-  let processed    = 0;
-  let succeeded    = 0;
-  let notFound     = 0;
-  let failed       = 0;
-  let captchaStop  = false;
+  let processed = 0, succeeded = 0, notFound = 0, failed = 0;
 
   try {
-    const launched = await launchBrowser();
-    browser = launched.browser;
+    browser = await launchBrowser();
+    const page = await browser.newPage();
+    await addAntiDetectionScripts(page);
 
-    const loggedIn = await loginToCarfax(browser);
+    const loggedIn = await ensureLoggedIn(browser, page);
     if (!loggedIn) {
-      await sendAlert("Carfax worker login failed. Check credentials or CAPTCHA status.");
+      await sendAlert("Carfax worker login failed. Check credentials.");
       return;
     }
 
     for (const { rowIndex, vin } of pendingVins) {
-      if (captchaStop) break;
+      logger.info({ vin, rowIndex, processed: processed + 1, total: pendingVins.length }, "Carfax worker: processing VIN");
 
-      logger.info({ vin, rowIndex }, "Carfax worker: looking up VIN");
+      const result = await lookupVinOnDealerPortal(page, vin);
 
-      try {
-        const result = await lookupVin(browser, vin);
-
-        if (result.status === "captcha") {
-          captchaStop = true;
-          logger.error({ vin }, "Carfax worker: CAPTCHA hit during VIN lookup — stopping batch");
-          await sendAlert(
-            `Carfax CAPTCHA detected after ${processed} VINs. Lookups paused — will retry tomorrow.`
-          );
-          break;
-        }
-
-        if (result.status === "found" && result.url) {
-          logger.info({ vin, url: result.url }, "Carfax worker: VIN found ✓");
-          await writeCarfaxResult(rowIndex, result.url);
+      if (result.status === "session_expired") {
+        // Re-login and retry once
+        logger.info("Carfax worker: re-logging in after session expiry");
+        const relogged = await loginWithAuth0(page);
+        if (!relogged) { failed++; continue; }
+        const retry = await lookupVinOnDealerPortal(page, vin);
+        if (retry.status === "found" && retry.url) {
+          await writeCarfaxResult(rowIndex, retry.url);
           succeeded++;
-        } else {
-          logger.info({ vin }, "Carfax worker: VIN not found in Carfax");
+        } else if (retry.status === "not_found") {
           await writeCarfaxResult(rowIndex, "NOT FOUND");
           notFound++;
+        } else {
+          failed++;
         }
-
-        processed++;
-        await randomDelay(3_000, 7_000);
-      } catch (vinErr: any) {
-        logger.error({ vin, err: vinErr }, "Carfax worker: VIN lookup error");
+      } else if (result.status === "found" && result.url) {
+        await writeCarfaxResult(rowIndex, result.url);
+        succeeded++;
+      } else if (result.status === "not_found") {
+        await writeCarfaxResult(rowIndex, "NOT FOUND");
+        notFound++;
+      } else {
         failed++;
-        await randomDelay(2_000, 4_000);
       }
+
+      processed++;
+      await humanDelay(rand(3_000, 7_000));
     }
 
-    if (processed > 0) {
-      await writeCarfaxResult(0, "", true);
-    }
+    if (processed > 0) await writeCarfaxResult(0, "", true);
+
   } catch (err) {
     logger.error({ err }, "Carfax worker: unexpected crash");
-    await sendAlert("Carfax worker crashed unexpectedly: " + String(err));
+    await sendAlert("Carfax worker crashed: " + String(err));
   } finally {
     if (browser) await browser.close();
   }
 
-  logger.info({ processed, succeeded, notFound, failed, captchaStop }, "Carfax worker: run complete");
+  logger.info({ processed, succeeded, notFound, failed }, "Carfax worker: run complete");
 }
 
 // ---------------------------------------------------------------------------
-// Public: run against specific VINs for testing — does NOT write to Apps Script
+// Public: test with specific VINs — no Apps Script writes
 // ---------------------------------------------------------------------------
 export async function runCarfaxWorkerForVins(vins: string[]): Promise<CarfaxTestResult[]> {
   const results: CarfaxTestResult[] = [];
-
   logger.info({ vins }, "Carfax test run: starting");
 
-  if (!CARFAX_ENABLED) {
-    logger.warn("Carfax test run: CARFAX_ENABLED is not true — proceeding anyway for test");
-  }
-
   if (!CARFAX_EMAIL || !CARFAX_PASSWORD) {
-    logger.error("Carfax test run: CARFAX_EMAIL or CARFAX_PASSWORD not set");
-    return vins.map((vin) => ({ vin, status: "error" as const, error: "Missing credentials" }));
+    return vins.map((vin) => ({ vin, status: "error" as const, error: "Missing CARFAX_EMAIL / CARFAX_PASSWORD" }));
   }
 
   let browser: any = null;
-
   try {
-    logger.info("Carfax test run: launching browser");
-    const launched = await launchBrowser();
-    browser = launched.browser;
+    browser = await launchBrowser();
+    const page = await browser.newPage();
+    await addAntiDetectionScripts(page);
 
-    logger.info("Carfax test run: logging in");
-    const loggedIn = await loginToCarfax(browser);
+    const loggedIn = await ensureLoggedIn(browser, page);
     if (!loggedIn) {
-      logger.error("Carfax test run: login failed");
-      return vins.map((vin) => ({ vin, status: "error" as const, error: "Login failed — check credentials or CAPTCHA" }));
+      return vins.map((vin) => ({ vin, status: "error" as const, error: "Login failed" }));
     }
 
     for (const vin of vins) {
       logger.info({ vin }, "Carfax test run: looking up VIN");
-      try {
-        const result = await lookupVin(browser, vin);
+      const result = await lookupVinOnDealerPortal(page, vin);
 
-        if (result.status === "captcha") {
-          logger.error({ vin }, "Carfax test run: CAPTCHA hit");
-          results.push({ vin, status: "captcha", error: "CAPTCHA detected — try again later" });
-          break;
-        }
-
-        if (result.status === "found" && result.url) {
-          logger.info({ vin, url: result.url }, "Carfax test run: VIN found ✓");
-          results.push({ vin, status: "found", url: result.url });
-        } else {
-          logger.info({ vin }, "Carfax test run: VIN not found");
-          results.push({ vin, status: "not_found" });
-        }
-
-        await randomDelay(2_000, 4_000);
-      } catch (vinErr: any) {
-        logger.error({ vin, err: vinErr }, "Carfax test run: VIN lookup error");
-        results.push({ vin, status: "error", error: vinErr.message });
+      if (result.status === "found" && result.url) {
+        results.push({ vin, status: "found", url: result.url });
+      } else if (result.status === "not_found") {
+        results.push({ vin, status: "not_found" });
+      } else if (result.status === "session_expired") {
+        results.push({ vin, status: "error", error: "Session expired during test" });
+      } else {
+        results.push({ vin, status: "error", error: "Lookup error" });
       }
+
+      await humanDelay(rand(2_000, 4_000));
     }
   } catch (err: any) {
-    logger.error({ err }, "Carfax test run: unexpected crash");
+    logger.error({ err }, "Carfax test run: crash");
     const remaining = vins.filter((v) => !results.find((r) => r.vin === v));
-    for (const vin of remaining) {
-      results.push({ vin, status: "error", error: err.message });
-    }
+    for (const vin of remaining) results.push({ vin, status: "error", error: err.message });
   } finally {
     if (browser) await browser.close();
   }
@@ -351,12 +559,9 @@ export async function runCarfaxWorkerForVins(vins: string[]): Promise<CarfaxTest
 }
 
 // ---------------------------------------------------------------------------
-// Scheduler — runs nightly at 2:15am with catch-up on startup
+// Scheduler — nightly 2:15am with startup catch-up
 // ---------------------------------------------------------------------------
 export function scheduleCarfaxWorker(): void {
-  const TWO_FIFTEEN_HOUR   = 2;
-  const TWO_FIFTEEN_MINUTE = 15;
-
   let lastRunDate = "";
 
   const tryRun = (reason: string) => {
@@ -367,25 +572,18 @@ export function scheduleCarfaxWorker(): void {
     runCarfaxWorker().catch((err) => logger.error({ err }, "Carfax worker: run error"));
   };
 
-  // Catch-up check: if we're past 2:15am today and haven't run yet, run now
-  const now    = new Date();
-  const hour   = now.getHours();
-  const minute = now.getMinutes();
-  const isPast215 = hour > TWO_FIFTEEN_HOUR || (hour === TWO_FIFTEEN_HOUR && minute >= TWO_FIFTEEN_MINUTE);
-
+  // Catch-up: if server starts after 2:15am, run in 30s
+  const now = new Date();
+  const isPast215 = now.getHours() > 2 || (now.getHours() === 2 && now.getMinutes() >= 15);
   if (isPast215) {
     logger.info("Carfax worker: server started after 2:15am — running catch-up in 30s");
     setTimeout(() => tryRun("startup catch-up"), 30_000);
   }
 
-  // Regular nightly schedule — check every minute
+  // Check every minute for 2:15am
   setInterval(() => {
-    const n      = new Date();
-    const h      = n.getHours();
-    const m      = n.getMinutes();
-    if (h === TWO_FIFTEEN_HOUR && m === TWO_FIFTEEN_MINUTE) {
-      tryRun("nightly schedule");
-    }
+    const n = new Date();
+    if (n.getHours() === 2 && n.getMinutes() === 15) tryRun("nightly schedule");
   }, 60_000);
 
   logger.info("Carfax cloud worker scheduled — runs nightly at 2:15am (with startup catch-up)");
