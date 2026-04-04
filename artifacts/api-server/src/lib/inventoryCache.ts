@@ -109,7 +109,7 @@ export async function refreshCache(): Promise<void> {
       return;
     }
 
-    const response = await fetch(dataUrl, { signal: AbortSignal.timeout(15_000) });
+    const response = await fetch(dataUrl, { signal: AbortSignal.timeout(45_000) });
     if (!response.ok) throw new Error(`Upstream HTTP ${response.status}`);
 
     const raw: any[] = await response.json();
@@ -161,9 +161,27 @@ export async function refreshCache(): Promise<void> {
 }
 
 export function startBackgroundRefresh(intervalMs = 60 * 60 * 1000): void {
-  refreshCache().catch((err) =>
-    logger.error({ err }, "Initial inventory cache fetch failed"),
-  );
+  // Initial fetch with exponential back-off retries (30s, 90s, 3min) so a
+  // slow Apps Script cold-start never leaves the cache empty for an hour.
+  async function initialFetchWithRetry(attempt = 1): Promise<void> {
+    try {
+      await refreshCache();
+      if (state.data.length === 0 && attempt <= 3) {
+        const delay = attempt * 30_000; // 30s, 60s, 90s
+        logger.warn({ attempt, delayMs: delay }, "Cache still empty after refresh — retrying");
+        setTimeout(() => initialFetchWithRetry(attempt + 1), delay);
+      }
+    } catch (err) {
+      logger.error({ err, attempt }, "Initial inventory cache fetch failed");
+      if (attempt <= 3) {
+        const delay = attempt * 30_000;
+        logger.info({ delayMs: delay }, "Scheduling retry");
+        setTimeout(() => initialFetchWithRetry(attempt + 1), delay);
+      }
+    }
+  }
+
+  initialFetchWithRetry();
 
   setInterval(() => {
     refreshCache().catch((err) =>
