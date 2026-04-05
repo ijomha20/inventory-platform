@@ -458,64 +458,73 @@ function setupAutoSyncTrigger() {
 function setupNotificationTrigger() { setupAutoSyncTrigger(); }
 
 function autoSync() {
-  var props = PropertiesService.getScriptProperties();
-  var vinMap, rawRows;
-  try {
-    var fetched = fetchMatrixData();
-    vinMap  = fetched.vinMap;
-    rawRows = fetched.rawRows;
-  } catch (e) {
-    appendLog("Auto-Sync", 0, 0, 0, 0, "ERROR", e.message);
-    notifyReplit();
+  var lock = LockService.getScriptLock();
+  if (!lock.tryLock(1000)) {
+    appendLog("Auto-Sync", 0, 0, 0, 0, "SKIPPED", "Another sync already in progress");
     return;
   }
-  var currentState = {};
-  for (var i = 0; i < rawRows.length; i++) {
-    var vin = rawRows[i][1] ? rawRows[i][1].toString().trim().toLowerCase() : "";
-    if (!vin) continue;
-    currentState[vin] = {
-      vin:         rawRows[i][1],
-      description: ((rawRows[i][2] || "") + " " + (rawRows[i][3] || "")).trim(),
-      mileage:     rawRows[i][4],
-      price:       rawRows[i][5]
-    };
-  }
-  var newVehicles = [], priceChanges = [], removedVehicles = [];
-  var previousState = null;
-  var rawPrev = props.getProperty(PROP_STATE);
-  if (rawPrev) { try { previousState = JSON.parse(rawPrev); } catch (e) {} }
-  if (previousState) {
-    var cvins = Object.keys(currentState);
-    for (var c = 0; c < cvins.length; c++) {
-      var cvin = cvins[c];
-      if (!previousState[cvin]) {
-        newVehicles.push(currentState[cvin]);
-      } else {
-        var oldP = parseFloat(previousState[cvin].price);
-        var newP = parseFloat(currentState[cvin].price);
-        if (!isNaN(oldP) && !isNaN(newP) && oldP !== newP)
-          priceChanges.push({ vehicle: currentState[cvin], oldPrice: oldP, newPrice: newP, delta: newP - oldP });
+  try {
+    var props = PropertiesService.getScriptProperties();
+    var vinMap, rawRows;
+    try {
+      var fetched = fetchMatrixData();
+      vinMap  = fetched.vinMap;
+      rawRows = fetched.rawRows;
+    } catch (e) {
+      appendLog("Auto-Sync", 0, 0, 0, 0, "ERROR", e.message);
+      notifyReplit();
+      return;
+    }
+    var currentState = {};
+    for (var i = 0; i < rawRows.length; i++) {
+      var vin = rawRows[i][1] ? rawRows[i][1].toString().trim().toLowerCase() : "";
+      if (!vin) continue;
+      currentState[vin] = {
+        vin:         rawRows[i][1],
+        description: ((rawRows[i][2] || "") + " " + (rawRows[i][3] || "")).trim(),
+        mileage:     rawRows[i][4],
+        price:       rawRows[i][5]
+      };
+    }
+    var newVehicles = [], priceChanges = [], removedVehicles = [];
+    var previousState = null;
+    var rawPrev = props.getProperty(PROP_STATE);
+    if (rawPrev) { try { previousState = JSON.parse(rawPrev); } catch (e) {} }
+    if (previousState) {
+      var cvins = Object.keys(currentState);
+      for (var c = 0; c < cvins.length; c++) {
+        var cvin = cvins[c];
+        if (!previousState[cvin]) {
+          newVehicles.push(currentState[cvin]);
+        } else {
+          var oldP = parseFloat(previousState[cvin].price);
+          var newP = parseFloat(currentState[cvin].price);
+          if (!isNaN(oldP) && !isNaN(newP) && oldP !== newP)
+            priceChanges.push({ vehicle: currentState[cvin], oldPrice: oldP, newPrice: newP, delta: newP - oldP });
+        }
+      }
+      var pvins = Object.keys(previousState);
+      for (var pv = 0; pv < pvins.length; pv++) {
+        if (!currentState[pvins[pv]]) removedVehicles.push(previousState[pvins[pv]]);
       }
     }
-    var pvins = Object.keys(previousState);
-    for (var pv = 0; pv < pvins.length; pv++) {
-      if (!currentState[pvins[pv]]) removedVehicles.push(previousState[pvins[pv]]);
+    var snapshot = {};
+    var svins    = Object.keys(currentState);
+    for (var sv = 0; sv < svins.length; sv++) snapshot[svins[sv]] = { price: currentState[svins[sv]].price };
+    try { props.setProperty(PROP_STATE, JSON.stringify(snapshot)); } catch (e) {
+      var tiny = {};
+      for (var tv = 0; tv < svins.length; tv++) tiny[svins[tv]] = currentState[svins[tv]].price;
+      try { props.setProperty(PROP_STATE, JSON.stringify(tiny)); } catch (e2) {}
     }
-  }
-  var snapshot = {};
-  var svins    = Object.keys(currentState);
-  for (var sv = 0; sv < svins.length; sv++) snapshot[svins[sv]] = { price: currentState[svins[sv]].price };
-  try { props.setProperty(PROP_STATE, JSON.stringify(snapshot)); } catch (e) {
-    var tiny = {};
-    for (var tv = 0; tv < svins.length; tv++) tiny[svins[tv]] = currentState[svins[tv]].price;
-    try { props.setProperty(PROP_STATE, JSON.stringify(tiny)); } catch (e2) {}
-  }
-  if (newVehicles.length > 0 || priceChanges.length > 0 || removedVehicles.length > 0) {
-    sendChangeNotification(newVehicles, priceChanges, removedVehicles);
-    performSync(true);
-  } else {
-    appendLog("Auto-Sync", 0, 0, 0, 0, "No changes", "");
-    notifyReplit();
+    if (newVehicles.length > 0 || priceChanges.length > 0 || removedVehicles.length > 0) {
+      sendChangeNotification(newVehicles, priceChanges, removedVehicles);
+      performSync(true);
+    } else {
+      appendLog("Auto-Sync", 0, 0, 0, 0, "No changes", "");
+      notifyReplit();
+    }
+  } finally {
+    lock.releaseLock();
   }
 }
 
