@@ -15,11 +15,18 @@ if (Number.isNaN(port) || port <= 0) {
   throw new Error(`Invalid PORT value: "${rawPort}"`);
 }
 
+// Carfax worker only runs in the dev environment — not on the production deployment.
+// Production containers start fresh with no session file, causing guaranteed login failures.
+const isProduction = process.env["REPLIT_DEPLOYMENT"] === "1";
+
 // Load inventory from DB first (instant), then start background refresh cycle.
 // await ensures the DB snapshot is in memory before we accept any requests.
 startBackgroundRefresh().then(() => {
-  // Schedule the Carfax cloud worker — runs nightly at 2:15am
-  scheduleCarfaxWorker();
+  if (isProduction) {
+    logger.info("Production deployment — Carfax worker disabled");
+  } else {
+    scheduleCarfaxWorker();
+  }
 
   app.listen(port, (err) => {
     if (err) {
@@ -30,6 +37,6 @@ startBackgroundRefresh().then(() => {
   });
 }).catch((err) => {
   logger.error({ err }, "Failed to initialise inventory cache — starting anyway");
-  scheduleCarfaxWorker();
+  if (!isProduction) scheduleCarfaxWorker();
   app.listen(port, () => logger.info({ port }, "Server listening (cache init failed)"));
 });
