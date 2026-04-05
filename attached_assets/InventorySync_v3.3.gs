@@ -364,7 +364,7 @@ function performSync(isHeadless) {
     mySheet.getRange(2, COL_LOCATION + 1,      dataRows, 1).setFontWeight("bold").setHorizontalAlignment("center");
     mySheet.getRange(2, COL_VIN + 1,           dataRows, 3).setHorizontalAlignment("left");
     mySheet.getRange(2, COL_MILEAGE + 1,       dataRows, 1).setNumberFormat("#,##0").setHorizontalAlignment("left");
-    mySheet.getRange(2, COL_PRICE + 1,         dataRows, 1).setNumberFormat("$#,##0.00");
+    mySheet.getRange(2, COL_PRICE + 1,         dataRows, 2).setNumberFormat("$#,##0.00");
     mySheet.getRange(2, COL_PRICE_CHANGED + 1, dataRows, 1).setNumberFormat("yyyy-MM-dd HH:mm").setHorizontalAlignment("center");
     mySheet.getRange(2, COL_ONLINE_PRICE + 1,  dataRows, 1).setNumberFormat("$#,##0.00");
     dataRange.setBackground(null);
