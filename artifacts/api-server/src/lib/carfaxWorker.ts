@@ -454,21 +454,31 @@ async function humanType(page: any, element: any, text: string): Promise<void> {
 // ---------------------------------------------------------------------------
 
 async function isLoggedIn(page: any): Promise<boolean> {
-  await page.goto(CARFAX_HOME, { waitUntil: "domcontentloaded", timeout: 20_000 });
+  try {
+    await page.goto(CARFAX_HOME, { waitUntil: "domcontentloaded", timeout: 60_000 });
+  } catch (navErr: any) {
+    logger.warn({ err: navErr.message }, "Carfax worker: isLoggedIn navigation timed out — treating as not logged in");
+    return false;
+  }
   await humanDelay(1500);
   const content = (await page.content()).toLowerCase();
   return (
-    content.includes("sign out")  ||
-    content.includes("log out")   ||
+    content.includes("sign out")   ||
+    content.includes("log out")    ||
     content.includes("my account") ||
-    content.includes("my carfax") ||
+    content.includes("my carfax")  ||
     content.includes("my vhrs")
   );
 }
 
 async function loginWithAuth0(page: any): Promise<boolean> {
   logger.info("Carfax worker: navigating to Auth0 login page");
-  await page.goto(CARFAX_LOGIN_URL, { waitUntil: "domcontentloaded", timeout: 20_000 });
+  try {
+    await page.goto(CARFAX_LOGIN_URL, { waitUntil: "domcontentloaded", timeout: 60_000 });
+  } catch (navErr: any) {
+    logger.error({ err: navErr.message }, "Carfax worker: login page navigation timed out — cannot log in");
+    return false;
+  }
   await humanDelay(1500);
 
   const emailInput = await findSelector(page, AUTH0_EMAIL_SELECTORS, 10_000);
