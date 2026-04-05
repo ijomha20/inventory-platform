@@ -1,3 +1,5 @@
+import { db, inventoryCacheTable } from "@workspace/db";
+import { eq } from "drizzle-orm";
 import { logger } from "./logger.js";
 
 export interface InventoryItem {
@@ -25,6 +27,47 @@ const state: CacheState = {
 
 export function getCacheState(): CacheState {
   return state;
+}
+
+// ---------------------------------------------------------------------------
+// Database persistence — load on startup, save after every successful fetch
+// ---------------------------------------------------------------------------
+
+async function loadFromDb(): Promise<void> {
+  try {
+    const rows = await db
+      .select()
+      .from(inventoryCacheTable)
+      .where(eq(inventoryCacheTable.id, 1));
+
+    if (rows.length > 0) {
+      const row = rows[0];
+      const items = row.data as InventoryItem[];
+      if (Array.isArray(items) && items.length > 0) {
+        state.data        = items;
+        state.lastUpdated = row.lastUpdated;
+        logger.info({ count: state.data.length }, "Inventory loaded from database — serving immediately");
+      }
+    }
+  } catch (err) {
+    logger.warn({ err }, "Could not load inventory from database — will fetch fresh from source");
+  }
+}
+
+async function persistToDb(): Promise<void> {
+  if (!state.lastUpdated) return;
+  try {
+    await db
+      .insert(inventoryCacheTable)
+      .values({ id: 1, data: state.data, lastUpdated: state.lastUpdated })
+      .onConflictDoUpdate({
+        target: inventoryCacheTable.id,
+        set: { data: state.data, lastUpdated: state.lastUpdated },
+      });
+    logger.info({ count: state.data.length }, "Inventory persisted to database");
+  } catch (err) {
+    logger.warn({ err }, "Could not persist inventory to database (non-fatal)");
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -128,7 +171,6 @@ export async function refreshCache(): Promise<void> {
 
     // -----------------------------------------------------------------------
     // Enrich with Typesense prices for items where Apps Script didn't send one
-    // (handles old Apps Script, missing Column L, or first-run before "Fetch Online Prices")
     // -----------------------------------------------------------------------
     const needPrice = items.filter(
       (item) => !item.onlinePrice || item.onlinePrice === "NOT FOUND",
@@ -153,6 +195,9 @@ export async function refreshCache(): Promise<void> {
     state.data        = items;
     state.lastUpdated = new Date();
     logger.info({ count: items.length }, "Inventory cache refreshed");
+
+    // Persist the fresh data to the database so future restarts load instantly
+    await persistToDb();
   } catch (err) {
     logger.error({ err }, "Inventory cache refresh failed — serving stale data");
   } finally {
@@ -160,29 +205,35 @@ export async function refreshCache(): Promise<void> {
   }
 }
 
-export function startBackgroundRefresh(intervalMs = 60 * 60 * 1000): void {
-  // Initial fetch with exponential back-off retries (30s, 90s, 3min) so a
-  // slow Apps Script cold-start never leaves the cache empty for an hour.
-  async function initialFetchWithRetry(attempt = 1): Promise<void> {
+export async function startBackgroundRefresh(intervalMs = 60 * 60 * 1000): Promise<void> {
+  // Step 1: load the last-known inventory from the database immediately.
+  // Users see data right away — no waiting for Apps Script on startup.
+  await loadFromDb();
+
+  // Step 2: kick off a fresh fetch in the background.
+  // If it succeeds, the in-memory cache and DB are both updated.
+  // If it fails, we already have the DB snapshot serving users.
+  async function fetchWithRetry(attempt = 1): Promise<void> {
     try {
       await refreshCache();
       if (state.data.length === 0 && attempt <= 3) {
-        const delay = attempt * 30_000; // 30s, 60s, 90s
+        const delay = attempt * 30_000;
         logger.warn({ attempt, delayMs: delay }, "Cache still empty after refresh — retrying");
-        setTimeout(() => initialFetchWithRetry(attempt + 1), delay);
+        setTimeout(() => fetchWithRetry(attempt + 1), delay);
       }
     } catch (err) {
-      logger.error({ err, attempt }, "Initial inventory cache fetch failed");
+      logger.error({ err, attempt }, "Inventory cache fetch failed");
       if (attempt <= 3) {
         const delay = attempt * 30_000;
         logger.info({ delayMs: delay }, "Scheduling retry");
-        setTimeout(() => initialFetchWithRetry(attempt + 1), delay);
+        setTimeout(() => fetchWithRetry(attempt + 1), delay);
       }
     }
   }
 
-  initialFetchWithRetry();
+  fetchWithRetry();
 
+  // Step 3: hourly refresh keeps the data current
   setInterval(() => {
     refreshCache().catch((err) =>
       logger.error({ err }, "Background inventory cache refresh failed"),

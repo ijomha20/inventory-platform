@@ -15,16 +15,21 @@ if (Number.isNaN(port) || port <= 0) {
   throw new Error(`Invalid PORT value: "${rawPort}"`);
 }
 
-// Start the inventory cache — fetches immediately and refreshes hourly
-startBackgroundRefresh();
+// Load inventory from DB first (instant), then start background refresh cycle.
+// await ensures the DB snapshot is in memory before we accept any requests.
+startBackgroundRefresh().then(() => {
+  // Schedule the Carfax cloud worker — runs nightly at 2:15am
+  scheduleCarfaxWorker();
 
-// Schedule the Carfax cloud worker — runs nightly at 2:15am
-scheduleCarfaxWorker();
-
-app.listen(port, (err) => {
-  if (err) {
-    logger.error({ err }, "Error listening on port");
-    process.exit(1);
-  }
-  logger.info({ port }, "Server listening");
+  app.listen(port, (err) => {
+    if (err) {
+      logger.error({ err }, "Error listening on port");
+      process.exit(1);
+    }
+    logger.info({ port }, "Server listening");
+  });
+}).catch((err) => {
+  logger.error({ err }, "Failed to initialise inventory cache — starting anyway");
+  scheduleCarfaxWorker();
+  app.listen(port, () => logger.info({ port }, "Server listening (cache init failed)"));
 });
