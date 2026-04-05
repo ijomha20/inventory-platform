@@ -154,7 +154,7 @@ function PhotoThumb({ vin }: { vin: string }) {
   );
 }
 
-function VehicleCard({ item, isGuest }: { item: any; isGuest: boolean }) {
+function VehicleCard({ item, isGuest, isOwner }: { item: any; isGuest: boolean; isOwner: boolean }) {
   return (
     <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
       <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
@@ -196,6 +196,18 @@ function VehicleCard({ item, isGuest }: { item: any; isGuest: boolean }) {
             <p className="font-medium text-gray-700">{formatPrice(item.onlinePrice)}</p>
           </div>
         </div>
+        {isOwner && (item.matrixPrice || item.cost) && (
+          <div className="mt-2 pt-2 border-t border-gray-100 grid grid-cols-2 gap-2 text-xs">
+            <div>
+              <p className="text-gray-400 mb-0.5">Matrix Price</p>
+              <p className="font-medium text-gray-700">{formatPrice(item.matrixPrice)}</p>
+            </div>
+            <div>
+              <p className="text-gray-400 mb-0.5">Cost</p>
+              <p className="font-semibold text-red-700">{formatPrice(item.cost)}</p>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -255,6 +267,7 @@ export default function Inventory() {
 
   const { data: me } = useGetMe({ query: { retry: false } });
   const isGuest = me?.role === "guest";
+  const isOwner = me?.isOwner === true;
 
   const { data: inventory, isLoading, error, refetch: refetchInventory } = useGetInventory({ query: { retry: false } });
 
@@ -468,7 +481,7 @@ export default function Inventory() {
         sorted.length === 0 ? emptyState : (
           <div className="space-y-3">
             {sorted.map((item, i) => (
-              <VehicleCard key={`${item.vin}-${i}`} item={item} isGuest={isGuest} />
+              <VehicleCard key={`${item.vin}-${i}`} item={item} isGuest={isGuest} isOwner={isOwner} />
             ))}
           </div>
         )
@@ -492,6 +505,8 @@ export default function Inventory() {
                 </div>
               ))}
               <div className="w-28 shrink-0 text-xs font-semibold uppercase tracking-wide text-gray-500">Online Price</div>
+              {isOwner && <div className="w-24 shrink-0 text-xs font-semibold uppercase tracking-wide text-gray-500">Matrix Price</div>}
+              {isOwner && <div className="w-24 shrink-0 text-xs font-semibold uppercase tracking-wide text-gray-500">Cost</div>}
               <div className="w-8 shrink-0" />
               <div className="w-8 shrink-0 text-center text-xs font-semibold uppercase tracking-wide text-gray-500">CFX</div>
               <div className="w-8 shrink-0 text-center text-xs font-semibold uppercase tracking-wide text-gray-500">Link</div>
@@ -508,6 +523,8 @@ export default function Inventory() {
                     {item.km ? Number(item.km.replace(/[^0-9]/g, "")).toLocaleString("en-US") + " km" : "—"}
                   </div>
                   <div className="w-28 shrink-0 text-sm text-gray-700">{formatPrice(item.onlinePrice)}</div>
+                  {isOwner && <div className="w-24 shrink-0 text-sm text-gray-700">{formatPrice(item.matrixPrice ?? "")}</div>}
+                  {isOwner && <div className="w-24 shrink-0 text-sm font-medium text-red-700">{formatPrice(item.cost ?? "")}</div>}
                   <div className="w-8 shrink-0 flex justify-center"><PhotoThumb vin={item.vin} /></div>
                   <div className="w-8 shrink-0 flex justify-center">
                     {item.carfax && item.carfax !== "NOT FOUND"

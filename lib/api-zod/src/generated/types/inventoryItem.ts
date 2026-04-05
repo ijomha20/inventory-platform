@@ -15,4 +15,6 @@ export interface InventoryItem {
   carfax?: string;
   website?: string;
   onlinePrice?: string;
+  matrixPrice?: string | null;
+  cost?: string | null;
 }

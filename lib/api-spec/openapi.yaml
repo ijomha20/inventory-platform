@@ -307,6 +307,12 @@ components:
           type: string
         onlinePrice:
           type: string
+        matrixPrice:
+          type: string
+          nullable: true
+        cost:
+          type: string
+          nullable: true
       required:
         - location
         - vehicle

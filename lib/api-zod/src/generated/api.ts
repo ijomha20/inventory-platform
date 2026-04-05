@@ -37,6 +37,8 @@ export const GetInventoryResponseItem = zod.object({
   carfax: zod.string().optional(),
   website: zod.string().optional(),
   onlinePrice: zod.string().optional(),
+  matrixPrice: zod.string().nullish(),
+  cost: zod.string().nullish(),
 });
 export const GetInventoryResponse = zod.array(GetInventoryResponseItem);
 

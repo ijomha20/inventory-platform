@@ -11,6 +11,8 @@ export interface InventoryItem {
   carfax:      string;
   website:     string;
   onlinePrice: string;
+  matrixPrice: string; // Column F — matrix list price (owner only)
+  cost:        string; // Column G — business acquisition cost (owner only)
 }
 
 interface CacheState {
@@ -167,6 +169,8 @@ export async function refreshCache(): Promise<void> {
       carfax:      String(r.carfax      ?? "").trim(),
       website:     String(r.website     ?? "").trim(),
       onlinePrice: String(r.onlinePrice ?? "").trim(),
+      matrixPrice: String(r.matrixPrice ?? "").trim(), // Column F
+      cost:        String(r.cost        ?? "").trim(), // Column G
     }));
 
     // -----------------------------------------------------------------------
