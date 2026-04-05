@@ -185,9 +185,23 @@ function VehicleCard({ item, isGuest, isOwner }: { item: any; isGuest: boolean; 
               {item.km ? Number(item.km.replace(/[^0-9]/g, "")).toLocaleString("en-US") : "—"}
             </p>
           </div>
+          {isOwner && (
+            <div>
+              <p className="text-gray-400 mb-0.5">Matrix Price</p>
+              <p className="font-medium text-gray-700">{formatPrice(item.matrixPrice)}</p>
+            </div>
+          )}
+          {isOwner && (
+            <div>
+              <p className="text-gray-400 mb-0.5">Cost</p>
+              <p className="font-semibold text-red-700">{formatPrice(item.cost)}</p>
+            </div>
+          )}
+        </div>
+        <div className="mt-2 grid grid-cols-2 gap-2 text-xs">
           {!isGuest && (
             <div>
-              <p className="text-gray-400 mb-0.5">Your Cost</p>
+              <p className="text-gray-400 mb-0.5">PAC Cost</p>
               <p className="font-semibold text-gray-900">{formatPrice(item.price)}</p>
             </div>
           )}
@@ -196,18 +210,6 @@ function VehicleCard({ item, isGuest, isOwner }: { item: any; isGuest: boolean; 
             <p className="font-medium text-gray-700">{formatPrice(item.onlinePrice)}</p>
           </div>
         </div>
-        {isOwner && (item.matrixPrice || item.cost) && (
-          <div className="mt-2 pt-2 border-t border-gray-100 grid grid-cols-2 gap-2 text-xs">
-            <div>
-              <p className="text-gray-400 mb-0.5">Matrix Price</p>
-              <p className="font-medium text-gray-700">{formatPrice(item.matrixPrice)}</p>
-            </div>
-            <div>
-              <p className="text-gray-400 mb-0.5">Cost</p>
-              <p className="font-semibold text-red-700">{formatPrice(item.cost)}</p>
-            </div>
-          </div>
-        )}
       </div>
     </div>
   );
@@ -380,7 +382,7 @@ export default function Inventory() {
       clear: () => setFilter("kmMax")(""),
     }] : []),
     ...(!isGuest && (filters.priceMin || filters.priceMax) ? [{
-      label: `Cost: $${filters.priceMin || "0"}–$${filters.priceMax || "∞"}`,
+      label: `PAC Cost: $${filters.priceMin || "0"}–$${filters.priceMax || "∞"}`,
       clear: () => setFilters((f) => ({ ...f, priceMin: "", priceMax: "" })),
     }] : []),
   ];
@@ -452,7 +454,7 @@ export default function Inventory() {
                 minPlaceholder="0" maxPlaceholder={Math.round(dataKmMax / 1000) * 1000 + ""}
                 onMinChange={() => {}} onMaxChange={setFilter("kmMax")} />
               {!isGuest && (
-                <RangeInputs label="Your Cost" minVal={filters.priceMin} maxVal={filters.priceMax}
+                <RangeInputs label="PAC Cost" minVal={filters.priceMin} maxVal={filters.priceMax}
                   minPlaceholder="0" maxPlaceholder={Math.round(dataPriceMax / 1000) * 1000 + ""}
                   onMinChange={setFilter("priceMin")} onMaxChange={setFilter("priceMax")} prefix="$" />
               )}
@@ -494,7 +496,6 @@ export default function Inventory() {
                 { key: "location" as SortKey, label: "Location",   cls: "w-24 shrink-0" },
                 { key: "vehicle"  as SortKey, label: "Vehicle",    cls: "flex-1 min-w-0" },
                 { key: "vin"      as SortKey, label: "VIN",        cls: "w-40 shrink-0" },
-                ...(isGuest ? [] : [{ key: "price" as SortKey, label: "Your Cost", cls: "w-24 shrink-0" }]),
                 { key: "km"       as SortKey, label: "KM",         cls: "w-24 shrink-0" },
               ].map((col) => (
                 <div key={col.label} className={col.cls}>
@@ -504,11 +505,12 @@ export default function Inventory() {
                   </button>
                 </div>
               ))}
-              <div className="w-28 shrink-0 text-xs font-semibold uppercase tracking-wide text-gray-500">Online Price</div>
               {isOwner && <div className="w-24 shrink-0 text-xs font-semibold uppercase tracking-wide text-gray-500">Matrix Price</div>}
               {isOwner && <div className="w-24 shrink-0 text-xs font-semibold uppercase tracking-wide text-gray-500">Cost</div>}
-              <div className="w-8 shrink-0" />
+              {!isGuest && <div className="w-24 shrink-0 text-xs font-semibold uppercase tracking-wide text-gray-500">PAC Cost</div>}
+              <div className="w-28 shrink-0 text-xs font-semibold uppercase tracking-wide text-gray-500">Online Price</div>
               <div className="w-8 shrink-0 text-center text-xs font-semibold uppercase tracking-wide text-gray-500">CFX</div>
+              <div className="w-8 shrink-0" />
               <div className="w-8 shrink-0 text-center text-xs font-semibold uppercase tracking-wide text-gray-500">Link</div>
             </div>
             <div>
@@ -518,14 +520,13 @@ export default function Inventory() {
                   <div className="w-24 shrink-0 text-sm text-gray-700 truncate font-medium">{item.location || "—"}</div>
                   <div className="flex-1 min-w-0 text-sm text-gray-900 font-medium truncate">{item.vehicle}</div>
                   <div className="w-40 shrink-0"><CopyVin vin={item.vin} /></div>
-                  {!isGuest && <div className="w-24 shrink-0 text-sm text-gray-700">{formatPrice(item.price)}</div>}
                   <div className="w-24 shrink-0 text-sm text-gray-600">
                     {item.km ? Number(item.km.replace(/[^0-9]/g, "")).toLocaleString("en-US") + " km" : "—"}
                   </div>
-                  <div className="w-28 shrink-0 text-sm text-gray-700">{formatPrice(item.onlinePrice)}</div>
                   {isOwner && <div className="w-24 shrink-0 text-sm text-gray-700">{formatPrice(item.matrixPrice ?? "")}</div>}
                   {isOwner && <div className="w-24 shrink-0 text-sm font-medium text-red-700">{formatPrice(item.cost ?? "")}</div>}
-                  <div className="w-8 shrink-0 flex justify-center"><PhotoThumb vin={item.vin} /></div>
+                  {!isGuest && <div className="w-24 shrink-0 text-sm text-gray-700">{formatPrice(item.price)}</div>}
+                  <div className="w-28 shrink-0 text-sm text-gray-700">{formatPrice(item.onlinePrice)}</div>
                   <div className="w-8 shrink-0 flex justify-center">
                     {item.carfax && item.carfax !== "NOT FOUND"
                       ? <a href={item.carfax} target="_blank" rel="noopener noreferrer"
@@ -534,6 +535,7 @@ export default function Inventory() {
                         </a>
                       : <span className="text-gray-200 text-sm">—</span>}
                   </div>
+                  <div className="w-8 shrink-0 flex justify-center"><PhotoThumb vin={item.vin} /></div>
                   <div className="w-8 shrink-0 flex justify-center">
                     {item.website && item.website !== "NOT FOUND"
                       ? <a href={item.website} target="_blank" rel="noopener noreferrer"
