@@ -272,8 +272,16 @@ export default function Inventory() {
   const isOwner = me?.isOwner === true;
 
   type ViewMode = "owner" | "user" | "customer";
-  const [viewMode, setViewMode] = useState<ViewMode>("user");
-  useEffect(() => { if (isOwner) setViewMode("owner"); }, [isOwner]);
+  const [viewMode, setViewMode] = useState<ViewMode>(() => {
+    const saved = localStorage.getItem("viewMode");
+    if (saved === "owner" || saved === "user" || saved === "customer") return saved;
+    return "user";
+  });
+  useEffect(() => {
+    const saved = localStorage.getItem("viewMode");
+    if (isOwner && !saved) setViewMode("owner");
+  }, [isOwner]);
+  useEffect(() => { localStorage.setItem("viewMode", viewMode); }, [viewMode]);
   const showOwnerCols = isOwner && viewMode === "owner";
   const showPacCost   = !isGuest && viewMode !== "customer";
 
