@@ -322,12 +322,12 @@ function performSync(isHeadless) {
     if (changed) { priceChangedVins.push(cvin); priceChangedRows.push(j + 1); }
     dataUpdateQueue.push({
       rowNum: j + 1,
-      values: [vinMap[cvin].vin, vinMap[cvin].col3, vinMap[cvin].col4, vinMap[cvin].col5, newPriceRaw, changed ? oldPrice : currentData[j][COL_PREV_PRICE]]
+      values: [vinMap[cvin].vin, vinMap[cvin].col3, vinMap[cvin].col4, vinMap[cvin].col5, newPriceRaw]
     });
   }
 
   for (var u = 0; u < dataUpdateQueue.length; u++) {
-    mySheet.getRange(dataUpdateQueue[u].rowNum, 2, 1, 6).setValues([dataUpdateQueue[u].values]);
+    mySheet.getRange(dataUpdateQueue[u].rowNum, 2, 1, 5).setValues([dataUpdateQueue[u].values]);
   }
 
   if (priceChangedRows.length > 0) {
@@ -364,7 +364,7 @@ function performSync(isHeadless) {
     mySheet.getRange(2, COL_LOCATION + 1,      dataRows, 1).setFontWeight("bold").setHorizontalAlignment("center");
     mySheet.getRange(2, COL_VIN + 1,           dataRows, 3).setHorizontalAlignment("left");
     mySheet.getRange(2, COL_MILEAGE + 1,       dataRows, 1).setNumberFormat("#,##0").setHorizontalAlignment("left");
-    mySheet.getRange(2, COL_PRICE + 1,         dataRows, 2).setNumberFormat("$#,##0.00");
+    mySheet.getRange(2, COL_PRICE + 1,         dataRows, 1).setNumberFormat("$#,##0.00");
     mySheet.getRange(2, COL_PRICE_CHANGED + 1, dataRows, 1).setNumberFormat("yyyy-MM-dd HH:mm").setHorizontalAlignment("center");
     mySheet.getRange(2, COL_ONLINE_PRICE + 1,  dataRows, 1).setNumberFormat("$#,##0.00");
     dataRange.setBackground(null);
