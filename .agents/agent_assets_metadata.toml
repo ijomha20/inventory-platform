@@ -12,3 +12,9 @@ id = "T_0tOJXwyTkyNFggxyhrv"
 uri = "file://downloads/inventory-platform-full-code.md"
 type = "text"
 title = "Inventory Platform — Complete Source Code"
+
+[[outputs]]
+id = "fybNL-pl_3K2u1-qwMdEc"
+uri = "file://downloads/inventory-portal-full-codebase.md"
+type = "text"
+title = "Inventory Portal — Full Codebase (April 2026)"
