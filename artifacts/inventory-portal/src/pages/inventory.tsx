@@ -154,7 +154,7 @@ function PhotoThumb({ vin }: { vin: string }) {
   );
 }
 
-function VehicleCard({ item, isGuest, isOwner }: { item: any; isGuest: boolean; isOwner: boolean }) {
+function VehicleCard({ item, showPacCost, showOwnerCols }: { item: any; showPacCost: boolean; showOwnerCols: boolean }) {
   return (
     <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
       <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
@@ -185,13 +185,13 @@ function VehicleCard({ item, isGuest, isOwner }: { item: any; isGuest: boolean; 
               {item.km ? Number(item.km.replace(/[^0-9]/g, "")).toLocaleString("en-US") : "—"}
             </p>
           </div>
-          {isOwner && (
+          {showOwnerCols && (
             <div>
               <p className="text-gray-400 mb-0.5">Matrix Price</p>
               <p className="font-medium text-gray-700">{formatPrice(item.matrixPrice)}</p>
             </div>
           )}
-          {isOwner && (
+          {showOwnerCols && (
             <div>
               <p className="text-gray-400 mb-0.5">Cost</p>
               <p className="font-semibold text-red-700">{formatPrice(item.cost)}</p>
@@ -199,7 +199,7 @@ function VehicleCard({ item, isGuest, isOwner }: { item: any; isGuest: boolean; 
           )}
         </div>
         <div className="mt-2 grid grid-cols-2 gap-2 text-xs">
-          {!isGuest && (
+          {showPacCost && (
             <div>
               <p className="text-gray-400 mb-0.5">PAC Cost</p>
               <p className="font-semibold text-gray-900">{formatPrice(item.price)}</p>
@@ -270,6 +270,12 @@ export default function Inventory() {
   const { data: me } = useGetMe({ query: { retry: false } });
   const isGuest = me?.role === "guest";
   const isOwner = me?.isOwner === true;
+
+  type ViewMode = "owner" | "user" | "customer";
+  const [viewMode, setViewMode] = useState<ViewMode>("user");
+  useEffect(() => { if (isOwner) setViewMode("owner"); }, [isOwner]);
+  const showOwnerCols = isOwner && viewMode === "owner";
+  const showPacCost   = !isGuest && viewMode !== "customer";
 
   const { data: inventory, isLoading, error, refetch: refetchInventory } = useGetInventory({ query: { retry: false } });
 
@@ -440,6 +446,24 @@ export default function Inventory() {
               Filters
               {hasFilters && <span className="bg-white text-blue-600 text-xs font-bold w-4 h-4 rounded-full flex items-center justify-center">{activeChips.length}</span>}
             </button>
+            {!isGuest && (
+              <div className="flex rounded overflow-hidden border border-gray-200 shrink-0">
+                {isOwner && (
+                  <button onClick={() => setViewMode("owner")}
+                    className={`px-2 py-1.5 text-[10px] font-medium leading-none transition-colors ${viewMode === "owner" ? "bg-gray-200 text-gray-700" : "bg-white text-gray-300 hover:text-gray-500"}`}>
+                    Own
+                  </button>
+                )}
+                <button onClick={() => setViewMode("user")}
+                  className={`px-2 py-1.5 text-[10px] font-medium leading-none transition-colors ${viewMode === "user" ? "bg-gray-200 text-gray-700" : "bg-white text-gray-300 hover:text-gray-500"}`}>
+                  User
+                </button>
+                <button onClick={() => setViewMode("customer")}
+                  className={`px-2 py-1.5 text-[10px] font-medium leading-none transition-colors ${viewMode === "customer" ? "bg-gray-200 text-gray-700" : "bg-white text-gray-300 hover:text-gray-500"}`}>
+                  Cust
+                </button>
+              </div>
+            )}
           </div>
         </div>
 
@@ -453,7 +477,7 @@ export default function Inventory() {
               <RangeInputs label="Max KM" minVal="" maxVal={filters.kmMax}
                 minPlaceholder="0" maxPlaceholder={Math.round(dataKmMax / 1000) * 1000 + ""}
                 onMinChange={() => {}} onMaxChange={setFilter("kmMax")} />
-              {!isGuest && (
+              {showPacCost && (
                 <RangeInputs label="PAC Cost" minVal={filters.priceMin} maxVal={filters.priceMax}
                   minPlaceholder="0" maxPlaceholder={Math.round(dataPriceMax / 1000) * 1000 + ""}
                   onMinChange={setFilter("priceMin")} onMaxChange={setFilter("priceMax")} prefix="$" />
@@ -483,7 +507,7 @@ export default function Inventory() {
         sorted.length === 0 ? emptyState : (
           <div className="space-y-3">
             {sorted.map((item, i) => (
-              <VehicleCard key={`${item.vin}-${i}`} item={item} isGuest={isGuest} isOwner={isOwner} />
+              <VehicleCard key={`${item.vin}-${i}`} item={item} showPacCost={showPacCost} showOwnerCols={showOwnerCols} />
             ))}
           </div>
         )
@@ -505,9 +529,9 @@ export default function Inventory() {
                   </button>
                 </div>
               ))}
-              {isOwner && <div className="w-24 shrink-0 text-xs font-semibold uppercase tracking-wide text-gray-500">Matrix Price</div>}
-              {isOwner && <div className="w-24 shrink-0 text-xs font-semibold uppercase tracking-wide text-gray-500">Cost</div>}
-              {!isGuest && <div className="w-24 shrink-0 text-xs font-semibold uppercase tracking-wide text-gray-500">PAC Cost</div>}
+              {showOwnerCols && <div className="w-24 shrink-0 text-xs font-semibold uppercase tracking-wide text-gray-500">Matrix Price</div>}
+              {showOwnerCols && <div className="w-24 shrink-0 text-xs font-semibold uppercase tracking-wide text-gray-500">Cost</div>}
+              {showPacCost && <div className="w-24 shrink-0 text-xs font-semibold uppercase tracking-wide text-gray-500">PAC Cost</div>}
               <div className="w-28 shrink-0 text-xs font-semibold uppercase tracking-wide text-gray-500">Online Price</div>
               <div className="w-8 shrink-0 text-center text-xs font-semibold uppercase tracking-wide text-gray-500">CFX</div>
               <div className="w-8 shrink-0" />
@@ -523,9 +547,9 @@ export default function Inventory() {
                   <div className="w-24 shrink-0 text-sm text-gray-600">
                     {item.km ? Number(item.km.replace(/[^0-9]/g, "")).toLocaleString("en-US") + " km" : "—"}
                   </div>
-                  {isOwner && <div className="w-24 shrink-0 text-sm text-gray-700">{formatPrice(item.matrixPrice ?? "")}</div>}
-                  {isOwner && <div className="w-24 shrink-0 text-sm font-medium text-red-700">{formatPrice(item.cost ?? "")}</div>}
-                  {!isGuest && <div className="w-24 shrink-0 text-sm text-gray-700">{formatPrice(item.price)}</div>}
+                  {showOwnerCols && <div className="w-24 shrink-0 text-sm text-gray-700">{formatPrice(item.matrixPrice ?? "")}</div>}
+                  {showOwnerCols && <div className="w-24 shrink-0 text-sm font-medium text-red-700">{formatPrice(item.cost ?? "")}</div>}
+                  {showPacCost && <div className="w-24 shrink-0 text-sm text-gray-700">{formatPrice(item.price)}</div>}
                   <div className="w-28 shrink-0 text-sm text-gray-700">{formatPrice(item.onlinePrice)}</div>
                   <div className="w-8 shrink-0 flex justify-center">
                     {item.carfax && item.carfax !== "NOT FOUND"
