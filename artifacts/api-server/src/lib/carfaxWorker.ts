@@ -205,6 +205,8 @@ async function launchBrowser(): Promise<any> {
   const browser = await puppeteer.launch({
     headless: "new" as any,
     executablePath,
+    timeout: 90_000,           // give Chromium 90s to start (default 30s causes crashes under load)
+    protocolTimeout: 90_000,   // same for CDP protocol handshake
     defaultViewport: { width: 1280, height: 900 },
     args: [
       // Required for Replit/Linux container environments
@@ -707,7 +709,17 @@ export async function runCarfaxWorker(opts: { force?: boolean } = {}): Promise<v
   let processed = 0, succeeded = 0, notFound = 0, failed = 0;
 
   try {
-    browser = await launchBrowser();
+    // Retry browser launch up to 3 times — Chromium occasionally times out under container load
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      try {
+        browser = await launchBrowser();
+        break;
+      } catch (launchErr: any) {
+        logger.warn({ attempt, err: String(launchErr) }, "Carfax worker: browser launch attempt failed");
+        if (attempt === 3) throw launchErr;
+        await sleep(10_000 * attempt); // 10s, 20s back-off
+      }
+    }
     const page = await browser.newPage();
     await addAntiDetectionScripts(page);
 
