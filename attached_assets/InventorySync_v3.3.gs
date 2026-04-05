@@ -14,7 +14,7 @@
 //   D  Model
 //   E  Mileage
 //   F  Price           (Matrix list price -- sent to Replit as matrixPrice)
-//   G  Prev Price      (auto-written when price changes -- sent to Replit as cost)
+//   G  Your Cost       (user-managed, never overwritten by script -- sent to Replit as cost)
 //   H  Notes/Your Cost (user-editable -- triggers portal visibility when filled)
 //   I  Price Changed   (timestamp of last price change, auto-written)
 //   J  Carfax          (populated by Replit cloud worker)
