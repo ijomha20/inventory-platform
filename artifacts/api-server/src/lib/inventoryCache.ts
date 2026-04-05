@@ -157,21 +157,37 @@ export async function refreshCache(): Promise<void> {
     const response = await fetch(dataUrl, { signal: AbortSignal.timeout(45_000) });
     if (!response.ok) throw new Error(`Upstream HTTP ${response.status}`);
 
-    const raw: any[] = await response.json();
+    const raw: any = await response.json();
+
+    if (!Array.isArray(raw)) {
+      logger.error({ type: typeof raw }, "Apps Script returned non-array — keeping stale cache");
+      return;
+    }
+    if (raw.length === 0) {
+      logger.warn("Apps Script returned empty array — keeping stale cache");
+      return;
+    }
 
     // Normalise each item — guard against differing field names / missing keys
-    const items: InventoryItem[] = raw.map((r) => ({
-      location:    String(r.location    ?? "").trim(),
-      vehicle:     String(r.vehicle     ?? "").trim(),
-      vin:         String(r.vin         ?? "").trim().toUpperCase(),
-      price:       String(r.price       ?? "").trim(),
-      km:          String(r.km          ?? "").trim(),
-      carfax:      String(r.carfax      ?? "").trim(),
-      website:     String(r.website     ?? "").trim(),
-      onlinePrice: String(r.onlinePrice ?? "").trim(),
-      matrixPrice: String(r.matrixPrice ?? "").trim(), // Column F
-      cost:        String(r.cost        ?? "").trim(), // Column G
-    }));
+    const items: InventoryItem[] = [];
+    for (const r of raw) {
+      if (!r || typeof r !== "object") {
+        logger.warn({ r }, "Skipping malformed inventory item");
+        continue;
+      }
+      items.push({
+        location:    String(r.location    ?? "").trim(),
+        vehicle:     String(r.vehicle     ?? "").trim(),
+        vin:         String(r.vin         ?? "").trim().toUpperCase(),
+        price:       String(r.price       ?? "").trim(),
+        km:          String(r.km          ?? "").trim(),
+        carfax:      String(r.carfax      ?? "").trim(),
+        website:     String(r.website     ?? "").trim(),
+        onlinePrice: String(r.onlinePrice ?? "").trim(),
+        matrixPrice: String(r.matrixPrice ?? "").trim(), // Column F
+        cost:        String(r.cost        ?? "").trim(), // Column G
+      });
+    }
 
     // -----------------------------------------------------------------------
     // Enrich with Typesense prices for items where Apps Script didn't send one
