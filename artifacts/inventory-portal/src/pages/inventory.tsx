@@ -539,7 +539,14 @@ export default function Inventory() {
               ))}
               {showOwnerCols && <div className="w-24 shrink-0 text-xs font-semibold uppercase tracking-wide text-gray-500">Matrix Price</div>}
               {showOwnerCols && <div className="w-24 shrink-0 text-xs font-semibold uppercase tracking-wide text-gray-500">Cost</div>}
-              {showPacCost && <div className="w-24 shrink-0 text-xs font-semibold uppercase tracking-wide text-gray-500">PAC Cost</div>}
+              {showPacCost && (
+                <div className="w-24 shrink-0">
+                  <button onClick={() => handleSort("price")}
+                    className="flex items-center text-xs font-semibold uppercase tracking-wide text-gray-500 hover:text-gray-800 transition-colors">
+                    PAC Cost<SortIcon active={sortKey === "price"} dir={sortDir} />
+                  </button>
+                </div>
+              )}
               <div className="w-28 shrink-0 text-xs font-semibold uppercase tracking-wide text-gray-500">Online Price</div>
               <div className="w-8 shrink-0 text-center text-xs font-semibold uppercase tracking-wide text-gray-500">CFX</div>
               <div className="w-8 shrink-0" />
