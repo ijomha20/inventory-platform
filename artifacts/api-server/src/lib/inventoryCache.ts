@@ -73,33 +73,59 @@ async function persistToDb(): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
-// Typesense — batch price enrichment
+// Typesense — batch enrichment (prices + website URLs)
 // ---------------------------------------------------------------------------
 
 const TYPESENSE_HOST = "v6eba1srpfohj89dp-1.a1.typesense.net";
 
-const PRICE_COLLECTIONS = [
+const TYPESENSE_COLLECTIONS = [
   {
     collection: "37042ac7ece3a217b1a41d6f54ba6855", // Parkdale (checked first — preferred)
     apiKey:     "bENlSmdIaVJWNGhTcjBnZ3BaN2JxajBINWcvdzREZ21hQnFMZWM3OWJBRT1oZmUweyJmaWx0ZXJfYnkiOiJzdGF0dXM6W0luc3RvY2tdICYmIHZpc2liaWxpdHk6PjAgJiYgZGVsZXRlZF9hdDo9MCJ9",
+    siteUrl:    "https://www.parkdalemotors.ca",
   },
   {
     collection: "cebacbca97920d818d57c6f0526d7413", // Matrix
     apiKey:     "ZWoxa3NxVmJLWFBOK2dWcUFBM1V0aTJyb09wUDhFZ0R5Vnc1blc2RW9Kdz1oZmUweyJmaWx0ZXJfYnkiOiJzdGF0dXM6W0luc3RvY2ssIFNvbGRdICYmIHZpc2liaWxpdHk6PjAgJiYgZGVsZXRlZF9hdDo9MCJ9",
+    siteUrl:    "https://www.matrixmotorsyeg.ca",
   },
 ];
 
-/**
- * Fetch ALL currently listed vehicles from Typesense and return a
- * VIN (uppercase) → price string map.  Downloading the full catalogue
- * (~100–300 vehicles) is faster and more reliable than per-VIN filtering.
- */
-async function fetchOnlinePricesFromTypesense(): Promise<Map<string, string>> {
-  const priceMap = new Map<string, string>();
+// Keep the old alias so the price function below still compiles
+const PRICE_COLLECTIONS = TYPESENSE_COLLECTIONS;
 
-  for (const col of PRICE_COLLECTIONS) {
+function extractWebsiteUrl(doc: any, siteUrl: string): string | null {
+  if (doc.page_url) {
+    const path = doc.page_url.toString().trim().replace(/^\/+|\/+$/g, "");
+    return `${siteUrl}/${path}/`;
+  }
+  const id   = doc.id || doc.post_id || doc.vehicle_id || "";
+  let   slug = doc.slug || doc.url_slug || "";
+  if (!slug && doc.year && doc.make && doc.model) {
+    slug = [doc.year, doc.make, doc.model, doc.trim || ""]
+      .filter((p: any) => String(p).trim() !== "")
+      .join(" ").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+  }
+  if (!id || !slug) return null;
+  return `${siteUrl}/inventory/${slug}/${id}/`;
+}
+
+interface TypesenseMaps {
+  prices:  Map<string, string>; // VIN → online price string
+  website: Map<string, string>; // VIN → listing URL
+}
+
+/**
+ * Fetch ALL currently listed vehicles from Typesense in one bulk pass and
+ * return both a price map and a website URL map.  Downloading the full
+ * catalogue (~100–300 vehicles) is faster than per-VIN filtering.
+ */
+async function fetchFromTypesense(): Promise<TypesenseMaps> {
+  const prices  = new Map<string, string>();
+  const website = new Map<string, string>();
+
+  for (const col of TYPESENSE_COLLECTIONS) {
     try {
-      // Paginate if there are more than 250 vehicles in a collection
       let page = 1;
       while (true) {
         const url =
@@ -116,15 +142,21 @@ async function fetchOnlinePricesFromTypesense(): Promise<Map<string, string>> {
         for (const hit of hits) {
           const doc = hit.document ?? {};
           const vin = (doc.vin ?? "").toString().trim().toUpperCase();
-          if (!vin || priceMap.has(vin)) continue; // first collection wins
+          if (!vin) continue;
 
-          const specialOn    = Number(doc.special_price_on) === 1;
-          const specialPrice = parseFloat(doc.special_price);
-          const regularPrice = parseFloat(doc.price);
-          const raw          = specialOn && specialPrice > 0 ? specialPrice : regularPrice;
+          // Price — first collection that has this VIN wins
+          if (!prices.has(vin)) {
+            const specialOn    = Number(doc.special_price_on) === 1;
+            const specialPrice = parseFloat(doc.special_price);
+            const regularPrice = parseFloat(doc.price);
+            const raw          = specialOn && specialPrice > 0 ? specialPrice : regularPrice;
+            if (!isNaN(raw) && raw > 0) prices.set(vin, String(Math.round(raw)));
+          }
 
-          if (!isNaN(raw) && raw > 0) {
-            priceMap.set(vin, String(Math.round(raw)));
+          // Website URL — first collection that resolves one wins
+          if (!website.has(vin)) {
+            const resolved = extractWebsiteUrl(doc, col.siteUrl);
+            if (resolved) website.set(vin, resolved);
           }
         }
 
@@ -132,11 +164,16 @@ async function fetchOnlinePricesFromTypesense(): Promise<Map<string, string>> {
         page++;
       }
     } catch (err) {
-      logger.warn({ err, collection: col.collection }, "Typesense price fetch failed for collection");
+      logger.warn({ err, collection: col.collection }, "Typesense fetch failed for collection");
     }
   }
 
-  return priceMap;
+  return { prices, website };
+}
+
+// Keep old name as alias for any future callers
+async function fetchOnlinePricesFromTypesense(): Promise<Map<string, string>> {
+  return (await fetchFromTypesense()).prices;
 }
 
 // ---------------------------------------------------------------------------
@@ -190,25 +227,31 @@ export async function refreshCache(): Promise<void> {
     }
 
     // -----------------------------------------------------------------------
-    // Enrich with Typesense prices for items where Apps Script didn't send one
+    // Enrich with Typesense data (prices + website URLs) in a single pass
     // -----------------------------------------------------------------------
-    const needPrice = items.filter(
-      (item) => !item.onlinePrice || item.onlinePrice === "NOT FOUND",
+    const needEnrichment = items.some(
+      (item) =>
+        !item.onlinePrice || item.onlinePrice === "NOT FOUND" ||
+        !item.website     || item.website     === "NOT FOUND",
     );
 
-    if (needPrice.length > 0) {
-      const priceMap = await fetchOnlinePricesFromTypesense();
+    if (needEnrichment) {
+      const { prices, website } = await fetchFromTypesense();
 
       for (const item of items) {
         if (!item.onlinePrice || item.onlinePrice === "NOT FOUND") {
-          const fetched = priceMap.get(item.vin.toUpperCase());
+          const fetched = prices.get(item.vin.toUpperCase());
           if (fetched) item.onlinePrice = fetched;
+        }
+        if (!item.website || item.website === "NOT FOUND") {
+          const fetched = website.get(item.vin.toUpperCase());
+          if (fetched) item.website = fetched;
         }
       }
 
       logger.info(
-        { enriched: priceMap.size, total: items.length },
-        "Typesense price enrichment complete",
+        { prices: prices.size, websiteUrls: website.size, total: items.length },
+        "Typesense enrichment complete",
       );
     }
 
