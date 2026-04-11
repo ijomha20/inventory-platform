@@ -311,7 +311,7 @@ async function isLoggedIn(page: any): Promise<boolean> {
 async function loginWithAuth0(page: any): Promise<boolean> {
   logger.info("BB worker: navigating to CreditApp login");
   try {
-    await page.goto(LOGIN_URL, { waitUntil: "domcontentloaded", timeout: 60_000 });
+    await page.goto(LOGIN_URL, { waitUntil: "domcontentloaded", timeout: 120_000 });
   } catch (err: any) {
     logger.error({ err: err.message }, "BB worker: login page navigation failed");
     return false;
@@ -564,6 +564,7 @@ export async function runBlackBookWorker(): Promise<void> {
     await runWithRetry();
     status.lastRun   = new Date().toISOString();
     status.lastCount = getCacheState().data.filter((i) => !!i.bbAvgWholesale).length;
+    await recordRunDateToDb();
   } finally {
     status.running   = false;
     status.startedAt = null;
@@ -571,24 +572,62 @@ export async function runBlackBookWorker(): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
+// Persistent run tracking — stored in DB so restarts and dev/prod don't
+// double-fire the same day's run
+// ---------------------------------------------------------------------------
+
+async function getLastRunDateFromDb(): Promise<string> {
+  try {
+    const { db, bbSessionTable } = await import("@workspace/db");
+    const { eq }                 = await import("drizzle-orm");
+    const rows = await db.select({ lastRunAt: bbSessionTable.lastRunAt })
+      .from(bbSessionTable)
+      .where(eq(bbSessionTable.id, "singleton"));
+    if (rows.length > 0 && rows[0].lastRunAt) {
+      return rows[0].lastRunAt.toISOString().slice(0, 10);
+    }
+  } catch (err) {
+    logger.warn({ err: String(err) }, "BB worker: could not read last run date from DB");
+  }
+  return "";
+}
+
+async function recordRunDateToDb(): Promise<void> {
+  try {
+    const { db, bbSessionTable } = await import("@workspace/db");
+    await db
+      .insert(bbSessionTable)
+      .values({ id: "singleton", cookies: "[]", lastRunAt: new Date(), updatedAt: new Date() })
+      .onConflictDoUpdate({
+        target: bbSessionTable.id,
+        set:    { lastRunAt: new Date() },
+      });
+  } catch (err) {
+    logger.warn({ err: String(err) }, "BB worker: could not record run date to DB");
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Scheduler — nightly 2:00am with startup catch-up
+// DB-persisted run date prevents duplicate runs across restarts and dev/prod
 // ---------------------------------------------------------------------------
 
 export function scheduleBlackBookWorker(): void {
-  let lastRunDate = "";
-
-  const tryRun = (reason: string) => {
-    const today = new Date().toISOString().slice(0, 10);
-    if (lastRunDate === today) return;
-    lastRunDate = today;
+  const tryRun = async (reason: string) => {
+    const today   = new Date().toISOString().slice(0, 10);
+    const lastRan = await getLastRunDateFromDb();
+    if (lastRan === today) {
+      logger.info({ reason, lastRan }, "BB worker: already ran today — skipping");
+      return;
+    }
     logger.info({ reason }, "BB worker: triggering scheduled run");
     runBlackBookWorker().catch((err) => logger.error({ err }, "BB worker: scheduled run error"));
   };
 
-  // Catch-up: if server starts after 2am and no run today
+  // Catch-up: if server starts after 2am and today's run not yet recorded
   const now = new Date();
   if (now.getHours() >= 2) {
-    logger.info("BB worker: server started after 2am — running catch-up in 60s");
+    logger.info("BB worker: server started after 2am — catch-up check in 60s");
     setTimeout(() => tryRun("startup catch-up"), 60_000);
   }
 
