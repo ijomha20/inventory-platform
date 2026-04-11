@@ -1,0 +1,145 @@
+f6ff72b | 2026-03-28 01:50:29 +0000 | Initial commit
+a8b44bf | 2026-03-29 01:13:16 +0000 | Update inventory sync script to improve data handling and user interface
+08c915e | 2026-03-29 01:20:14 +0000 | Add comprehensive script to manage inventory synchronization and notifications
+6d1ca01 | 2026-03-29 01:34:20 +0000 | Add timestamp for last price change and sort inventory
+0ebb5a4 | 2026-03-29 01:36:27 +0000 | Update script to track and sort by last price change
+305c30b | 2026-03-29 01:43:06 +0000 | Remove redundant intermediate data sheet from sync process
+2f72374 | 2026-03-29 01:45:51 +0000 | Update script to directly sync inventory data and remove intermediate tab
+50a9c9e | 2026-03-29 02:05:31 +0000 | Revert script to previous version for inventory tracking
+a84ea98 | 2026-03-29 02:17:19 +0000 | Update inventory sync script to improve stability and compatibility
+e79b2d8 | 2026-03-29 02:48:26 +0000 | Add script to automatically find Carfax report links for inventory
+834d50a | 2026-03-29 02:54:50 +0000 | Add human-like behaviors to automate interactions with the website
+c4c4dbc | 2026-03-29 02:58:29 +0000 | Integrate Google Apps Script as a web app for simplified automation
+effd1c6 | 2026-03-29 03:16:37 +0000 | Add executable scripts to run automation without opening a terminal
+f5eccec | 2026-03-29 03:21:03 +0000 | Explain how to resolve Chrome launch issues when running the automation script
+86dd49a | 2026-03-29 03:22:52 +0000 | Allow selecting between Chrome and Microsoft Edge for automation
+5f09ea8 | 2026-03-29 03:29:17 +0000 | Update inventory sync script with new columns and settings
+803ac73 | 2026-03-29 03:37:20 +0000 | Restore and update inventory sync script with new layout and settings
+2104976 | 2026-03-29 03:41:31 +0000 | Restore complete inventory sync script functionality
+d89566c | 2026-03-29 03:49:34 +0000 | Update script to use its own browser and save login sessions
+f5c3144 | 2026-03-29 03:53:34 +0000 | Update Carfax URLs to Canadian dealer portal
+fbaafe8 | 2026-03-29 04:03:16 +0000 | Update Carfax URLs and improve global archive search functionality
+8b44f39 | 2026-03-29 04:06:59 +0000 | Update Carfax VHR search to use precise selectors and match page behavior
+dd62773 | 2026-03-29 04:12:22 +0000 | Improve search functionality by extending wait times and optimizing VIN searching
+0283914 | 2026-03-29 15:37:37 +0000 | Retry VINs that were previously not found during processing
+9465b93 | 2026-03-29 15:41:01 +0000 | Add automatic mode for running carfax searches
+f05278d | 2026-03-29 15:43:50 +0000 | Include PDM units in inventory sync and Carfax search
+ca801e8 | 2026-03-29 15:45:28 +0000 | Remove PDM vehicle support from inventory sync
+2531bb5 | 2026-03-29 16:00:03 +0000 | Add ability to fetch website links for inventory items
+60b9dde | 2026-03-29 16:18:17 +0000 | Fix website link generation and update script structure
+2156d0a | 2026-03-29 16:21:11 +0000 | Improve website link lookup and fix URL generation
+6512445 | 2026-03-29 16:24:15 +0000 | Fix incorrectly formatted website links by using the page URL directly
+835fd80 | 2026-03-29 16:36:19 +0000 | Add script to automatically sync vehicle inventory to a shared sheet
+f55c6ba | 2026-03-29 16:37:32 +0000 | Update script to point to the correct master sheet
+e627b83 | 2026-03-29 16:52:31 +0000 | Implement user authentication and inventory management features
+1e86798 | 2026-03-29 17:16:45 +0000 | Saved progress at the end of the loop
+0dc8899 | 2026-03-29 17:23:08 +0000 | Update session management to prevent bundling issues
+d0a50cf | 2026-03-29 17:32:54 +0000 | Update inventory page to display as a list
+f7bdb04 | 2026-03-29 17:36:57 +0000 | Improve inventory display with sorting, better colors, and VIN copy functionality
+b556c9f | 2026-03-29 17:40:53 +0000 | Update app appearance to a light theme and fix sorting errors
+18616b1 | 2026-03-29 17:41:56 +0000 | Remove duplicate vehicle listings based on lowest price
+f0927ab | 2026-03-29 17:50:19 +0000 | Add ability to scrape and display live retail prices from vehicle URLs
+6580ede | 2026-03-29 17:54:24 +0000 | Update price lookup to query Typesense directly
+19da971 | 2026-03-29 17:57:20 +0000 | Add vehicle kilometers to inventory display and data handling
+a1fe068 | 2026-03-29 18:02:24 +0000 | Update price lookup to prevent stale cached data
+d6758e1 | 2026-03-30 04:26:08 +0000 | Add online price lookup to inventory sync script
+18be3d2 | 2026-04-04 02:40:46 +0000 | Add comprehensive implementation guide for a new system version
+f43d13f | 2026-04-04 02:51:18 +0000 | Add an assessment of an improvement plan
+8e1c108 | 2026-04-04 02:53:39 +0000 | Add image URL extraction from website metadata
+7bc10fc | 2026-04-04 03:05:03 +0000 | Implement server-side caching for inventory data and add online price display
+d103015 | 2026-04-04 03:54:24 +0000 | Add risk analysis and improve system monitoring and security
+ba2576f | 2026-04-04 04:16:15 +0000 | Add role-based access control and automated Carfax lookups
+994d932 | 2026-04-04 04:59:59 +0000 | Add live price fetching from dealer's system during cache refresh
+790f07b | 2026-04-04 05:03:34 +0000 | Improve online price fetching by downloading all available data
+364ae53 | 2026-04-04 05:06:22 +0000 | Display all vehicles in the inventory list
+da99e26 | 2026-04-04 05:07:41 +0000 | Filter inventory to only include vehicles with a listed price
+cac4ded | 2026-04-04 05:17:22 +0000 | Add filters for vehicle year, mileage, and price
+0cef4ef | 2026-04-04 05:25:32 +0000 | Update Carfax login to use dealer credentials and correct selectors
+227d911 | 2026-04-04 05:36:33 +0000 | Published your App
+424cb9c | 2026-04-04 05:48:47 +0000 | Add a diagnostic page to display the correct Google OAuth callback URL
+530a013 | 2026-04-04 06:03:58 +0000 | Add email invitations for new users accessing the inventory portal
+59d5f2a | 2026-04-04 06:15:19 +0000 | Add Black Book vehicle valuation data to inventory application
+d94f8bc | 2026-04-04 06:17:03 +0000 | Add Black Book vehicle valuation integration
+d4e7c86 | 2026-04-04 14:22:53 +0000 | Add ability to test Carfax VIN lookups and log failures
+90d4d3e | 2026-04-04 14:30:17 +0000 | Update cloud worker to use dealer portal and persist login sessions
+62b73bf | 2026-04-04 14:37:49 +0000 | Fix broken report links by accurately capturing href attributes
+70e7b0f | 2026-04-04 14:41:05 +0000 | Improve automation detection resistance with updated browser configurations
+7e344a8 | 2026-04-04 14:43:20 +0000 | Add PDF document containing the full code for the Carfax worker
+ce926ef | 2026-04-04 15:14:42 +0000 | Improve undetectable automation script with new features and reliability
+f7805cd | 2026-04-04 15:24:21 +0000 | Improve website reliability and stealth capabilities by installing new tools
+eb6e7d5 | 2026-04-04 15:33:45 +0000 | Create a reusable template for automating dealer portal interactions
+c4cf889 | 2026-04-04 15:54:13 +0000 | Add comprehensive documentation for the automated inventory platform
+94781ab | 2026-04-04 17:24:40 +0000 | Add a way to manually trigger the Carfax batch processing
+1a67428 | 2026-04-04 22:34:52 +0000 | Increase inventory refresh timeout and add retry logic
+6cf7a64 | 2026-04-05 00:09:18 +0000 | Improve server startup by loading inventory from database
+b702997 | 2026-04-05 00:20:54 +0000 | Published your App
+7674d03 | 2026-04-05 01:21:18 +0000 | Add owner-only columns for matrix price and business cost
+6352eab | 2026-04-05 01:28:57 +0000 | Update script to include list price and acquisition cost for vehicles
+53ec960 | 2026-04-05 01:38:39 +0000 | Preserve user data by preventing automatic script modifications to a specific column
+eef4abc | 2026-04-05 01:39:51 +0000 | Preserve user data in column G and apply consistent formatting
+b04f318 | 2026-04-05 01:42:56 +0000 | Update documentation for column G in inventory sync script
+79c1103 | 2026-04-05 02:01:23 +0000 | Rearrange vehicle inventory columns and update cost labels
+b168129 | 2026-04-05 02:07:47 +0000 | Published your App
+6202b7a | 2026-04-05 02:21:45 +0000 | Add view mode toggles for owner and customer perspectives
+4a54b15 | 2026-04-05 02:25:38 +0000 | Improve Carfax worker reliability by extending browser launch timeouts and adding retry logic
+36189c3 | 2026-04-05 02:28:57 +0000 | Published your App
+2843061 | 2026-04-05 02:44:09 +0000 | Update documentation for inventory portal codebase
+c733fcc | 2026-04-05 02:49:51 +0000 | Increase navigation timeouts and add error handling to Carfax worker
+80029a5 | 2026-04-05 03:26:35 +0000 | Add a detailed assessment of the project's development journey
+903e16c | 2026-04-05 03:38:17 +0000 | Refine documentation regarding AI assessment and project feedback
+ba0599f | 2026-04-05 03:45:04 +0000 | Prevent empty inventory data from clearing the entire vehicle cache
+517e98f | 2026-04-05 03:46:16 +0000 | Persist the selected view mode across user sessions
+a1e1f28 | 2026-04-05 03:50:57 +0000 | Prevent duplicate inventory syncs by adding a script lock
+b8d815d | 2026-04-05 03:56:42 +0000 | Add complete script for inventory synchronization and update asset metadata
+f339eab | 2026-04-05 04:01:11 +0000 | Published your App
+5ea1372 | 2026-04-05 04:25:36 +0000 | Prevent Carfax worker from running on production deployments
+9dac230 | 2026-04-05 04:28:08 +0000 | Published your App
+8dad29d | 2026-04-07 21:41:32 +0000 | Saved progress at the end of the loop
+66c6799 | 2026-04-07 21:42:15 +0000 | Add sorting functionality to the PAC Cost column for better price analysis
+5adc00c | 2026-04-07 21:43:20 +0000 | Saved progress at the end of the loop
+8f8c302 | 2026-04-07 21:46:05 +0000 | Published your App
+0039258 | 2026-04-11 04:19:14 +0000 | Saved progress at the end of the loop
+9a76987 | 2026-04-11 04:28:18 +0000 | Automatically find and add website links for vehicle listings
+ce3197f | 2026-04-11 04:33:25 +0000 | Add website links automatically when inventory data is refreshed
+218f0f8 | 2026-04-11 04:42:10 +0000 | Published your App
+6478713 | 2026-04-11 04:46:20 +0000 | Make camera icon more prominent when photos are available
+7ce3b2a | 2026-04-11 04:47:41 +0000 | Published your App
+4488886 | 2026-04-11 05:00:49 +0000 | Add configuration details for Black Book and Credit App integrations
+3f6a8fb | 2026-04-11 05:21:25 +0000 | Add details about a credit application and its associated Black Book values
+7d00633 | 2026-04-11 05:31:31 +0000 | Add information about existing integrations and user statistics
+2e3cdb2 | 2026-04-11 05:35:31 +0000 | Add application details from CreditApp to a file
+7d073c1 | 2026-04-11 05:37:29 +0000 | Add detailed request and response information for CreditApp API
+dcdfe95 | 2026-04-11 05:44:33 +0000 | Add user and request details from CreditApp
+aa24fe3 | 2026-04-11 05:47:26 +0000 | Save GraphQL query for application worksheet data
+f757014 | 2026-04-11 06:16:09 +0000 | Add guide on discovering internal API endpoints using network tools
+ba23162 | 2026-04-11 06:36:54 +0000 | Add script to test login and API functionality for CreditApp
+ac969c6 | 2026-04-11 06:50:08 +0000 | Add Canadian Black Book integration for vehicle valuation
+40935b9 | 2026-04-11 06:51:43 +0000 | Saved progress at the end of the loop
+1b83ac1 | 2026-04-11 06:59:02 +0000 | Published your App
+9b499bb | 2026-04-11 07:07:20 +0000 | Improve session handling by saving and loading cookies from the database
+643be36 | 2026-04-11 07:10:10 +0000 | Published your App
+3d29454 | 2026-04-11 07:12:26 +0000 | Improve daily data processing by preventing duplicate runs and increasing login reliability
+5170b3b | 2026-04-11 07:14:20 +0000 | Published your App
+6459a18 | 2026-04-11 07:22:11 +0000 | Remove browser fallback for production session cookie retrieval
+6d53bb5 | 2026-04-11 07:24:16 +0000 | Published your App
+322ff76 | 2026-04-11 07:35:08 +0000 | Improve cookie loading and error handling for production runs
+89b834e | 2026-04-11 07:51:48 +0000 | Use object storage to share session cookies and black book values
+2489d59 | 2026-04-11 07:53:38 +0000 | Published your App
+7aacad2 | 2026-04-11 08:06:02 +0000 | Add detailed wholesale price breakdowns for vehicles
+19184b0 | 2026-04-11 08:08:25 +0000 | Published your App
+f56f548 | 2026-04-11 08:09:07 +0000 | Make book average information visible to all users
+cbca667 | 2026-04-11 08:11:08 +0000 | Published your App
+9cba579 | 2026-04-11 17:15:44 +0000 | Transitioned from Plan to Build mode
+6c57e1d | 2026-04-11 17:17:05 +0000 | Desktop CBB: replace hover tooltip with click-to-expand detail row
+f19691b | 2026-04-11 17:17:45 +0000 | Desktop CBB: replace hover tooltip with click-to-expand detail row
+24ebf33 | 2026-04-11 17:22:40 +0000 | Published your App
+255d626 | 2026-04-11 17:32:01 +0000 | Improve vehicle trim matching accuracy and fallback logic
+b6de641 | 2026-04-11 17:36:42 +0000 | Improve vehicle trim matching by refining tokenization and extraction logic
+b4a4d21 | 2026-04-11 17:38:52 +0000 | Published your App
+cb7c9a1 | 2026-04-11 17:56:46 +0000 | Saved progress at the end of the loop
+e668b20 | 2026-04-11 17:59:49 +0000 | Update build configuration to handle port and base path more gracefully
+37bf108 | 2026-04-11 18:01:38 +0000 | Published your App
+766dd39 | 2026-04-11 20:04:43 +0000 | Update documentation to reflect current codebase and architecture---
+
+Total commits: 142
+Date range: 2026-03-28 01:50:29 +0000 to 2026-04-11 20:04:43 +0000

@@ -24,3 +24,9 @@ id = "Ly5ikxhBYqBH2EU6Esx4I"
 uri = "file://attached_assets/InventorySync_v3.3.txt"
 type = "text"
 title = "InventorySync_v3.3.gs — complete updated script"
+
+[[outputs]]
+id = "-lkO__0FRnq5SUyV0gHZi"
+uri = "file://downloads/git-commit-history.txt"
+type = "text"
+title = "Script Reviewer — Full Git Commit History"
