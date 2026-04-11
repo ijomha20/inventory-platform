@@ -456,20 +456,40 @@ async function healthCheck(appSession: string, csrfToken: string): Promise<boole
 // NHTSA — free VIN decode for trim matching
 // ---------------------------------------------------------------------------
 
-async function decodeVinNhtsa(vin: string): Promise<{ trim: string; series: string }> {
+interface NhtsaInfo {
+  trim:         string;
+  series:       string;
+  bodyClass:    string;
+  driveType:    string;
+  displacement: string;
+  cylinders:    string;
+  fuelType:     string;
+}
+
+const EMPTY_NHTSA: NhtsaInfo = { trim: "", series: "", bodyClass: "", driveType: "", displacement: "", cylinders: "", fuelType: "" };
+
+async function decodeVinNhtsa(vin: string): Promise<NhtsaInfo> {
   try {
     const resp = await fetch(
       `https://vpic.nhtsa.dot.gov/api/vehicles/decodevin/${vin}?format=json`,
       { signal: AbortSignal.timeout(8_000) },
     );
-    if (!resp.ok) return { trim: "", series: "" };
+    if (!resp.ok) return { ...EMPTY_NHTSA };
     const body: any = await resp.json();
     const results: any[] = body?.Results ?? [];
     const get = (variable: string) =>
       (results.find((r) => r.Variable === variable)?.Value ?? "").toString().trim();
-    return { trim: get("Trim"), series: get("Series") };
+    return {
+      trim:         get("Trim"),
+      series:       get("Series"),
+      bodyClass:    get("Body Class"),
+      driveType:    get("Drive Type"),
+      displacement: get("Displacement (L)"),
+      cylinders:    get("Engine Number of Cylinders"),
+      fuelType:     get("Fuel Type - Primary"),
+    };
   } catch {
-    return { trim: "", series: "" };
+    return { ...EMPTY_NHTSA };
   }
 }
 
@@ -477,37 +497,104 @@ async function decodeVinNhtsa(vin: string): Promise<{ trim: string; series: stri
 // Trim matching
 // ---------------------------------------------------------------------------
 
-function matchBestTrim(vehicleStr: string, nhtsaTrim: string, nhtsaSeries: string, options: any[]): any | null {
+function tokenize(s: string): string[] {
+  return s.toLowerCase().split(/[\s,\-\/()]+/).filter(t => t.length >= 2);
+}
+
+function matchBestTrim(vehicleStr: string, nhtsa: NhtsaInfo, options: any[], vin: string): any | null {
   if (!options || options.length === 0) return null;
+
+  if (options.length > 1) {
+    logger.info(
+      {
+        vin,
+        optionCount: options.length,
+        trims: options.map(o => ({
+          series: o.series ?? "?",
+          style: o.style ?? "?",
+          avg: o.adjusted_whole_avg,
+        })),
+      },
+      "BB worker: CBB returned multiple trims — scoring",
+    );
+  }
+
   if (options.length === 1) return options[0];
 
-  const vLower = vehicleStr.toLowerCase();
-  const tLower = nhtsaTrim.toLowerCase();
-  const sLower = nhtsaSeries.toLowerCase();
+  const vTokens = tokenize(vehicleStr);
+  const tLower  = nhtsa.trim.toLowerCase();
+  const sLower  = nhtsa.series.toLowerCase();
+  const allNhtsaText = [
+    nhtsa.trim, nhtsa.series, nhtsa.bodyClass,
+    nhtsa.driveType, nhtsa.fuelType,
+  ].join(" ").toLowerCase();
 
   const scored = options.map((opt) => {
-    const series = (opt.series ?? "").toLowerCase();
+    const series    = (opt.series ?? "").toLowerCase();
+    const style     = (opt.style ?? "").toLowerCase();
+    const optTokens = tokenize(`${opt.series ?? ""} ${opt.style ?? ""}`);
     let score = 0;
+
     if (series) {
-      if (vLower.includes(series)) score += 20;  // vehicle string contains series name
-      if (tLower.includes(series)) score += 15;  // NHTSA trim contains series name
-      if (sLower.includes(series)) score += 10;  // NHTSA series contains series name
+      if (vTokens.some(t => series.includes(t) || t.includes(series))) score += 20;
+      if (tLower && (tLower.includes(series) || series.includes(tLower))) score += 15;
+      if (sLower && (sLower.includes(series) || series.includes(sLower))) score += 10;
     }
+
+    if (style) {
+      if (vTokens.some(t => style.includes(t))) score += 8;
+      if (allNhtsaText.includes(style)) score += 5;
+    }
+
+    for (const ot of optTokens) {
+      if (ot.length < 2) continue;
+      if (vTokens.includes(ot)) score += 6;
+      if (tLower.includes(ot)) score += 4;
+    }
+
+    const driveHints: Record<string, string[]> = {
+      "4wd": ["4x4", "4wd", "awd", "4-wheel"],
+      "awd": ["awd", "4wd", "4x4"],
+      "2wd": ["2wd", "rwd", "fwd"],
+    };
+    const nhtsaDrive = nhtsa.driveType.toLowerCase();
+    for (const [key, synonyms] of Object.entries(driveHints)) {
+      if (synonyms.some(s => nhtsaDrive.includes(s))) {
+        if (style.includes(key) || series.includes(key) ||
+            synonyms.some(s => style.includes(s) || series.includes(s))) {
+          score += 5;
+        }
+      }
+    }
+
     return { opt, score };
   });
 
   scored.sort((a, b) => b.score - a.score);
 
   if (scored[0].score > 0) {
-    logger.info({ series: scored[0].opt.series, score: scored[0].score }, "BB worker: trim matched");
+    logger.info(
+      { vin, series: scored[0].opt.series, style: scored[0].opt.style, score: scored[0].score },
+      "BB worker: trim matched by scoring",
+    );
     return scored[0].opt;
   }
 
-  // Conservative fallback: lowest avg wholesale (never over-estimate)
-  const fallback = options.reduce((min, opt) =>
-    (opt.adjusted_whole_avg ?? Infinity) < (min.adjusted_whole_avg ?? Infinity) ? opt : min,
+  const sorted = [...options].sort(
+    (a, b) => (a.adjusted_whole_avg ?? 0) - (b.adjusted_whole_avg ?? 0),
   );
-  logger.info({ series: fallback.series, note: "fallback-lowest" }, "BB worker: no trim match — using lowest value");
+  const midIdx   = Math.floor(sorted.length / 2);
+  const fallback = sorted[midIdx];
+  logger.info(
+    {
+      vin,
+      series: fallback.series,
+      avg: fallback.adjusted_whole_avg,
+      note: "fallback-median",
+      range: `${sorted[0].adjusted_whole_avg}–${sorted[sorted.length - 1].adjusted_whole_avg}`,
+    },
+    "BB worker: no trim match — using median value",
+  );
   return fallback;
 }
 
@@ -537,8 +624,7 @@ async function runBlackBookBatch(): Promise<void> {
     try {
       const kmInt = parseKm(km);
 
-      // NHTSA decode for trim matching (best-effort — never blocks the lookup)
-      const { trim: nhtsaTrim, series: nhtsaSeries } = await decodeVinNhtsa(vin);
+      const nhtsa = await decodeVinNhtsa(vin);
 
       const options = await callCbbEndpoint(appSession, csrfToken, vin, kmInt);
 
@@ -554,7 +640,7 @@ async function runBlackBookBatch(): Promise<void> {
         continue;
       }
 
-      const best = matchBestTrim(vehicle, nhtsaTrim, nhtsaSeries, options);
+      const best = matchBestTrim(vehicle, nhtsa, options, vin);
       if (!best) { skipped++; continue; }
 
       const vinKey = vin.toUpperCase();
@@ -564,7 +650,7 @@ async function runBlackBookBatch(): Promise<void> {
       await sleep(rand(1000, 2000));
       try {
         const unadjOptions = await callCbbEndpoint(appSession, csrfToken, vin, 0);
-        const unadjBest = matchBestTrim(vehicle, nhtsaTrim, nhtsaSeries, unadjOptions);
+        const unadjBest = matchBestTrim(vehicle, nhtsa, unadjOptions, vin);
         if (unadjBest) {
           bbDetailMap.set(vinKey, {
             xclean: Math.round(unadjBest.adjusted_whole_xclean ?? 0),
