@@ -653,10 +653,16 @@ export default function Inventory() {
                     {showOwnerCols && <div className="w-24 shrink-0 text-sm text-gray-700">{formatPrice(item.matrixPrice ?? "")}</div>}
                     {showOwnerCols && <div className="w-24 shrink-0 text-sm font-medium text-red-700">{formatPrice(item.cost ?? "")}</div>}
                     {showBb && (
-                      <div className="w-24 shrink-0 text-sm font-medium text-purple-700 cursor-pointer hover:underline select-none"
-                        onClick={() => setExpandedBbVin(expandedBbVin === item.vin ? null : item.vin)}>
-                        {formatPrice((item as any).bbAvgWholesale ?? "")}
-                      </div>
+                      (item as any).bbValues ? (
+                        <button className="w-24 shrink-0 text-sm font-medium text-purple-700 cursor-pointer hover:underline text-left"
+                          onClick={() => setExpandedBbVin(expandedBbVin === item.vin ? null : item.vin)}>
+                          {formatPrice((item as any).bbAvgWholesale ?? "")}
+                        </button>
+                      ) : (
+                        <div className="w-24 shrink-0 text-sm font-medium text-purple-700">
+                          {formatPrice((item as any).bbAvgWholesale ?? "")}
+                        </div>
+                      )
                     )}
                     {showPacCost && <div className="w-24 shrink-0 text-sm text-gray-700">{formatPrice(item.price)}</div>}
                     <div className="w-28 shrink-0 text-sm text-gray-700">{formatPrice(item.onlinePrice)}</div>
