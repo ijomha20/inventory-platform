@@ -1,22 +1,7 @@
 [
   {
-    "name": "appSession",
-    "value": "fb44fb532b76a417b63dd700e7f3cba5.EYzxPtOQ90vq-c5XsTbNal1BRjM4fcl5TVJk71YqQfg",
-    "domain": ".creditapp.ca",
-    "path": "/",
-    "expires": 1775919014.351071,
-    "size": 86,
-    "httpOnly": true,
-    "secure": true,
-    "session": false,
-    "sameSite": "Lax",
-    "priority": "Medium",
-    "sameParty": false,
-    "sourceScheme": "Secure"
-  },
-  {
     "name": "CA_CSRF_TOKEN",
-    "value": "d777cc6cf5edd5359068d7f424185add5c5f67c18be7a801d7110c5f2cc43b20",
+    "value": "403467fa7789a85f51849f0400c446cb213f31999e830cf00a2af8dae92e716f",
     "domain": "admin.creditapp.ca",
     "path": "/",
     "expires": -1,
@@ -24,6 +9,21 @@
     "httpOnly": false,
     "secure": true,
     "session": true,
+    "priority": "Medium",
+    "sameParty": false,
+    "sourceScheme": "Secure"
+  },
+  {
+    "name": "appSession",
+    "value": "5ec88ae8ee97103cacea11c0791ded4a._howTy_D2LTTBC7u-WUJ881LtqWXREOOqE79jmZ76t8",
+    "domain": ".creditapp.ca",
+    "path": "/",
+    "expires": 1775958590.789536,
+    "size": 86,
+    "httpOnly": true,
+    "secure": true,
+    "session": false,
+    "sameSite": "Lax",
     "priority": "Medium",
     "sameParty": false,
     "sourceScheme": "Secure"
