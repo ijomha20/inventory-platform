@@ -497,8 +497,58 @@ async function decodeVinNhtsa(vin: string): Promise<NhtsaInfo> {
 // Trim matching
 // ---------------------------------------------------------------------------
 
+const NOISE_WORDS = new Set([
+  "the","and","or","of","in","for","with","a","an","to",
+  "2wd","4wd","awd","fwd","rwd","4x4",
+  "white","black","silver","grey","gray","red","blue","green",
+  "burgundy","brown","gold","beige","orange","yellow","purple",
+]);
+
+const MULTI_WORD_MODELS = new Set([
+  "grand caravan", "grand cherokee", "grand marquis", "grand prix",
+  "grand vitara", "town car", "monte carlo", "land cruiser",
+  "rav4", "cr-v", "cx-5", "cx-9", "hr-v", "br-v",
+  "e-pace", "f-pace", "f-type", "range rover",
+  "model 3", "model s", "model x", "model y",
+  "wrangler unlimited", "sierra 1500", "sierra 2500", "sierra 3500",
+  "ram 1500", "ram 2500", "ram 3500",
+]);
+
 function tokenize(s: string): string[] {
-  return s.toLowerCase().split(/[\s,\-\/()]+/).filter(t => t.length >= 2);
+  const tokens: string[] = [];
+  const parts = s.toLowerCase().split(/[\s,\-()]+/).filter(Boolean);
+  for (const p of parts) {
+    if (p.includes("/") && p.length <= 5) {
+      tokens.push(p);
+    } else if (p.includes("/")) {
+      tokens.push(...p.split("/").filter(t => t.length >= 2));
+    } else if (p.length >= 2) {
+      tokens.push(p);
+    }
+  }
+  return tokens;
+}
+
+function trimTokens(vehicleStr: string, make: string, model: string): string[] {
+  const all = tokenize(vehicleStr);
+  const makeTokens  = tokenize(make || "");
+  const modelTokens = tokenize(model || "");
+  const skip = new Set([...makeTokens, ...modelTokens]);
+  return all.filter(t => !skip.has(t) && !NOISE_WORDS.has(t) && !/^\d{4}$/.test(t) && !/^\d+$/.test(t));
+}
+
+function extractMakeModel(vehicleStr: string): { make: string; model: string } {
+  const parts = vehicleStr.trim().split(/\s+/);
+  const startIdx = (parts.length >= 3 && /^\d{4}$/.test(parts[0])) ? 1 : 0;
+  if (startIdx >= parts.length) return { make: "", model: "" };
+  const make = parts[startIdx] || "";
+  const remaining = parts.slice(startIdx + 1).join(" ").toLowerCase();
+  for (const mm of MULTI_WORD_MODELS) {
+    if (remaining.startsWith(mm)) {
+      return { make, model: mm.toUpperCase().replace(/ /g, " ") };
+    }
+  }
+  return { make, model: parts[startIdx + 1] || "" };
 }
 
 function matchBestTrim(vehicleStr: string, nhtsa: NhtsaInfo, options: any[], vin: string): any | null {
@@ -508,6 +558,7 @@ function matchBestTrim(vehicleStr: string, nhtsa: NhtsaInfo, options: any[], vin
     logger.info(
       {
         vin,
+        vehicle: vehicleStr,
         optionCount: options.length,
         trims: options.map(o => ({
           series: o.series ?? "?",
@@ -521,50 +572,55 @@ function matchBestTrim(vehicleStr: string, nhtsa: NhtsaInfo, options: any[], vin
 
   if (options.length === 1) return options[0];
 
-  const vTokens = tokenize(vehicleStr);
+  const { make, model } = extractMakeModel(vehicleStr);
+  const vTrimTokens = trimTokens(vehicleStr, make, model);
   const tLower  = nhtsa.trim.toLowerCase();
   const sLower  = nhtsa.series.toLowerCase();
-  const allNhtsaText = [
-    nhtsa.trim, nhtsa.series, nhtsa.bodyClass,
-    nhtsa.driveType, nhtsa.fuelType,
-  ].join(" ").toLowerCase();
+  const nhtsaDrive = nhtsa.driveType.toLowerCase();
 
   const scored = options.map((opt) => {
-    const series    = (opt.series ?? "").toLowerCase();
-    const style     = (opt.style ?? "").toLowerCase();
-    const optTokens = tokenize(`${opt.series ?? ""} ${opt.style ?? ""}`);
+    const series    = (opt.series ?? "").toLowerCase().trim();
+    const style     = (opt.style ?? "").toLowerCase().trim();
+    const seriesTokens = tokenize(series);
+    const styleTokens  = tokenize(style);
     let score = 0;
 
     if (series) {
-      if (vTokens.some(t => series.includes(t) || t.includes(series))) score += 20;
-      if (tLower && (tLower.includes(series) || series.includes(tLower))) score += 15;
-      if (sLower && (sLower.includes(series) || series.includes(sLower))) score += 10;
+      if (vTrimTokens.includes(series)) score += 30;
+      else if (vTrimTokens.some(t => t === series || series === t)) score += 30;
+
+      for (const st of seriesTokens) {
+        if (vTrimTokens.includes(st)) score += 20;
+      }
+
+      if (tLower && tLower === series) score += 25;
+      else if (tLower && (tLower.includes(series) || series.includes(tLower))) score += 15;
+
+      if (sLower && sLower === series) score += 20;
+      else if (sLower && (sLower.includes(series) || series.includes(sLower))) score += 10;
     }
 
     if (style) {
-      if (vTokens.some(t => style.includes(t))) score += 8;
-      if (allNhtsaText.includes(style)) score += 5;
-    }
-
-    for (const ot of optTokens) {
-      if (ot.length < 2) continue;
-      if (vTokens.includes(ot)) score += 6;
-      if (tLower.includes(ot)) score += 4;
-    }
-
-    const driveHints: Record<string, string[]> = {
-      "4wd": ["4x4", "4wd", "awd", "4-wheel"],
-      "awd": ["awd", "4wd", "4x4"],
-      "2wd": ["2wd", "rwd", "fwd"],
-    };
-    const nhtsaDrive = nhtsa.driveType.toLowerCase();
-    for (const [key, synonyms] of Object.entries(driveHints)) {
-      if (synonyms.some(s => nhtsaDrive.includes(s))) {
-        if (style.includes(key) || series.includes(key) ||
-            synonyms.some(s => style.includes(s) || series.includes(s))) {
-          score += 5;
-        }
+      for (const st of styleTokens) {
+        if (vTrimTokens.includes(st)) score += 10;
+        if (tLower && tLower.includes(st)) score += 5;
       }
+    }
+
+    const is4wd = /4wd|4x4|4-wheel|awd/i.test(nhtsaDrive) ||
+                  vTrimTokens.some(t => ["4wd","4x4","awd"].includes(t));
+    const opt4wd = /4wd|4x4|awd|4-wheel/i.test(`${series} ${style}`);
+    const opt2wd = /2wd|rwd|fwd/i.test(`${series} ${style}`);
+    if (is4wd && opt4wd) score += 5;
+    if (is4wd && opt2wd) score -= 5;
+    if (!is4wd && opt4wd) score -= 3;
+
+    if (nhtsa.bodyClass) {
+      const bc = nhtsa.bodyClass.toLowerCase();
+      if (style.includes("crew") && (bc.includes("crew") || vehicleStr.toLowerCase().includes("crew"))) score += 5;
+      if (style.includes("supercrew") && vehicleStr.toLowerCase().includes("supercrew")) score += 8;
+      if (style.includes("supercab") && vehicleStr.toLowerCase().includes("supercab")) score += 8;
+      if (style.includes("regular") && vehicleStr.toLowerCase().includes("regular")) score += 5;
     }
 
     return { opt, score };
@@ -572,9 +628,20 @@ function matchBestTrim(vehicleStr: string, nhtsa: NhtsaInfo, options: any[], vin
 
   scored.sort((a, b) => b.score - a.score);
 
+  logger.info(
+    {
+      vin,
+      vTrimTokens,
+      nhtsaTrim: tLower || "(none)",
+      nhtsaSeries: sLower || "(none)",
+      scores: scored.map(s => ({ series: s.opt.series, score: s.score, avg: s.opt.adjusted_whole_avg })),
+    },
+    "BB worker: trim scoring results",
+  );
+
   if (scored[0].score > 0) {
     logger.info(
-      { vin, series: scored[0].opt.series, style: scored[0].opt.style, score: scored[0].score },
+      { vin, series: scored[0].opt.series, style: scored[0].opt.style, score: scored[0].score, avg: scored[0].opt.adjusted_whole_avg },
       "BB worker: trim matched by scoring",
     );
     return scored[0].opt;
