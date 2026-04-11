@@ -5,6 +5,7 @@ import { eq } from "drizzle-orm";
 import { isOwner } from "../lib/auth.js";
 import { logger } from "../lib/logger.js";
 import { getCacheState, refreshCache } from "../lib/inventoryCache.js";
+import { runBlackBookWorker, getBlackBookStatus } from "../lib/blackBookWorker.js";
 
 const router = Router();
 
@@ -81,9 +82,9 @@ router.get("/inventory", requireAccess, async (req, res) => {
     // Owners see everything
     if (role === "owner") return item;
 
-    // Strip owner-only fields (matrixPrice, cost) for all non-owners
+    // Strip owner-only fields for all non-owners
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    const { matrixPrice, cost, ...rest } = item;
+    const { matrixPrice, cost, bbAvgWholesale, ...rest } = item;
 
     // Guests also lose the price field
     if (role === "guest") return { ...rest, price: "" };
@@ -98,12 +99,34 @@ router.get("/inventory", requireAccess, async (req, res) => {
 // GET /cache-status — lightweight poll so the portal can detect updates
 router.get("/cache-status", requireAccess, (_req, res) => {
   const { lastUpdated, isRefreshing, data } = getCacheState();
+  const bb = getBlackBookStatus();
   res.set("Cache-Control", "no-store");
   res.json({
-    lastUpdated:  lastUpdated?.toISOString() ?? null,
+    lastUpdated:    lastUpdated?.toISOString() ?? null,
     isRefreshing,
-    count:        data.length,
+    count:          data.length,
+    bbRunning:      bb.running,
+    bbLastRun:      bb.lastRun,
+    bbCount:        bb.lastCount,
   });
+});
+
+// POST /refresh-blackbook — owner only, triggers manual Black Book refresh
+router.post("/refresh-blackbook", requireAccess, async (req, res) => {
+  const role = await getUserRole(req);
+  if (role !== "owner") {
+    res.status(403).json({ error: "Owner only" });
+    return;
+  }
+  const { running } = getBlackBookStatus();
+  if (running) {
+    res.json({ ok: true, message: "Already running", running: true });
+    return;
+  }
+  runBlackBookWorker().catch((err) =>
+    logger.error({ err }, "Manual BB refresh error"),
+  );
+  res.json({ ok: true, message: "Black Book refresh started", running: true });
 });
 
 // POST /refresh — webhook from Apps Script to trigger an immediate cache refresh

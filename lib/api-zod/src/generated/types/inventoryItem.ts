@@ -17,4 +17,5 @@ export interface InventoryItem {
   onlinePrice?: string;
   matrixPrice?: string | null;
   cost?: string | null;
+  bbAvgWholesale?: string | null;
 }

@@ -39,6 +39,7 @@ export const GetInventoryResponseItem = zod.object({
   onlinePrice: zod.string().optional(),
   matrixPrice: zod.string().nullish(),
   cost: zod.string().nullish(),
+  bbAvgWholesale: zod.string().nullish(),
 });
 export const GetInventoryResponse = zod.array(GetInventoryResponseItem);
 

@@ -3,17 +3,18 @@ import { eq } from "drizzle-orm";
 import { logger } from "./logger.js";
 
 export interface InventoryItem {
-  location:    string;
-  vehicle:     string;
-  vin:         string;
-  price:       string;
-  km:          string;
-  carfax:      string;
-  website:     string;
-  onlinePrice: string;
-  matrixPrice: string; // Column F — matrix list price (owner only)
-  cost:        string; // Column G — business acquisition cost (owner only)
-  hasPhotos:   boolean;
+  location:       string;
+  vehicle:        string;
+  vin:            string;
+  price:          string;
+  km:             string;
+  carfax:         string;
+  website:        string;
+  onlinePrice:    string;
+  matrixPrice:    string;   // Column F — matrix list price (owner only)
+  cost:           string;   // Column G — business acquisition cost (owner only)
+  hasPhotos:      boolean;
+  bbAvgWholesale?: string;  // KM-adjusted average wholesale from Canadian Black Book (owner only)
 }
 
 interface CacheState {
@@ -213,6 +214,12 @@ export async function refreshCache(): Promise<void> {
       return;
     }
 
+    // Preserve existing Black Book values — they survive inventory refreshes
+    const existingBb = new Map<string, string>();
+    for (const old of state.data) {
+      if (old.bbAvgWholesale) existingBb.set(old.vin.toUpperCase(), old.bbAvgWholesale);
+    }
+
     // Normalise each item — guard against differing field names / missing keys
     const items: InventoryItem[] = [];
     for (const r of raw) {
@@ -220,18 +227,20 @@ export async function refreshCache(): Promise<void> {
         logger.warn({ r }, "Skipping malformed inventory item");
         continue;
       }
+      const vin = String(r.vin ?? "").trim().toUpperCase();
       items.push({
-        location:    String(r.location    ?? "").trim(),
-        vehicle:     String(r.vehicle     ?? "").trim(),
-        vin:         String(r.vin         ?? "").trim().toUpperCase(),
-        price:       String(r.price       ?? "").trim(),
-        km:          String(r.km          ?? "").trim(),
-        carfax:      String(r.carfax      ?? "").trim(),
-        website:     String(r.website     ?? "").trim(),
-        onlinePrice: String(r.onlinePrice ?? "").trim(),
-        matrixPrice: String(r.matrixPrice ?? "").trim(), // Column F
-        cost:        String(r.cost        ?? "").trim(), // Column G
-        hasPhotos:   false, // filled in during Typesense enrichment
+        location:       String(r.location    ?? "").trim(),
+        vehicle:        String(r.vehicle     ?? "").trim(),
+        vin,
+        price:          String(r.price       ?? "").trim(),
+        km:             String(r.km          ?? "").trim(),
+        carfax:         String(r.carfax      ?? "").trim(),
+        website:        String(r.website     ?? "").trim(),
+        onlinePrice:    String(r.onlinePrice ?? "").trim(),
+        matrixPrice:    String(r.matrixPrice ?? "").trim(), // Column F
+        cost:           String(r.cost        ?? "").trim(), // Column G
+        hasPhotos:      false, // filled in during Typesense enrichment
+        bbAvgWholesale: existingBb.get(vin),              // preserved from previous run
       });
     }
 
@@ -275,6 +284,30 @@ export async function refreshCache(): Promise<void> {
     logger.error({ err }, "Inventory cache refresh failed — serving stale data");
   } finally {
     state.isRefreshing = false;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Black Book — apply values from worker run
+// ---------------------------------------------------------------------------
+
+export async function applyBlackBookValues(bbMap: Map<string, string>): Promise<void> {
+  if (bbMap.size === 0) return;
+  if (!state.lastUpdated) {
+    logger.warn("BB values received but inventory cache not yet loaded — skipping persist");
+    return;
+  }
+  let updated = 0;
+  for (const item of state.data) {
+    const val = bbMap.get(item.vin.toUpperCase());
+    if (val !== undefined) {
+      item.bbAvgWholesale = val;
+      updated++;
+    }
+  }
+  if (updated > 0) {
+    await persistToDb();
+    logger.info({ updated, total: state.data.length }, "Black Book values applied to inventory");
   }
 }
 

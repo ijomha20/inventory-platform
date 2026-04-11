@@ -313,6 +313,9 @@ components:
         cost:
           type: string
           nullable: true
+        bbAvgWholesale:
+          type: string
+          nullable: true
       required:
         - location
         - vehicle

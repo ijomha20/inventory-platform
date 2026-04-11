@@ -201,6 +201,12 @@ function VehicleCard({ item, showPacCost, showOwnerCols }: { item: any; showPacC
               <p className="font-semibold text-red-700">{formatPrice(item.cost)}</p>
             </div>
           )}
+          {showOwnerCols && item.bbAvgWholesale && (
+            <div>
+              <p className="text-gray-400 mb-0.5">Book Avg</p>
+              <p className="font-medium text-purple-700">{formatPrice(item.bbAvgWholesale)}</p>
+            </div>
+          )}
         </div>
         <div className="mt-2 grid grid-cols-2 gap-2 text-xs">
           {showPacCost && (
@@ -289,9 +295,25 @@ export default function Inventory() {
   const showOwnerCols = isOwner && viewMode === "owner";
   const showPacCost   = !isGuest && viewMode !== "customer";
 
+  const [bbClicked, setBbClicked] = useState(false);
+  const bbCooldownRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   const { data: inventory, isLoading, error, refetch: refetchInventory } = useGetInventory({ query: { retry: false } });
 
   const { data: cacheStatus } = useGetCacheStatus({ query: { refetchInterval: 60_000, retry: false } });
+
+  const bbRunning = (cacheStatus as any)?.bbRunning === true || bbClicked;
+
+  const triggerBbRefresh = useCallback(async () => {
+    if (bbRunning) return;
+    setBbClicked(true);
+    if (bbCooldownRef.current) clearTimeout(bbCooldownRef.current);
+    bbCooldownRef.current = setTimeout(() => setBbClicked(false), 90_000);
+    try {
+      const base = (import.meta.env.BASE_URL ?? "/").replace(/\/$/, "");
+      await fetch(`${base}/api/refresh-blackbook`, { method: "POST", credentials: "include" });
+    } catch (_) {}
+  }, [bbRunning]);
 
   useEffect(() => {
     if (!cacheStatus?.lastUpdated) return;
@@ -459,21 +481,37 @@ export default function Inventory() {
               {hasFilters && <span className="bg-white text-blue-600 text-xs font-bold w-4 h-4 rounded-full flex items-center justify-center">{activeChips.length}</span>}
             </button>
             {!isGuest && (
-              <div className="flex rounded overflow-hidden border border-gray-200 shrink-0">
-                {isOwner && (
-                  <button onClick={() => setViewMode("owner")}
-                    className={`px-2 py-1.5 text-[10px] font-medium leading-none transition-colors ${viewMode === "owner" ? "bg-gray-200 text-gray-700" : "bg-white text-gray-300 hover:text-gray-500"}`}>
-                    Own
+              <div className="flex items-center gap-2">
+                <div className="flex rounded overflow-hidden border border-gray-200 shrink-0">
+                  {isOwner && (
+                    <button onClick={() => setViewMode("owner")}
+                      className={`px-2 py-1.5 text-[10px] font-medium leading-none transition-colors ${viewMode === "owner" ? "bg-gray-200 text-gray-700" : "bg-white text-gray-300 hover:text-gray-500"}`}>
+                      Own
+                    </button>
+                  )}
+                  <button onClick={() => setViewMode("user")}
+                    className={`px-2 py-1.5 text-[10px] font-medium leading-none transition-colors ${viewMode === "user" ? "bg-gray-200 text-gray-700" : "bg-white text-gray-300 hover:text-gray-500"}`}>
+                    User
+                  </button>
+                  <button onClick={() => setViewMode("customer")}
+                    className={`px-2 py-1.5 text-[10px] font-medium leading-none transition-colors ${viewMode === "customer" ? "bg-gray-200 text-gray-700" : "bg-white text-gray-300 hover:text-gray-500"}`}>
+                    Cust
+                  </button>
+                </div>
+                {showOwnerCols && (
+                  <button
+                    onClick={triggerBbRefresh}
+                    disabled={bbRunning}
+                    title={bbRunning ? "Book value refresh in progress…" : "Refresh Canadian Black Book values"}
+                    className={`flex items-center gap-1 px-2.5 py-1.5 text-[10px] font-medium rounded-lg border transition-colors shrink-0 ${
+                      bbRunning
+                        ? "bg-purple-50 text-purple-400 border-purple-200 cursor-not-allowed"
+                        : "bg-white text-purple-600 border-purple-200 hover:bg-purple-50"
+                    }`}>
+                    <RefreshCw className={`w-3 h-3 ${bbRunning ? "animate-spin" : ""}`} />
+                    Book Avg
                   </button>
                 )}
-                <button onClick={() => setViewMode("user")}
-                  className={`px-2 py-1.5 text-[10px] font-medium leading-none transition-colors ${viewMode === "user" ? "bg-gray-200 text-gray-700" : "bg-white text-gray-300 hover:text-gray-500"}`}>
-                  User
-                </button>
-                <button onClick={() => setViewMode("customer")}
-                  className={`px-2 py-1.5 text-[10px] font-medium leading-none transition-colors ${viewMode === "customer" ? "bg-gray-200 text-gray-700" : "bg-white text-gray-300 hover:text-gray-500"}`}>
-                  Cust
-                </button>
               </div>
             )}
           </div>
@@ -543,6 +581,7 @@ export default function Inventory() {
               ))}
               {showOwnerCols && <div className="w-24 shrink-0 text-xs font-semibold uppercase tracking-wide text-gray-500">Matrix Price</div>}
               {showOwnerCols && <div className="w-24 shrink-0 text-xs font-semibold uppercase tracking-wide text-gray-500">Cost</div>}
+              {showOwnerCols && <div className="w-24 shrink-0 text-xs font-semibold uppercase tracking-wide text-purple-500">Book Avg</div>}
               {showPacCost && (
                 <div className="w-24 shrink-0">
                   <button onClick={() => handleSort("price")}
@@ -568,6 +607,7 @@ export default function Inventory() {
                   </div>
                   {showOwnerCols && <div className="w-24 shrink-0 text-sm text-gray-700">{formatPrice(item.matrixPrice ?? "")}</div>}
                   {showOwnerCols && <div className="w-24 shrink-0 text-sm font-medium text-red-700">{formatPrice(item.cost ?? "")}</div>}
+                  {showOwnerCols && <div className="w-24 shrink-0 text-sm font-medium text-purple-700">{formatPrice((item as any).bbAvgWholesale ?? "")}</div>}
                   {showPacCost && <div className="w-24 shrink-0 text-sm text-gray-700">{formatPrice(item.price)}</div>}
                   <div className="w-28 shrink-0 text-sm text-gray-700">{formatPrice(item.onlinePrice)}</div>
                   <div className="w-8 shrink-0 flex justify-center">

@@ -2,6 +2,7 @@ import app from "./app";
 import { logger } from "./lib/logger";
 import { startBackgroundRefresh } from "./lib/inventoryCache";
 import { scheduleCarfaxWorker } from "./lib/carfaxWorker";
+import { scheduleBlackBookWorker } from "./lib/blackBookWorker";
 
 const rawPort = process.env["PORT"];
 
@@ -28,6 +29,9 @@ startBackgroundRefresh().then(() => {
     scheduleCarfaxWorker();
   }
 
+  // Black Book worker runs in both environments — manual trigger must work from production
+  scheduleBlackBookWorker();
+
   app.listen(port, (err) => {
     if (err) {
       logger.error({ err }, "Error listening on port");
@@ -38,5 +42,6 @@ startBackgroundRefresh().then(() => {
 }).catch((err) => {
   logger.error({ err }, "Failed to initialise inventory cache — starting anyway");
   if (!isProduction) scheduleCarfaxWorker();
+  scheduleBlackBookWorker();
   app.listen(port, () => logger.info({ port }, "Server listening (cache init failed)"));
 });
