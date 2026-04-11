@@ -1,0 +1,31 @@
+[
+  {
+    "name": "CA_CSRF_TOKEN",
+    "value": "d777cc6cf5edd5359068d7f424185add5c5f67c18be7a801d7110c5f2cc43b20",
+    "domain": "admin.creditapp.ca",
+    "path": "/",
+    "expires": -1,
+    "size": 77,
+    "httpOnly": false,
+    "secure": true,
+    "session": true,
+    "priority": "Medium",
+    "sameParty": false,
+    "sourceScheme": "Secure"
+  },
+  {
+    "name": "appSession",
+    "value": "fb44fb532b76a417b63dd700e7f3cba5.EYzxPtOQ90vq-c5XsTbNal1BRjM4fcl5TVJk71YqQfg",
+    "domain": ".creditapp.ca",
+    "path": "/",
+    "expires": 1775918192.165558,
+    "size": 86,
+    "httpOnly": true,
+    "secure": true,
+    "session": false,
+    "sameSite": "Lax",
+    "priority": "Medium",
+    "sameParty": false,
+    "sourceScheme": "Secure"
+  }
+]
