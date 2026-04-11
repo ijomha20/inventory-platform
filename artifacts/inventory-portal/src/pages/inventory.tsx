@@ -197,7 +197,7 @@ function BbCardDetail({ bbValues }: { bbValues?: { xclean: number; clean: number
   );
 }
 
-function VehicleCard({ item, showPacCost, showOwnerCols }: { item: any; showPacCost: boolean; showOwnerCols: boolean }) {
+function VehicleCard({ item, showPacCost, showOwnerCols, showBb }: { item: any; showPacCost: boolean; showOwnerCols: boolean; showBb: boolean }) {
   return (
     <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
       <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
@@ -600,7 +600,7 @@ export default function Inventory() {
         sorted.length === 0 ? emptyState : (
           <div className="space-y-3">
             {sorted.map((item, i) => (
-              <VehicleCard key={`${item.vin}-${i}`} item={item} showPacCost={showPacCost} showOwnerCols={showOwnerCols} />
+              <VehicleCard key={`${item.vin}-${i}`} item={item} showPacCost={showPacCost} showOwnerCols={showOwnerCols} showBb={showBb} />
             ))}
           </div>
         )
@@ -624,7 +624,7 @@ export default function Inventory() {
               ))}
               {showOwnerCols && <div className="w-24 shrink-0 text-xs font-semibold uppercase tracking-wide text-gray-500">Matrix Price</div>}
               {showOwnerCols && <div className="w-24 shrink-0 text-xs font-semibold uppercase tracking-wide text-gray-500">Cost</div>}
-              {showOwnerCols && <div className="w-24 shrink-0 text-xs font-semibold uppercase tracking-wide text-purple-500">Book Avg</div>}
+              {showBb && <div className="w-24 shrink-0 text-xs font-semibold uppercase tracking-wide text-purple-500">Book Avg</div>}
               {showPacCost && (
                 <div className="w-24 shrink-0">
                   <button onClick={() => handleSort("price")}
@@ -650,7 +650,7 @@ export default function Inventory() {
                   </div>
                   {showOwnerCols && <div className="w-24 shrink-0 text-sm text-gray-700">{formatPrice(item.matrixPrice ?? "")}</div>}
                   {showOwnerCols && <div className="w-24 shrink-0 text-sm font-medium text-red-700">{formatPrice(item.cost ?? "")}</div>}
-                  {showOwnerCols && (
+                  {showBb && (
                     <BbTooltip bbValues={(item as any).bbValues}>
                       <div className="w-24 shrink-0 text-sm font-medium text-purple-700 cursor-default">{formatPrice((item as any).bbAvgWholesale ?? "")}</div>
                     </BbTooltip>
