@@ -1,0 +1,79 @@
+default-src 'self';media-src 'self' https://*.creditapp.ca;base-uri 'self';font-src 'self' https: data:;form-action 'self';frame-ancestors 'none';img-src 'self' blob: https: data:;object-src 'self' blob: https://*.creditapp.ca https://creditapp-production-documents.s3.ca-central-1.amazonaws.com;script-src 'self' https://*.creditapp.ca ;script-src-attr 'none';worker-src 'self' blob: https://*.creditapp.ca;style-src 'self' https: 'unsafe-inline';upgrade-insecure-requests;block-all-mixed-content;connect-src 'self' https://*.auth0.com https://*.amazonaws.com https://*.creditapp.ca https://example.com https://*.userpilot.io wss://*.userpilot.io https://heapanalytics.com *.auryc.com https://*.ingest.sentry.io;script-src-elem 'self' https://cdnjs.cloudflare.com/ajax/libs/pdf.js/ https://*.apollographql.com/_latest/embeddable-sandbox.umd.production.min.js https://*.apollographql.com/v2/embeddable-sandbox.umd.production.min.js https://cdn.jsdelivr.net/npm/monaco-editor@0.43.0/min/vs/ https://js.userpilot.io https://cdn.heapanalytics.com https://heapanalytics.com https://*.creditapp.ca;manifest-src 'self' https://*.cdn.apollographql.com/_latest/manifest.json https://*.creditapp.ca;frame-src https://*.embed.apollographql.com/ 'self' https: data: https://*.creditapp.ca
+content-type
+application/json
+cross-origin-opener-policy
+same-origin
+cross-origin-resource-policy
+same-site
+date
+Sat, 11 Apr 2026 05:33:48 GMT
+expect-ct
+max-age=0
+origin-agent-cluster
+?1
+referrer-policy
+same-origin
+set-cookie
+appSession=aa7fd6795c5fc9e5a41c749ccbf4bf95.HuUkRGEGsNBcJxsz5mZddDqzgDbQhpjD1Hsw_U0s0v4; Domain=.creditapp.ca; Path=/; Expires=Sat, 11 Apr 2026 13:33:48 GMT; HttpOnly; Secure; SameSite=Lax
+strict-transport-security
+max-age=31536000; includeSubDomains; preload
+vary
+origin, Accept-Encoding
+x-content-type-options
+nosniff
+x-dns-prefetch-control
+off
+x-download-options
+noopen
+x-frame-options
+SAMEORIGIN
+x-permitted-cross-domain-policies
+none
+x-xss-protection
+0
+:authority
+admin.creditapp.ca
+:method
+POST
+:path
+/api/graphql
+:scheme
+https
+accept
+application/graphql-response+json,application/json;q=0.9
+accept-encoding
+gzip, deflate, br, zstd
+accept-language
+en-US,en;q=0.9,pt;q=0.8
+baggage
+sentry-environment=production,sentry-release=10502,sentry-public_key=5fe9d42b573c4022bf5e5fb3fd7fcc13,sentry-trace_id=db557e4d3dfb4664a36ac901ddf712e4,sentry-org_id=4505120768327680,sentry-transaction=%2Fapplication%2F%5BapplicationId%5D%2Fcreditor%2F%5BcreditorId%5D%2F%5BinitialTab%5D,sentry-sampled=false,sentry-sample_rand=0.9677709549292314,sentry-sample_rate=0.01
+content-length
+30902
+content-type
+application/json
+cookie
+hubspotutk=a3bd3fab2d669380aa2095c72f9567b7; _gcl_au=1.1.1602650735.1770680295; __hstc=255751895.a3bd3fab2d669380aa2095c72f9567b7.1752958476549.1771017777224.1775778091127.24; __hssrc=1; appSession=aa7fd6795c5fc9e5a41c749ccbf4bf95.HuUkRGEGsNBcJxsz5mZddDqzgDbQhpjD1Hsw_U0s0v4; CA_CSRF_TOKEN=829ac762de01647116e0057254a996c63e20941720787ec9be39723080a17e88
+origin
+https://admin.creditapp.ca
+priority
+u=1, i
+referer
+https://admin.creditapp.ca/application/7f9dfedd-e352-4556-8daf-74c3e3a8343c/creditor/1d3168ae-b4ef-45da-9ff1-5fbdd3241bde/worksheet
+sec-ch-ua
+"Google Chrome";v="147", "Not.A/Brand";v="8", "Chromium";v="147"
+sec-ch-ua-mobile
+?0
+sec-ch-ua-platform
+"Windows"
+sec-fetch-dest
+empty
+sec-fetch-mode
+cors
+sec-fetch-site
+same-origin
+sentry-trace
+db557e4d3dfb4664a36ac901ddf712e4-9b96a18707efe3f3-0
+user-agent
+Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36
+x-creditapp-csrf-token
+829ac762de01647116e0057254a996c63e20941720787ec9be39723080a17e88
