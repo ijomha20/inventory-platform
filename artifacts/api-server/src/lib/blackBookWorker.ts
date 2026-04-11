@@ -525,6 +525,7 @@ async function runBlackBookBatch(): Promise<void> {
 
   // --- Process each VIN ---
   const bbMap = new Map<string, string>();
+  const bbDetailMap = new Map<string, { xclean: number; clean: number; avg: number; rough: number }>();
   let succeeded = 0;
   let skipped   = 0;
   let failed    = 0;
@@ -547,7 +548,6 @@ async function runBlackBookBatch(): Promise<void> {
         continue;
       }
 
-      // Validate structure
       if (!("adjusted_whole_avg" in options[0])) {
         logger.warn({ vin, keys: Object.keys(options[0]) }, "BB worker: unexpected option structure — skipping VIN");
         skipped++;
@@ -557,12 +557,30 @@ async function runBlackBookBatch(): Promise<void> {
       const best = matchBestTrim(vehicle, nhtsaTrim, nhtsaSeries, options);
       if (!best) { skipped++; continue; }
 
-      bbMap.set(vin.toUpperCase(), String(Math.round(best.adjusted_whole_avg)));
+      const vinKey = vin.toUpperCase();
+      bbMap.set(vinKey, String(Math.round(best.adjusted_whole_avg)));
+
+      // Second call with 0 KM to get unadjusted wholesale grades
+      await sleep(rand(1000, 2000));
+      try {
+        const unadjOptions = await callCbbEndpoint(appSession, csrfToken, vin, 0);
+        const unadjBest = matchBestTrim(vehicle, nhtsaTrim, nhtsaSeries, unadjOptions);
+        if (unadjBest) {
+          bbDetailMap.set(vinKey, {
+            xclean: Math.round(unadjBest.adjusted_whole_xclean ?? 0),
+            clean:  Math.round(unadjBest.adjusted_whole_clean ?? 0),
+            avg:    Math.round(unadjBest.adjusted_whole_avg ?? 0),
+            rough:  Math.round(unadjBest.adjusted_whole_rough ?? 0),
+          });
+        }
+      } catch (err) {
+        logger.warn({ vin, err: String(err) }, "BB worker: unadjusted lookup failed (non-fatal)");
+      }
+
       succeeded++;
 
       logger.info({ vin, series: best.series, avg: best.adjusted_whole_avg }, "BB worker: VIN processed");
 
-      // Polite delay between calls
       await sleep(rand(1500, 3000));
     } catch (err) {
       logger.warn({ vin, err: String(err) }, "BB worker: VIN lookup failed — skipping");
@@ -573,12 +591,15 @@ async function runBlackBookBatch(): Promise<void> {
   logger.info({ succeeded, skipped, failed, total: items.length }, "BB worker: batch complete");
 
   if (bbMap.size > 0) {
-    // Apply to in-memory cache (this env)
-    await applyBlackBookValues(bbMap);
+    await applyBlackBookValues(bbMap, bbDetailMap);
 
-    // Write to shared object storage so the OTHER environment (dev/prod) can read them
-    const valuesRecord: Record<string, string> = {};
-    for (const [vin, val] of bbMap) valuesRecord[vin] = val;
+    const valuesRecord: Record<string, any> = {};
+    for (const [vin, val] of bbMap) {
+      const detail = bbDetailMap.get(vin);
+      valuesRecord[vin] = detail
+        ? { avg: val, xclean: detail.xclean, clean: detail.clean, average: detail.avg, rough: detail.rough }
+        : val;
+    }
     await saveBbValuesToStore(valuesRecord);
     logger.info({ count: bbMap.size }, "BB worker: BB values saved to shared object storage");
   }

@@ -15,6 +15,12 @@ export interface InventoryItem {
   cost:           string;   // Column G — business acquisition cost (owner only)
   hasPhotos:      boolean;
   bbAvgWholesale?: string;  // KM-adjusted average wholesale from Canadian Black Book (owner only)
+  bbValues?: {
+    xclean: number;
+    clean:  number;
+    avg:    number;
+    rough:  number;
+  };
 }
 
 interface CacheState {
@@ -57,17 +63,21 @@ async function loadFromDb(): Promise<void> {
     logger.warn({ err }, "Could not load inventory from database — will fetch fresh from source");
   }
 
-  // Patch BB values from shared object storage (visible to all environments)
   try {
-    const { loadBbValuesFromStore } = await import("./bbObjectStore.js");
+    const { loadBbValuesFromStore, parseBbEntry } = await import("./bbObjectStore.js");
     const blob = await loadBbValuesFromStore();
     if (blob?.values) {
       let patched = 0;
       for (const item of state.data) {
-        const val = blob.values[item.vin.toUpperCase()];
-        if (val && !item.bbAvgWholesale) {
-          item.bbAvgWholesale = val;
-          patched++;
+        const raw = blob.values[item.vin.toUpperCase()];
+        if (!raw) continue;
+        const entry = parseBbEntry(raw);
+        if (entry) {
+          if (!item.bbAvgWholesale) { item.bbAvgWholesale = entry.avg; patched++; }
+          if (!item.bbValues && (entry.xclean || entry.clean || entry.average || entry.rough)) {
+            item.bbValues = { xclean: entry.xclean, clean: entry.clean, avg: entry.average, rough: entry.rough };
+            patched++;
+          }
         }
       }
       if (patched > 0) {
@@ -235,21 +245,25 @@ export async function refreshCache(): Promise<void> {
       return;
     }
 
-    // Preserve existing Black Book values — merge from:
-    //   1. Object storage  (shared between dev + prod — source of truth)
-    //   2. In-memory cache (current process — may have values from this env)
     const existingBb = new Map<string, string>();
-    // In-memory first (lower priority)
+    const existingBbDetail = new Map<string, { xclean: number; clean: number; avg: number; rough: number }>();
     for (const old of state.data) {
       if (old.bbAvgWholesale) existingBb.set(old.vin.toUpperCase(), old.bbAvgWholesale);
+      if (old.bbValues) existingBbDetail.set(old.vin.toUpperCase(), old.bbValues);
     }
-    // Object storage second (higher priority — may have values from the other env)
     try {
-      const { loadBbValuesFromStore } = await import("./bbObjectStore.js");
+      const { loadBbValuesFromStore, parseBbEntry } = await import("./bbObjectStore.js");
       const blob = await loadBbValuesFromStore();
       if (blob?.values) {
-        for (const [vin, val] of Object.entries(blob.values)) {
-          if (val) existingBb.set(vin.toUpperCase(), val);
+        for (const [vin, raw] of Object.entries(blob.values)) {
+          if (!raw) continue;
+          const entry = parseBbEntry(raw);
+          if (entry) {
+            existingBb.set(vin.toUpperCase(), entry.avg);
+            if (entry.xclean || entry.clean || entry.average || entry.rough) {
+              existingBbDetail.set(vin.toUpperCase(), { xclean: entry.xclean, clean: entry.clean, avg: entry.average, rough: entry.rough });
+            }
+          }
         }
         logger.info({ count: Object.keys(blob.values).length }, "Inventory: BB values loaded from shared object storage");
       }
@@ -276,8 +290,9 @@ export async function refreshCache(): Promise<void> {
         onlinePrice:    String(r.onlinePrice ?? "").trim(),
         matrixPrice:    String(r.matrixPrice ?? "").trim(), // Column F
         cost:           String(r.cost        ?? "").trim(), // Column G
-        hasPhotos:      false, // filled in during Typesense enrichment
-        bbAvgWholesale: existingBb.get(vin),              // preserved from previous run
+        hasPhotos:      false,
+        bbAvgWholesale: existingBb.get(vin),
+        bbValues:       existingBbDetail.get(vin),
       });
     }
 
@@ -328,7 +343,10 @@ export async function refreshCache(): Promise<void> {
 // Black Book — apply values from worker run
 // ---------------------------------------------------------------------------
 
-export async function applyBlackBookValues(bbMap: Map<string, string>): Promise<void> {
+export async function applyBlackBookValues(
+  bbMap: Map<string, string>,
+  bbDetailMap?: Map<string, { xclean: number; clean: number; avg: number; rough: number }>,
+): Promise<void> {
   if (bbMap.size === 0) return;
   if (!state.lastUpdated) {
     logger.warn("BB values received but inventory cache not yet loaded — skipping persist");
@@ -336,9 +354,12 @@ export async function applyBlackBookValues(bbMap: Map<string, string>): Promise<
   }
   let updated = 0;
   for (const item of state.data) {
-    const val = bbMap.get(item.vin.toUpperCase());
+    const vinKey = item.vin.toUpperCase();
+    const val = bbMap.get(vinKey);
     if (val !== undefined) {
       item.bbAvgWholesale = val;
+      const detail = bbDetailMap?.get(vinKey);
+      if (detail) item.bbValues = detail;
       updated++;
     }
   }

@@ -82,16 +82,34 @@ export async function saveSessionToStore(cookies: any[]): Promise<void> {
 // BB values map (VIN → bbAvgWholesale string — written by dev worker)
 // ---------------------------------------------------------------------------
 
+export interface BbValueEntry {
+  avg:     string;
+  xclean:  number;
+  clean:   number;
+  average: number;
+  rough:   number;
+}
+
 export interface BbValuesBlob {
-  values:    Record<string, string>;  // VIN (upper) → "$xx,xxx" formatted string
+  values:    Record<string, string | BbValueEntry>;
   updatedAt: string;
+}
+
+export function parseBbEntry(raw: string | BbValueEntry): BbValueEntry | null {
+  if (typeof raw === "object" && raw !== null && "avg" in raw) return raw as BbValueEntry;
+  if (typeof raw === "string") {
+    const cleaned = raw.replace(/[$,\s]/g, "");
+    const n = Number(cleaned);
+    if (!isNaN(n) && cleaned.length > 0) return { avg: raw, xclean: 0, clean: 0, average: n, rough: 0 };
+  }
+  return null;
 }
 
 export async function loadBbValuesFromStore(): Promise<BbValuesBlob | null> {
   return readJson<BbValuesBlob>("bb-values.json");
 }
 
-export async function saveBbValuesToStore(values: Record<string, string>): Promise<void> {
+export async function saveBbValuesToStore(values: Record<string, BbValueEntry>): Promise<void> {
   await writeJson("bb-values.json", {
     values,
     updatedAt: new Date().toISOString(),

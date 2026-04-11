@@ -84,7 +84,7 @@ router.get("/inventory", requireAccess, async (req, res) => {
 
     // Strip owner-only fields for all non-owners
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    const { matrixPrice, cost, bbAvgWholesale, ...rest } = item;
+    const { matrixPrice, cost, bbAvgWholesale, bbValues, ...rest } = item;
 
     // Guests also lose the price field
     if (role === "guest") return { ...rest, price: "" };
