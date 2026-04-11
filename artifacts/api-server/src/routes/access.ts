@@ -119,6 +119,14 @@ router.delete("/access/:email", requireOwner, async (req, res) => {
   await db.delete(accessListTable).where(eq(accessListTable.email, email));
   await writeAudit("remove", email, owner, existing?.role ?? null, null);
 
+  try {
+    const { pool } = await import("@workspace/db");
+    await pool.query(
+      `DELETE FROM "session" WHERE sess::text ILIKE $1`,
+      [`%${email}%`],
+    );
+  } catch (_err) {}
+
   res.json({ ok: true });
 });
 

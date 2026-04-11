@@ -110,8 +110,13 @@ export async function loadBbValuesFromStore(): Promise<BbValuesBlob | null> {
 }
 
 export async function saveBbValuesToStore(values: Record<string, BbValueEntry>): Promise<void> {
+  const existing = await loadBbValuesFromStore();
+  const merged = existing?.values ? { ...existing.values } : {};
+  for (const [vin, entry] of Object.entries(values)) {
+    merged[vin.toUpperCase()] = entry;
+  }
   await writeJson("bb-values.json", {
-    values,
+    values: merged,
     updatedAt: new Date().toISOString(),
   });
 }

@@ -66,6 +66,8 @@ var SET_EMAILS           = "NOTIFICATION_EMAILS";
 var SET_INTERVAL_HOURS   = "CHECK_INTERVAL_HOURS";
 var SET_LAST_SYNCED      = "LAST_SYNCED";
 var SET_LAST_SYNC_RESULT = "LAST_SYNC_RESULT";
+var SET_PORTAL_URL       = "PORTAL_URL";
+var SET_PORTAL_SECRET    = "PORTAL_REFRESH_SECRET";
 
 var PROP_STATE = "MATRIX_INVENTORY_STATE_V3";
 
@@ -74,6 +76,7 @@ function onOpen() {
     .createMenu("Inventory Sync")
     .addItem("Sync Now", "syncNow")
     .addItem("Fetch Website Links", "fetchWebsiteLinks")
+    .addItem("Refresh Portal Cache", "refreshPortalCache")
     .addSeparator()
     .addItem("First-Time Setup", "firstTimeSetup")
     .addItem("Setup Auto-Notifications", "setupNotificationTrigger")
@@ -88,6 +91,8 @@ function getSettings() {
   defaults[SET_SOURCE_TAB]     = "Sheet1";
   defaults[SET_EMAILS]         = "";
   defaults[SET_INTERVAL_HOURS] = "1";
+  defaults[SET_PORTAL_URL]     = "";
+  defaults[SET_PORTAL_SECRET]  = "";
   if (!sheet) return defaults;
   var data     = sheet.getDataRange().getValues();
   var settings = {};
@@ -127,6 +132,8 @@ function firstTimeSetup() {
       [SET_SOURCE_TAB,       "Sheet1", "Tab name inside the shared spreadsheet"],
       [SET_EMAILS,           "",       "Comma-separated email addresses for notifications"],
       [SET_INTERVAL_HOURS,   "1",      "How often auto-check runs (hours). Re-run Setup Auto-Notifications to apply."],
+      [SET_PORTAL_URL,       "",       "Portal API base URL (e.g. https://script-reviewer.replit.app/api)"],
+      [SET_PORTAL_SECRET,    "",       "Shared secret for portal /refresh webhook (must match REFRESH_SECRET in portal env)"],
       [SET_LAST_SYNCED,      "",       "Auto-written by script, do not edit"],
       [SET_LAST_SYNC_RESULT, "",       "Auto-written by script, do not edit"]
     ];
@@ -159,6 +166,41 @@ function firstTimeSetup() {
       "\n\nNext: Fill in the Settings tab, then run Setup Auto-Notifications.");
   } else {
     ui.alert("Setup already complete. All required tabs exist.");
+  }
+}
+
+function refreshPortalCache() {
+  var settings  = getSettings();
+  var portalUrl = (settings[SET_PORTAL_URL] || "").replace(/\/+$/, "");
+  var secret    = settings[SET_PORTAL_SECRET] || "";
+  var ui        = SpreadsheetApp.getUi();
+
+  if (!portalUrl) {
+    ui.alert("PORTAL_URL is not set.\n\nAdd the portal API base URL in the Settings tab\n(e.g. https://script-reviewer.replit.app/api).");
+    return;
+  }
+  if (!secret) {
+    ui.alert("PORTAL_REFRESH_SECRET is not set.\n\nAdd the shared secret in the Settings tab (must match REFRESH_SECRET in the portal environment).");
+    return;
+  }
+
+  try {
+    var resp = UrlFetchApp.fetch(portalUrl + "/refresh", {
+      method:             "post",
+      contentType:        "application/json",
+      headers:            { "x-refresh-secret": secret },
+      payload:            JSON.stringify({ source: "apps-script" }),
+      muteHttpExceptions: true
+    });
+    var code = resp.getResponseCode();
+    var body = resp.getContentText();
+    if (code === 200) {
+      ui.alert("Portal cache refresh triggered successfully.\n\n" + body);
+    } else {
+      ui.alert("Portal returned HTTP " + code + ":\n" + body);
+    }
+  } catch (err) {
+    ui.alert("Failed to reach portal:\n" + err.message);
   }
 }
 

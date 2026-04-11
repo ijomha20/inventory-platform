@@ -468,7 +468,13 @@ interface NhtsaInfo {
 
 const EMPTY_NHTSA: NhtsaInfo = { trim: "", series: "", bodyClass: "", driveType: "", displacement: "", cylinders: "", fuelType: "" };
 
+const nhtsaCache = new Map<string, NhtsaInfo>();
+
 async function decodeVinNhtsa(vin: string): Promise<NhtsaInfo> {
+  const key = vin.toUpperCase();
+  const cached = nhtsaCache.get(key);
+  if (cached) return cached;
+
   try {
     const resp = await fetch(
       `https://vpic.nhtsa.dot.gov/api/vehicles/decodevin/${vin}?format=json`,
@@ -479,7 +485,7 @@ async function decodeVinNhtsa(vin: string): Promise<NhtsaInfo> {
     const results: any[] = body?.Results ?? [];
     const get = (variable: string) =>
       (results.find((r) => r.Variable === variable)?.Value ?? "").toString().trim();
-    return {
+    const info: NhtsaInfo = {
       trim:         get("Trim"),
       series:       get("Series"),
       bodyClass:    get("Body Class"),
@@ -488,6 +494,8 @@ async function decodeVinNhtsa(vin: string): Promise<NhtsaInfo> {
       cylinders:    get("Engine Number of Cylinders"),
       fuelType:     get("Fuel Type - Primary"),
     };
+    nhtsaCache.set(key, info);
+    return info;
   } catch {
     return { ...EMPTY_NHTSA };
   }

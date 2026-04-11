@@ -34,7 +34,13 @@ app.use(express.urlencoded({ extended: true }));
 app.use(
   session({
     store: new PgSession({ pool, createTableIfMissing: false }),
-    secret: process.env["SESSION_SECRET"] ?? "dev-secret-change-me",
+    secret: (() => {
+      const s = process.env["SESSION_SECRET"];
+      if (!s && process.env["REPLIT_DEPLOYMENT"] === "1") {
+        throw new Error("SESSION_SECRET is required in production");
+      }
+      return s || "dev-secret-change-me";
+    })(),
     resave: false,
     saveUninitialized: false,
     cookie: {
