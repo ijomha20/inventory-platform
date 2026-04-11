@@ -1,0 +1,206 @@
+{
+    "data": {
+        "currentUserRole": {
+            "id": "c2aeee61-1d5e-5799-812a-dc20ed61b5b7",
+            "group": "RETAILER",
+            "roles": [
+                "RETAILER_USER"
+            ],
+            "userId": "c27ec8b0-7c42-4b4b-859a-54ee6c552b75",
+            "creditor": null,
+            "retailerUserStats": {
+                "id": "c27ec8b0-7c42-4b4b-859a-54ee6c552b75",
+                "loginCount": 381,
+                "firstLoginDate": "2023-04-15T16:42:42.732Z",
+                "lastLoginDate": "2026-04-11T04:56:48.514Z",
+                "submittedApplicationsCount": 134,
+                "lastSubmittedApplicationDate": "2025-11-21T20:43:09.095Z",
+                "lastFundedDealDate": "2025-11-10T21:37:39.460Z",
+                "fundedDealsCount": 16,
+                "submittedWorksheetsCount": 93,
+                "lastSubmittedWorksheetDate": "2025-11-24T22:36:22.187Z",
+                "browserExtensionSubmissionsCount": 0,
+                "firstSubmissionsPerCreditor": [
+                    {
+                        "id": "c27ec8b0-7c42-4b4b-859a-54ee6c552b75-1d3168ae-b4ef-45da-9ff1-5fbdd3241bde",
+                        "submittedAt": "2023-06-29T22:48:58.641Z",
+                        "creditorDisplayName": "Quantifi",
+                        "creditorShortName": "QLI",
+                        "__typename": "RetailerUserStatsFirstSubmissionPerCreditor"
+                    },
+                    {
+                        "id": "c27ec8b0-7c42-4b4b-859a-54ee6c552b75-4adecff2-04ea-4d00-80ff-3c3cfb919b6d",
+                        "submittedAt": "2025-03-18T00:06:32.060Z",
+                        "creditorDisplayName": "Eden Park",
+                        "creditorShortName": "EPI",
+                        "__typename": "RetailerUserStatsFirstSubmissionPerCreditor"
+                    },
+                    {
+                        "id": "c27ec8b0-7c42-4b4b-859a-54ee6c552b75-1a29dc05-adcc-43b2-8e0d-a0eca93d0701",
+                        "submittedAt": "2025-08-26T21:34:59.084Z",
+                        "creditorDisplayName": "The House Finance Corp",
+                        "creditorShortName": "THF",
+                        "__typename": "RetailerUserStatsFirstSubmissionPerCreditor"
+                    },
+                    {
+                        "id": "c27ec8b0-7c42-4b4b-859a-54ee6c552b75-eeffcffa-cd99-489e-8e07-bd1519447e7e",
+                        "submittedAt": "2025-09-12T18:45:05.366Z",
+                        "creditorDisplayName": "LendCare",
+                        "creditorShortName": "LCI",
+                        "__typename": "RetailerUserStatsFirstSubmissionPerCreditor"
+                    },
+                    {
+                        "id": "c27ec8b0-7c42-4b4b-859a-54ee6c552b75-fdd361ad-142d-42d4-9da2-a403e070fdb9",
+                        "submittedAt": "2025-11-21T20:43:09.095Z",
+                        "creditorDisplayName": "Rossi Financial Inc.",
+                        "creditorShortName": "ROS",
+                        "__typename": "RetailerUserStatsFirstSubmissionPerCreditor"
+                    }
+                ],
+                "firstRequestFromApplicantByApplicationSource": [],
+                "firstImportAppFromPdfAt": "2025-11-03T19:11:09.423Z",
+                "firstIdvRequestAt": null,
+                "firstNonIdvRequestAt": "2025-11-07T22:44:33.878Z",
+                "__typename": "RetailerUserStats"
+            },
+            "retailer": {
+                "id": "c24d9f6d-53d0-488e-b810-e265078cfb45",
+                "name": "Parkdale Motors",
+                "province": "AB",
+                "verticals": [
+                    "CONSUMER_AUTO"
+                ],
+                "logoUrl": null,
+                "iconUrl": null,
+                "products": [],
+                "productRequests": [],
+                "mappedCreditors": [
+                    {
+                        "id": "1d3168ae-b4ef-45da-9ff1-5fbdd3241bde",
+                        "mappedAt": "2023-01-24T16:53:40.768Z",
+                        "creditor": {
+                            "id": "1d3168ae-b4ef-45da-9ff1-5fbdd3241bde",
+                            "shortName": "QLI",
+                            "displayName": "Quantifi",
+                            "__typename": "Creditor"
+                        },
+                        "__typename": "MappedCreditor"
+                    },
+                    {
+                        "id": "1a29dc05-adcc-43b2-8e0d-a0eca93d0701",
+                        "mappedAt": "2025-08-26T13:52:48.323Z",
+                        "creditor": {
+                            "id": "1a29dc05-adcc-43b2-8e0d-a0eca93d0701",
+                            "shortName": "THF",
+                            "displayName": "The House Finance Corp",
+                            "__typename": "Creditor"
+                        },
+                        "__typename": "MappedCreditor"
+                    },
+                    {
+                        "id": "fdd361ad-142d-42d4-9da2-a403e070fdb9",
+                        "mappedAt": "2025-09-17T17:19:24.458Z",
+                        "creditor": {
+                            "id": "fdd361ad-142d-42d4-9da2-a403e070fdb9",
+                            "shortName": "ROS",
+                            "displayName": "Rossi Financial Inc.",
+                            "__typename": "Creditor"
+                        },
+                        "__typename": "MappedCreditor"
+                    }
+                ],
+                "enabledOrRequestedIntegrations": [
+                    {
+                        "id": "16aaaa68-2539-4c49-bfac-50ddb8d6c9c8",
+                        "name": "Flinks",
+                        "status": null,
+                        "__typename": "EnabledRetailerIntegration"
+                    },
+                    {
+                        "id": "f1ef5f41-8ec6-4eae-af6f-cd75d4a4474c",
+                        "name": "Canadian Black Book",
+                        "status": null,
+                        "__typename": "EnabledRetailerIntegration"
+                    },
+                    {
+                        "id": "eada934b-d1d4-40ef-bd2e-d8dca5f00d6c",
+                        "name": "Inverite",
+                        "status": null,
+                        "__typename": "EnabledRetailerIntegration"
+                    },
+                    {
+                        "id": "6cddf2ba-7a6b-11ee-b962-0242ac120002",
+                        "name": "Equifax",
+                        "status": "REQUESTED",
+                        "__typename": "EnabledRetailerIntegration"
+                    }
+                ],
+                "enabledProductStats": [],
+                "enabledIntegrationStats": [],
+                "__typename": "Retailer"
+            },
+            "retailerUser": {
+                "id": "c27ec8b0-7c42-4b4b-859a-54ee6c552b75",
+                "role": "RETAILER_USER",
+                "firstName": "Ismail",
+                "lastName": "Jomha",
+                "__typename": "RetailerUser"
+            },
+            "retailerGroup": null,
+            "retailerGroupUser": null,
+            "__typename": "UserRole"
+        },
+        "integrations": [
+            {
+                "id": "16aaaa68-2539-4c49-bfac-50ddb8d6c9c8",
+                "name": "Flinks",
+                "__typename": "IntegrationV2"
+            },
+            {
+                "id": "f1ef5f41-8ec6-4eae-af6f-cd75d4a4474c",
+                "name": "Canadian Black Book",
+                "__typename": "IntegrationV2"
+            },
+            {
+                "id": "eada934b-d1d4-40ef-bd2e-d8dca5f00d6c",
+                "name": "Inverite",
+                "__typename": "IntegrationV2"
+            },
+            {
+                "id": "c8b6e6ab-d059-4991-925f-77f33e807e7d",
+                "name": "EasyPear",
+                "__typename": "IntegrationV2"
+            },
+            {
+                "id": "6cddf2ba-7a6b-11ee-b962-0242ac120002",
+                "name": "Equifax",
+                "__typename": "IntegrationV2"
+            },
+            {
+                "id": "4ccc29d4-3c91-454a-bc91-395fb5e15017",
+                "name": "Cargurus",
+                "__typename": "IntegrationV2"
+            },
+            {
+                "id": "977fbb5b-933f-4c03-b8b2-b224192fceaa",
+                "name": "Tekion",
+                "__typename": "IntegrationV2"
+            },
+            {
+                "id": "41e174df-4e3d-407a-977f-158a05af100d",
+                "name": "Canada Drives",
+                "__typename": "IntegrationV2"
+            },
+            {
+                "id": "d3f56942-337e-4aee-86da-0d4fc1bad771",
+                "name": "Quantech",
+                "__typename": "IntegrationV2"
+            },
+            {
+                "id": "6ddf80ef-80e5-4ef0-8704-fc0a98ce0669",
+                "name": "Dealer Ai",
+                "__typename": "IntegrationV2"
+            }
+        ]
+    }
+}

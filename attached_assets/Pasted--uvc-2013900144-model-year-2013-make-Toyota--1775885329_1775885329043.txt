@@ -1,0 +1,134 @@
+[
+    {
+        "uvc": "2013900144",
+        "model_year": "2013",
+        "make": "Toyota",
+        "model": "Corolla",
+        "series": "CE",
+        "style": "4D Sedan 5sp",
+        "fuel_type": "Gas",
+        "add_deduct_list": [
+            {
+                "auto": "N",
+                "name": "Power Sunroof",
+                "xclean": 50,
+                "clean": 50,
+                "avg": 50,
+                "rough": 50
+            },
+            {
+                "auto": "N",
+                "name": "w/o Factory Air",
+                "xclean": -750,
+                "clean": -750,
+                "avg": -750,
+                "rough": -750
+            }
+        ],
+        "msrp": 15450,
+        "adjusted_whole_xclean": 0,
+        "adjusted_whole_clean": 5240,
+        "adjusted_whole_avg": 4130,
+        "adjusted_whole_rough": 3072,
+        "residuals": []
+    },
+    {
+        "uvc": "2013900038",
+        "model_year": "2013",
+        "make": "Toyota",
+        "model": "Corolla",
+        "series": "CE",
+        "style": "4D Sedan at",
+        "fuel_type": "Gas",
+        "add_deduct_list": [
+            {
+                "auto": "N",
+                "name": "Power Sunroof",
+                "xclean": 50,
+                "clean": 50,
+                "avg": 50,
+                "rough": 50
+            },
+            {
+                "auto": "N",
+                "name": "w/o Factory Air",
+                "xclean": -750,
+                "clean": -750,
+                "avg": -750,
+                "rough": -750
+            }
+        ],
+        "msrp": 16450,
+        "adjusted_whole_xclean": 0,
+        "adjusted_whole_clean": 6424,
+        "adjusted_whole_avg": 5263,
+        "adjusted_whole_rough": 4154,
+        "residuals": []
+    },
+    {
+        "uvc": "2013900048",
+        "model_year": "2013",
+        "make": "Toyota",
+        "model": "Corolla",
+        "series": "LE",
+        "style": "4D Sedan at",
+        "fuel_type": "Gas",
+        "add_deduct_list": [],
+        "msrp": 21170,
+        "adjusted_whole_xclean": 0,
+        "adjusted_whole_clean": 7145,
+        "adjusted_whole_avg": 5623,
+        "adjusted_whole_rough": 4154,
+        "residuals": []
+    },
+    {
+        "uvc": "2013900151",
+        "model_year": "2013",
+        "make": "Toyota",
+        "model": "Corolla",
+        "series": "S",
+        "style": "4D Sedan 5sp",
+        "fuel_type": "Gas",
+        "add_deduct_list": [
+            {
+                "auto": "N",
+                "name": "Power Sunroof",
+                "xclean": 50,
+                "clean": 50,
+                "avg": 50,
+                "rough": 50
+            }
+        ],
+        "msrp": 20605,
+        "adjusted_whole_xclean": 0,
+        "adjusted_whole_clean": 6888,
+        "adjusted_whole_avg": 5417,
+        "adjusted_whole_rough": 3999,
+        "residuals": []
+    },
+    {
+        "uvc": "2013900277",
+        "model_year": "2013",
+        "make": "Toyota",
+        "model": "Corolla",
+        "series": "S",
+        "style": "4D Sedan at",
+        "fuel_type": "Gas",
+        "add_deduct_list": [
+            {
+                "auto": "N",
+                "name": "Power Sunroof",
+                "xclean": 50,
+                "clean": 50,
+                "avg": 50,
+                "rough": 50
+            }
+        ],
+        "msrp": 21650,
+        "adjusted_whole_xclean": 0,
+        "adjusted_whole_clean": 7351,
+        "adjusted_whole_avg": 5778,
+        "adjusted_whole_rough": 4308,
+        "residuals": []
+    }
+]
