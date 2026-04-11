@@ -240,14 +240,14 @@ function VehicleCard({ item, showPacCost, showOwnerCols }: { item: any; showPacC
               <p className="font-semibold text-red-700">{formatPrice(item.cost)}</p>
             </div>
           )}
-          {showOwnerCols && item.bbAvgWholesale && (
+          {showBb && item.bbAvgWholesale && (
             <div>
               <p className="text-gray-400 mb-0.5">Book Avg</p>
               <p className="font-medium text-purple-700">{formatPrice(item.bbAvgWholesale)}</p>
             </div>
           )}
         </div>
-        {showOwnerCols && item.bbAvgWholesale && (
+        {showBb && item.bbAvgWholesale && (
           <BbCardDetail bbValues={item.bbValues} />
         )}
         <div className="mt-2 grid grid-cols-2 gap-2 text-xs">
@@ -336,6 +336,7 @@ export default function Inventory() {
   useEffect(() => { localStorage.setItem("viewMode", viewMode); }, [viewMode]);
   const showOwnerCols = isOwner && viewMode === "owner";
   const showPacCost   = !isGuest && viewMode !== "customer";
+  const showBb        = viewMode !== "customer";
 
   const [bbClicked, setBbClicked] = useState(false);
   const bbCooldownRef = useRef<ReturnType<typeof setTimeout> | null>(null);

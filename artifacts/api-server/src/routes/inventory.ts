@@ -79,17 +79,18 @@ router.get("/inventory", requireAccess, async (req, res) => {
   const { data } = getCacheState();
 
   const items = data.map((item) => {
-    // Owners see everything
     if (role === "owner") return item;
 
-    // Strip owner-only fields for all non-owners
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    const { matrixPrice, cost, bbAvgWholesale, bbValues, ...rest } = item;
+    const { matrixPrice, cost, ...rest } = item;
 
-    // Guests also lose the price field
-    if (role === "guest") return { ...rest, price: "" };
+    if (role === "viewer") return rest;
 
-    return rest;
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const { bbAvgWholesale, bbValues, ...guestRest } = rest;
+    if (role === "guest") return { ...guestRest, price: "" };
+
+    return guestRest;
   });
 
   res.set("Cache-Control", "no-store");
