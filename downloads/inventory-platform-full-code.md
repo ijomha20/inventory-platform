@@ -1,30 +1,30 @@
-# Inventory Platform — Complete Source Code
-## Current Platform (April 2026)
+# Inventory Platform — Complete Source Code Reference
+## Updated April 11, 2026
 
 ---
 
 ## TABLE OF CONTENTS
 
 1. [Platform Architecture](#architecture)
-2. [Google Apps Script — InventorySync_FINAL.gs](#apps-script)
-3. [Desktop Carfax Script — carfax-sync.js](#desktop-carfax)
+2. [Database Schema (Drizzle ORM)](#db-schema)
+3. [Google Apps Script — InventorySync_FINAL.gs](#apps-script)
 4. [API Server](#api-server)
-   - index.ts
-   - app.ts
+   - index.ts (entry point)
+   - app.ts (Express setup)
    - lib/logger.ts
-   - lib/auth.ts
-   - lib/inventoryCache.ts
-   - lib/emailService.ts
-   - lib/carfaxWorker.ts
-   - routes/index.ts
+   - lib/auth.ts (Google OAuth + Passport)
+   - lib/inventoryCache.ts (hourly refresh + BB overlay)
+   - lib/bbObjectStore.ts (GCS shared storage)
+   - lib/blackBookWorker.ts (CBB trim matching + nightly batch)
+   - lib/emailService.ts (Resend invitations)
+   - lib/carfaxWorker.ts (Puppeteer stealth automation)
+   - routes/index.ts (router aggregator)
    - routes/health.ts
    - routes/auth.ts
-   - routes/inventory.ts
-   - routes/access.ts
+   - routes/inventory.ts (inventory + BB + photos)
+   - routes/access.ts (user management + audit)
    - routes/carfax.ts
-   - routes/price-lookup.ts
-   - scripts/testCarfax.ts
-   - build.mjs
+   - build.mjs (esbuild production bundler)
    - package.json
 5. [Inventory Portal — React/Vite Frontend](#portal)
    - main.tsx
@@ -32,9 +32,11 @@
    - components/layout.tsx
    - pages/login.tsx
    - pages/denied.tsx
-   - pages/inventory.tsx
-   - pages/admin.tsx
-6. [Reusable Automation Template](#template)
+   - pages/inventory.tsx (table + cards + BB expanded rows + view modes)
+   - pages/admin.tsx (access list + audit log)
+   - vite.config.ts
+   - package.json
+6. [OpenAPI Specification](#openapi)
 
 ---
 
@@ -45,7 +47,7 @@ Google Sheet ("My List")
         │
         │  hourly Apps Script trigger
         ▼
-InventorySync_FINAL.gs   ◄──── reads shared Matrix spreadsheet
+ InventorySync_FINAL.gs   ◄──── reads shared Matrix spreadsheet
         │                       writes: Location, VIN, Vehicle,
         │                               KM, Price, Website link
         │
@@ -53,29 +55,47 @@ InventorySync_FINAL.gs   ◄──── reads shared Matrix spreadsheet
         ▼
 Replit API Server  (https://script-reviewer.replit.app/api)
         │
-        ├── Carfax Cloud Worker (nightly 2:15am)
+        ├── Black Book Worker (nightly 2:00am, dev only for browser login)
+        │     Puppeteer + stealth → admin.creditapp.ca (Auth0)
+        │     POST /api/cbb/find with VIN + KM
+        │     Trim matching: NHTSA VIN decode + token scoring
+        │     Results → GCS object storage (shared dev/prod)
+        │     Production reads from object storage only
+        │
+        ├── Carfax Cloud Worker (nightly 2:15am, dev only)
         │     Puppeteer + stealth → dealer.carfax.ca
         │     writes Carfax URL back to sheet via POST
         │
         ├── Inventory Cache (hourly refresh)
         │     fetches sheet data → enriches with Typesense prices
+        │     overlays BB values from GCS object storage
         │
         ├── Google OAuth (Passport.js)
         │     roles: Owner / Viewer / Guest
         │
         └── REST API
-              /api/inventory      — cached vehicle list
-              /api/vehicle-images — photo gallery (Typesense CDN)
-              /api/price-lookup   — live Typesense price by URL
-              /api/access         — user management (owner only)
-              /api/audit-log      — change history (owner only)
-              /api/carfax/test    — manual Carfax test (owner only)
+              /api/inventory          — cached vehicle list (role-filtered)
+              /api/cache-status       — poll for updates + BB status
+              /api/vehicle-images     — photo gallery (Typesense CDN)
+              /api/refresh-blackbook  — manual BB trigger (owner only)
+              /api/refresh            — webhook for Apps Script
+              /api/access             — user management (owner only)
+              /api/audit-log          — change history (owner only)
+              /api/carfax/test        — manual Carfax test (owner only)
+              /api/carfax/run-batch   — manual Carfax batch (owner only)
+              /api/carfax/batch-status — Carfax worker status
 
 Inventory Portal  (same domain, path /)
         React + Vite SPA
         ├── Login page  → Google OAuth
         ├── Inventory   → table/cards, search, filters, photos, links
+        │     Owner view mode toggle: Own / User / Cust
+        │     Click-to-expand BB wholesale grades (X-Clean/Clean/Average/Rough)
         └── Admin       → access list, role management, audit log
+
+GCS Object Storage (shared between dev and prod):
+        bb-session.json   — CreditApp cookies (written by dev browser login)
+        bb-values.json    — VIN → {avg, xclean, clean, average, rough} map
 
 Typesense (external, read-only)
         Host: v6eba1srpfohj89dp-1.a1.typesense.net
@@ -94,13 +114,88 @@ Environment Variables Required:
         CARFAX_EMAIL            — dealer.carfax.ca login email
         CARFAX_PASSWORD         — dealer.carfax.ca login password
         CARFAX_ENABLED          — "true" to activate nightly worker
+        CREDITAPP_EMAIL         — admin.creditapp.ca login email
+        CREDITAPP_PASSWORD      — admin.creditapp.ca login password
         RESEND_API_KEY          — Resend.com key for invitation emails
         PORT                    — assigned automatically by Replit
 ```
 
 ---
 
-## 2. GOOGLE APPS SCRIPT — InventorySync_FINAL.gs {#apps-script}
+## 2. DATABASE SCHEMA (Drizzle ORM) {#db-schema}
+
+Separate PostgreSQL databases for dev and production. Schema managed via Drizzle ORM.
+
+### lib/db/src/schema/access.ts
+
+```typescript
+import { pgTable, text, timestamp } from "drizzle-orm/pg-core";
+
+export const accessListTable = pgTable("access_list", {
+  email:   text("email").primaryKey(),
+  addedAt: timestamp("added_at").defaultNow().notNull(),
+  addedBy: text("added_by").notNull(),
+  role:    text("role").notNull().default("viewer"),
+});
+
+export type AccessListEntry = typeof accessListTable.$inferSelect;
+```
+
+### lib/db/src/schema/audit-log.ts
+
+```typescript
+import { pgTable, serial, text, timestamp } from "drizzle-orm/pg-core";
+
+export const auditLogTable = pgTable("audit_log", {
+  id:          serial("id").primaryKey(),
+  action:      text("action").notNull(),
+  targetEmail: text("target_email").notNull(),
+  changedBy:   text("changed_by").notNull(),
+  roleFrom:    text("role_from"),
+  roleTo:      text("role_to"),
+  timestamp:   timestamp("timestamp").defaultNow().notNull(),
+});
+
+export type AuditLogEntry = typeof auditLogTable.$inferSelect;
+```
+
+### lib/db/src/schema/bb-session.ts
+
+```typescript
+import { pgTable, text, timestamp } from "drizzle-orm/pg-core";
+
+export const bbSessionTable = pgTable("bb_session", {
+  id:        text("id").primaryKey().default("singleton"),
+  cookies:   text("cookies").notNull(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  lastRunAt: timestamp("last_run_at"),
+});
+```
+
+### lib/db/src/schema/inventory-cache.ts
+
+```typescript
+import { integer, jsonb, pgTable, timestamp } from "drizzle-orm/pg-core";
+
+export const inventoryCacheTable = pgTable("inventory_cache", {
+  id:          integer("id").primaryKey(),
+  data:        jsonb("data").notNull().default([]),
+  lastUpdated: timestamp("last_updated").notNull(),
+});
+```
+
+### lib/db/src/schema/index.ts
+
+```typescript
+export * from "./access";
+export * from "./audit-log";
+export * from "./bb-session";
+export * from "./inventory-cache";
+```
+
+---
+
+## 3. GOOGLE APPS SCRIPT — InventorySync_FINAL.gs {#apps-script}
 
 Paste this entire file into the Apps Script editor bound to "My List".
 Handles: hourly sync from the shared Matrix sheet, price-change notifications,
@@ -149,7 +244,6 @@ var COL_CARFAX        = 9;
 var COL_WEBSITE       = 10;
 var TOTAL_COLS        = 11;
 
-// Website link lookup (Typesense — same engine both sites use)
 var TYPESENSE_HOST = "v6eba1srpfohj89dp-1.a1.typesense.net";
 var DEALER_SITES = [
   {
@@ -429,7 +523,9 @@ function syncNow() {
   SpreadsheetApp.getUi().alert(msg);
 }
 
-function syncNowHeadless() { performSync(true); }
+function syncNowHeadless() {
+  performSync(true);
+}
 
 function setupNotificationTrigger() {
   var ui       = SpreadsheetApp.getUi();
@@ -571,8 +667,7 @@ function formatNumber(value) {
 }
 
 // =============================================================================
-// WEB APP BRIDGE (for Carfax cloud worker)
-// Deploy as Web App: Execute as Me, Who has access: Anyone
+// WEB APP BRIDGE (for Carfax automation script)
 // =============================================================================
 
 function doGet(e) {
@@ -600,7 +695,7 @@ function doPost(e) {
 }
 
 // =============================================================================
-// WEBSITE LINK LOOKUP (Column K) — Typesense direct query
+// WEBSITE LINK LOOKUP (Column K)
 // =============================================================================
 
 function searchTypesense(site, vin) {
@@ -612,52 +707,78 @@ function searchTypesense(site, vin) {
     "&num_typos=0"   +
     "&per_page=1"    +
     "&x-typesense-api-key=" + site.apiKey;
+
   try {
     var resp = UrlFetchApp.fetch(endpoint, { muteHttpExceptions: true });
     if (resp.getResponseCode() !== 200) return null;
     var body = JSON.parse(resp.getContentText());
     if (!body.hits || body.hits.length === 0) return null;
+
     var doc = body.hits[0].document;
     var docVin = doc.vin ? doc.vin.toString().trim().toUpperCase() : "";
     if (docVin !== vin.toUpperCase()) return null;
+
     if (doc.page_url) {
-      var p = doc.page_url.toString().trim().replace(/^\/+|\/+$/g, "");
-      return site.siteUrl + "/" + p + "/";
+      var path = doc.page_url.toString().trim().replace(/^\/+|\/+$/g, "");
+      return site.siteUrl + "/" + path + "/";
     }
+
     var id   = doc.id    || doc.post_id  || doc.vehicle_id || "";
     var slug = doc.slug  || doc.url_slug || "";
+
     if (!slug && doc.year && doc.make && doc.model) {
       slug = [doc.year, doc.make, doc.model, doc.trim || ""]
         .filter(function(part) { return String(part).trim() !== ""; })
-        .join(" ").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+        .join(" ")
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-+|-+$/g, "");
     }
+
     if (!id || !slug) return null;
     return site.siteUrl + "/inventory/" + slug + "/" + id + "/";
-  } catch (err) { return null; }
+  } catch (err) {
+    return null;
+  }
 }
 
 function fetchWebsiteLinks() {
   var ss    = SpreadsheetApp.getActiveSpreadsheet();
   var sheet = ss.getSheetByName(TAB_MY_LIST);
-  if (!sheet) { SpreadsheetApp.getUi().alert("My List tab not found."); return; }
+  if (!sheet) {
+    SpreadsheetApp.getUi().alert("My List tab not found.");
+    return;
+  }
+
   var data    = sheet.getDataRange().getValues();
   var found   = 0;
   var missing = 0;
   var skipped = 0;
+
   for (var i = 1; i < data.length; i++) {
     var vin      = data[i][COL_VIN]     ? data[i][COL_VIN].toString().trim()     : "";
     var existing = data[i][COL_WEBSITE] ? data[i][COL_WEBSITE].toString().trim() : "";
+
     if (!vin || vin.length < 6) { skipped++; continue; }
     if (existing && existing !== "NOT FOUND") { skipped++; continue; }
+
     var url = null;
     for (var s = 0; s < DEALER_SITES.length; s++) {
       url = searchTypesense(DEALER_SITES[s], vin);
       if (url) break;
     }
-    if (url) { sheet.getRange(i + 1, COL_WEBSITE + 1).setValue(url); found++; }
-    else     { sheet.getRange(i + 1, COL_WEBSITE + 1).setValue("NOT FOUND"); missing++; }
+
+    if (url) {
+      sheet.getRange(i + 1, COL_WEBSITE + 1).setValue(url);
+      found++;
+    } else {
+      sheet.getRange(i + 1, COL_WEBSITE + 1).setValue("NOT FOUND");
+      missing++;
+    }
+
     Utilities.sleep(400);
   }
+
   SpreadsheetApp.getUi().alert(
     "Website link lookup complete.\n\n" +
     "  Links found : " + found    + "\n" +
@@ -669,255 +790,56 @@ function fetchWebsiteLinks() {
 
 ---
 
-## 3. DESKTOP CARFAX SCRIPT — carfax-sync.js {#desktop-carfax}
-
-Original local automation (Playwright). Kept as reference — the cloud worker
-(Section 4 — carfaxWorker.ts) supersedes this for production use.
-
-```javascript
-// ================================================================
-// CARFAX AUTOMATION v1.3
-// Uses Playwright. Saves login session locally.
-// Run once:   node carfax-sync.js
-// Watch mode: node carfax-sync.js --watch
-// ================================================================
-
-var fs   = require('fs');
-var path = require('path');
-require('dotenv').config();
-var { chromium } = require('playwright');
-var fetch        = require('node-fetch');
-
-var SELECTORS = {
-  loginEmail:         ['input[type="email"]', 'input[name="email"]', 'input[id*="email"]', 'input[placeholder*="email"]'],
-  loginPassword:      ['input[type="password"]', 'input[name="password"]', 'input[id*="password"]'],
-  loginButton:        ['button[type="submit"]', 'button:has-text("Sign In")', 'button:has-text("Log In")', 'input[type="submit"]'],
-  vinSearchInput:     ['input.searchVehicle', 'input.searchbox.searchVehicle', 'input[placeholder*="VIN"]', 'input[type="search"]'],
-  globalArchiveToggle:['label#global-archive', 'input#globalreports'],
-  reportLink:         ['a.reportLink', 'a[href*="cfm/display_cfm"]', 'a[href*="vhr"]', 'a[href*="/cfm/"]']
-};
-
-var CARFAX_LOGIN_URL = 'https://dealer.carfax.ca/login';
-var CARFAX_VHR_URL   = 'https://dealer.carfax.ca/MyReports';
-var CARFAX_HOME      = 'https://dealer.carfax.ca/';
-var SESSION_DIR      = path.join(__dirname, '.carfax-session');
-
-function sleep(ms) { return new Promise(function(r) { setTimeout(r, ms); }); }
-function rand(min, max) { return Math.floor(Math.random() * (max - min + 1)) + min; }
-function humanDelay(base) { return sleep(base + rand(0, 1000)); }
-
-async function humanClick(page, element) {
-  var box = await element.boundingBox();
-  if (!box) { await element.click(); return; }
-  var targetX = box.x + rand(Math.floor(box.width * 0.2),  Math.floor(box.width * 0.8));
-  var targetY = box.y + rand(Math.floor(box.height * 0.2), Math.floor(box.height * 0.8));
-  var startX  = rand(100, 900);
-  var startY  = rand(100, 600);
-  var steps   = rand(12, 22);
-  for (var i = 0; i <= steps; i++) {
-    var t    = i / steps;
-    var ease = t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t;
-    await page.mouse.move(startX + (targetX - startX) * ease + rand(-3, 3), startY + (targetY - startY) * ease + rand(-3, 3));
-    await sleep(rand(8, 22));
-  }
-  await sleep(rand(60, 180));
-  await page.mouse.click(targetX, targetY);
-}
-
-async function humanType(element, text) {
-  await element.click();
-  await sleep(rand(80, 200));
-  for (var i = 0; i < text.length; i++) {
-    await element.type(text[i], { delay: 0 });
-    var d = rand(60, 160);
-    if (i > 0 && i % rand(4, 7) === 0) d += rand(150, 400);
-    await sleep(d);
-  }
-  await sleep(rand(200, 500));
-}
-
-async function humanScroll(page) {
-  var dir = Math.random() > 0.3 ? 1 : -1;
-  await page.mouse.wheel(0, rand(60, 220) * dir);
-  await sleep(rand(300, 700));
-  if (Math.random() > 0.6) { await page.mouse.wheel(0, -rand(20, 80)); await sleep(rand(200, 400)); }
-}
-
-async function getVinsToProcess() {
-  var url = process.env.WEBAPP_URL;
-  if (!url) throw new Error('WEBAPP_URL not set in .env file.');
-  var res  = await fetch(url);
-  var data = await res.json();
-  if (data.error) throw new Error('Web App error: ' + data.error);
-  return data;
-}
-
-async function writeCarfaxUrl(rowIndex, value) {
-  var url = process.env.WEBAPP_URL;
-  await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ rowIndex: rowIndex, value: value }) });
-}
-
-async function findElement(page, selectors, timeout) {
-  timeout = timeout || 5000;
-  for (var i = 0; i < selectors.length; i++) {
-    try { var el = await page.waitForSelector(selectors[i], { timeout: timeout }); if (el) return el; } catch (e) {}
-  }
-  return null;
-}
-
-async function findReportLink(page) {
-  for (var i = 0; i < SELECTORS.reportLink.length; i++) {
-    try {
-      var el = await page.$(SELECTORS.reportLink[i]);
-      if (el) {
-        var href = await el.getAttribute('href');
-        if (href) { if (href.startsWith('/')) href = 'https://dealer.carfax.ca' + href; return href; }
-      }
-    } catch (e) {}
-  }
-  try {
-    var links = await page.$$('a[href]');
-    for (var j = 0; j < links.length; j++) {
-      var h = await links[j].getAttribute('href');
-      if (h && (h.indexOf('cfm/display_cfm') !== -1 || h.indexOf('vhr.carfax.ca') !== -1 || h.indexOf('carfax.ca/cfm') !== -1)) {
-        if (h.startsWith('/')) h = 'https://dealer.carfax.ca' + h;
-        return h;
-      }
-    }
-  } catch (e) {}
-  return null;
-}
-
-async function isLoggedIn(page) {
-  await page.goto(CARFAX_HOME, { waitUntil: 'domcontentloaded', timeout: 20000 });
-  await humanDelay(1500);
-  var content = (await page.content()).toLowerCase();
-  return content.indexOf('sign out') !== -1 || content.indexOf('log out') !== -1 || content.indexOf('my account') !== -1 || content.indexOf('my carfax') !== -1;
-}
-
-async function loginToCarfax(page) {
-  var email    = process.env.CARFAX_EMAIL;
-  var password = process.env.CARFAX_PASSWORD;
-  if (!email || !password) {
-    console.log('ACTION REQUIRED: Log in manually in the browser window, then press Enter.');
-    await new Promise(function(resolve) { process.stdin.once('data', resolve); });
-    return;
-  }
-  await page.goto(CARFAX_LOGIN_URL, { waitUntil: 'domcontentloaded', timeout: 20000 });
-  await humanDelay(1500);
-  var emailInput = await findElement(page, SELECTORS.loginEmail, 8000);
-  if (emailInput) { await humanClick(page, emailInput); await humanType(emailInput, email); }
-  var passInput = await findElement(page, SELECTORS.loginPassword, 5000);
-  if (passInput) { await humanClick(page, passInput); await humanType(passInput, password); }
-  var loginBtn = await findElement(page, SELECTORS.loginButton, 5000);
-  if (loginBtn) { await humanClick(page, loginBtn); await humanDelay(3000); await page.waitForLoadState('domcontentloaded'); await humanDelay(2000); }
-}
-
-async function processVin(page, vin, screenshotDir) {
-  try {
-    await page.goto(CARFAX_VHR_URL, { waitUntil: 'domcontentloaded', timeout: 20000 });
-    await humanDelay(2000);
-    var currentUrl = page.url();
-    if (currentUrl.indexOf('login') !== -1) { await loginToCarfax(page); await page.goto(CARFAX_VHR_URL, { waitUntil: 'domcontentloaded', timeout: 20000 }); await humanDelay(2000); }
-    var searchInput = await findElement(page, SELECTORS.vinSearchInput, 8000);
-    if (!searchInput) { await page.screenshot({ path: path.join(screenshotDir, 'no-input-' + vin + '.png') }); return 'ERROR'; }
-    await humanClick(page, searchInput);
-    await page.keyboard.press('Control+A');
-    await sleep(rand(80, 180));
-    await page.keyboard.press('Backspace');
-    await sleep(rand(100, 250));
-    await humanType(searchInput, vin);
-    await humanScroll(page);
-    var found = false;
-    try { await page.waitForSelector('a.reportLink', { timeout: 10000 }); found = true; } catch (e) {}
-    if (found) { var reportLink = await findReportLink(page); if (reportLink) return reportLink; }
-    var archiveToggle = await findElement(page, SELECTORS.globalArchiveToggle, 3000);
-    if (!archiveToggle) { await page.screenshot({ path: path.join(screenshotDir, 'no-archive-toggle-' + vin + '.png') }); return 'NOT_FOUND'; }
-    await humanClick(page, archiveToggle);
-    var found2 = false;
-    try { await page.waitForSelector('a.reportLink', { timeout: 6000 }); found2 = true; } catch (e) {}
-    if (found2) { var reportLink2 = await findReportLink(page); if (reportLink2) return reportLink2; }
-    return 'NOT_FOUND';
-  } catch (err) { await page.screenshot({ path: path.join(screenshotDir, 'error-' + vin + '.png') }).catch(function() {}); return 'ERROR'; }
-}
-
-async function launchBrowser() {
-  var context = await chromium.launchPersistentContext(SESSION_DIR, {
-    headless: false,
-    args: ['--disable-blink-features=AutomationControlled', '--no-first-run', '--disable-infobars'],
-    ignoreDefaultArgs: ['--enable-automation'],
-    userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-    viewport: { width: 1280, height: 900 }
-  });
-  var page = await context.newPage();
-  await page.addInitScript(function() { Object.defineProperty(navigator, 'webdriver', { get: function() { return undefined; } }); window.chrome = { runtime: {} }; });
-  return { context: context, page: page };
-}
-
-async function runBatch(page, screenshotDir) {
-  var toProcess;
-  try { toProcess = await getVinsToProcess(); } catch (err) { console.log('ERROR reading spreadsheet: ' + err.message); return; }
-  if (toProcess.length === 0) { console.log('Nothing to process.'); return; }
-  var delay   = parseInt(process.env.DELAY_BETWEEN_VINS || '3000', 10);
-  var results = { found: 0, notFound: 0, errors: 0 };
-  for (var i = 0; i < toProcess.length; i++) {
-    var item   = toProcess[i];
-    var result = await processVin(page, item.vin, screenshotDir);
-    if (result === 'NOT_FOUND') { results.notFound++; await writeCarfaxUrl(item.rowIndex, 'NOT FOUND').catch(function() {}); }
-    else if (result === 'ERROR') { results.errors++; }
-    else { results.found++; await writeCarfaxUrl(item.rowIndex, result).catch(function() {}); }
-    if (i < toProcess.length - 1) await humanDelay(delay);
-  }
-  console.log('Batch done — Found: ' + results.found + '  Not found: ' + results.notFound + '  Errors: ' + results.errors);
-}
-
-async function main() {
-  var watchMode    = process.argv.indexOf('--watch') !== -1;
-  var intervalMins = parseInt(process.env.WATCH_INTERVAL || '5', 10);
-  var screenshotDir = path.join(__dirname, 'screenshots');
-  if (!fs.existsSync(screenshotDir)) fs.mkdirSync(screenshotDir);
-  var browser = await launchBrowser();
-  var context  = browser.context;
-  var page     = browser.page;
-  var loggedIn = await isLoggedIn(page);
-  if (!loggedIn) { await loginToCarfax(page); }
-  await runBatch(page, screenshotDir);
-  if (!watchMode) { await context.close(); return; }
-  while (true) { await sleep(intervalMins * 60 * 1000); await runBatch(page, screenshotDir); }
-}
-
-main().catch(function(err) { console.log('FATAL ERROR: ' + err.message); process.exit(1); });
-```
-
----
-
 ## 4. API SERVER {#api-server}
 
-### artifacts/api-server/src/index.ts
+### index.ts
 
 ```typescript
 import app from "./app";
 import { logger } from "./lib/logger";
 import { startBackgroundRefresh } from "./lib/inventoryCache";
 import { scheduleCarfaxWorker } from "./lib/carfaxWorker";
+import { scheduleBlackBookWorker } from "./lib/blackBookWorker";
 
 const rawPort = process.env["PORT"];
-if (!rawPort) throw new Error("PORT environment variable is required but was not provided.");
+
+if (!rawPort) {
+  throw new Error("PORT environment variable is required but was not provided.");
+}
+
 const port = Number(rawPort);
-if (Number.isNaN(port) || port <= 0) throw new Error(`Invalid PORT value: "${rawPort}"`);
 
-startBackgroundRefresh();
-scheduleCarfaxWorker();
+if (Number.isNaN(port) || port <= 0) {
+  throw new Error(`Invalid PORT value: "${rawPort}"`);
+}
 
-app.listen(port, (err) => {
-  if (err) { logger.error({ err }, "Error listening on port"); process.exit(1); }
-  logger.info({ port }, "Server listening");
+const isProduction = process.env["REPLIT_DEPLOYMENT"] === "1";
+
+startBackgroundRefresh().then(() => {
+  if (isProduction) {
+    logger.info("Production deployment — Carfax worker disabled");
+  } else {
+    scheduleCarfaxWorker();
+  }
+
+  scheduleBlackBookWorker();
+
+  app.listen(port, (err) => {
+    if (err) {
+      logger.error({ err }, "Error listening on port");
+      process.exit(1);
+    }
+    logger.info({ port }, "Server listening");
+  });
+}).catch((err) => {
+  logger.error({ err }, "Failed to initialise inventory cache — starting anyway");
+  if (!isProduction) scheduleCarfaxWorker();
+  scheduleBlackBookWorker();
+  app.listen(port, () => logger.info({ port }, "Server listening (cache init failed)"));
 });
 ```
 
----
-
-### artifacts/api-server/src/app.ts
+### app.ts
 
 ```typescript
 import express, { type Express } from "express";
@@ -937,28 +859,32 @@ const PgSession = connectPg(session);
 
 app.set("trust proxy", 1);
 
-app.use(pinoHttp({
-  logger,
-  serializers: {
-    req(req) { return { id: req.id, method: req.method, url: req.url?.split("?")[0] }; },
-    res(res) { return { statusCode: res.statusCode }; },
-  },
-}));
+app.use(
+  pinoHttp({
+    logger,
+    serializers: {
+      req(req) { return { id: req.id, method: req.method, url: req.url?.split("?")[0] }; },
+      res(res) { return { statusCode: res.statusCode }; },
+    },
+  })
+);
 
 app.use(cors({ origin: true, credentials: true }));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-app.use(session({
-  store: new PgSession({ pool, createTableIfMissing: false }),
-  secret: process.env["SESSION_SECRET"] ?? "dev-secret-change-me",
-  resave: false,
-  saveUninitialized: false,
-  cookie: {
-    secure: process.env["NODE_ENV"] === "production",
-    maxAge: 7 * 24 * 60 * 60 * 1000,
-  },
-}));
+app.use(
+  session({
+    store: new PgSession({ pool, createTableIfMissing: false }),
+    secret: process.env["SESSION_SECRET"] ?? "dev-secret-change-me",
+    resave: false,
+    saveUninitialized: false,
+    cookie: {
+      secure: process.env["NODE_ENV"] === "production",
+      maxAge: 7 * 24 * 60 * 60 * 1000,
+    },
+  })
+);
 
 configurePassport();
 app.use(passport.initialize());
@@ -979,9 +905,7 @@ app.use("/api", router);
 export default app;
 ```
 
----
-
-### artifacts/api-server/src/lib/logger.ts
+### lib/logger.ts
 
 ```typescript
 import pino from "pino";
@@ -990,23 +914,30 @@ const isProduction = process.env.NODE_ENV === "production";
 
 export const logger = pino({
   level: process.env.LOG_LEVEL ?? "info",
-  redact: ["req.headers.authorization", "req.headers.cookie", "res.headers['set-cookie']"],
-  ...(isProduction ? {} : {
-    transport: { target: "pino-pretty", options: { colorize: true } },
-  }),
+  redact: [
+    "req.headers.authorization",
+    "req.headers.cookie",
+    "res.headers['set-cookie']",
+  ],
+  ...(isProduction
+    ? {}
+    : {
+        transport: {
+          target: "pino-pretty",
+          options: { colorize: true },
+        },
+      }),
 });
 ```
 
----
-
-### artifacts/api-server/src/lib/auth.ts
+### lib/auth.ts
 
 ```typescript
 import passport from "passport";
 import { Strategy as GoogleStrategy } from "passport-google-oauth20";
 import { logger } from "./logger.js";
 
-const OWNER_EMAIL   = (process.env["OWNER_EMAIL"] ?? "").toLowerCase().trim();
+const OWNER_EMAIL = (process.env["OWNER_EMAIL"] ?? "").toLowerCase().trim();
 const CLIENT_ID     = process.env["GOOGLE_CLIENT_ID"]     ?? "";
 const CLIENT_SECRET = process.env["GOOGLE_CLIENT_SECRET"] ?? "";
 
@@ -1025,36 +956,54 @@ export function configurePassport() {
     logger.warn("GOOGLE_CLIENT_ID or GOOGLE_CLIENT_SECRET not set — Google OAuth disabled");
     return;
   }
-  passport.use(new GoogleStrategy(
-    { clientID: CLIENT_ID, clientSecret: CLIENT_SECRET, callbackURL: getCallbackUrl() },
-    (_accessToken, _refreshToken, profile, done) => {
-      const email   = profile.emails?.[0]?.value ?? "";
-      const name    = profile.displayName ?? "";
-      const picture = profile.photos?.[0]?.value ?? "";
-      done(null, { email, name, picture });
-    }
-  ));
+
+  passport.use(
+    new GoogleStrategy(
+      {
+        clientID:     CLIENT_ID,
+        clientSecret: CLIENT_SECRET,
+        callbackURL:  getCallbackUrl(),
+      },
+      (_accessToken, _refreshToken, profile, done) => {
+        const email   = profile.emails?.[0]?.value ?? "";
+        const name    = profile.displayName ?? "";
+        const picture = profile.photos?.[0]?.value ?? "";
+        done(null, { email, name, picture });
+      }
+    )
+  );
+
   passport.serializeUser((user, done) => done(null, user));
   passport.deserializeUser((user, done) => done(null, user as Express.User));
 }
 ```
 
----
-
-### artifacts/api-server/src/lib/inventoryCache.ts
+### lib/inventoryCache.ts
 
 ```typescript
+import { db, inventoryCacheTable } from "@workspace/db";
+import { eq } from "drizzle-orm";
 import { logger } from "./logger.js";
 
 export interface InventoryItem {
-  location:    string;
-  vehicle:     string;
-  vin:         string;
-  price:       string;
-  km:          string;
-  carfax:      string;
-  website:     string;
-  onlinePrice: string;
+  location:       string;
+  vehicle:        string;
+  vin:            string;
+  price:          string;
+  km:             string;
+  carfax:         string;
+  website:        string;
+  onlinePrice:    string;
+  matrixPrice:    string;
+  cost:           string;
+  hasPhotos:      boolean;
+  bbAvgWholesale?: string;
+  bbValues?: {
+    xclean: number;
+    clean:  number;
+    avg:    number;
+    rough:  number;
+  };
 }
 
 interface CacheState {
@@ -1063,90 +1012,282 @@ interface CacheState {
   isRefreshing: boolean;
 }
 
-const state: CacheState = { data: [], lastUpdated: null, isRefreshing: false };
+const state: CacheState = {
+  data:         [],
+  lastUpdated:  null,
+  isRefreshing: false,
+};
 
-export function getCacheState(): CacheState { return state; }
+export function getCacheState(): CacheState {
+  return state;
+}
+
+async function loadFromDb(): Promise<void> {
+  try {
+    const rows = await db
+      .select()
+      .from(inventoryCacheTable)
+      .where(eq(inventoryCacheTable.id, 1));
+
+    if (rows.length > 0) {
+      const row = rows[0];
+      const items = row.data as InventoryItem[];
+      if (Array.isArray(items) && items.length > 0) {
+        state.data        = items;
+        state.lastUpdated = row.lastUpdated;
+        logger.info({ count: state.data.length }, "Inventory loaded from database — serving immediately");
+      }
+    }
+  } catch (err) {
+    logger.warn({ err }, "Could not load inventory from database — will fetch fresh from source");
+  }
+
+  try {
+    const { loadBbValuesFromStore, parseBbEntry } = await import("./bbObjectStore.js");
+    const blob = await loadBbValuesFromStore();
+    if (blob?.values) {
+      let patched = 0;
+      for (const item of state.data) {
+        const raw = blob.values[item.vin.toUpperCase()];
+        if (!raw) continue;
+        const entry = parseBbEntry(raw);
+        if (entry) {
+          if (!item.bbAvgWholesale) { item.bbAvgWholesale = entry.avg; patched++; }
+          if (!item.bbValues && (entry.xclean || entry.clean || entry.average || entry.rough)) {
+            item.bbValues = { xclean: entry.xclean, clean: entry.clean, avg: entry.average, rough: entry.rough };
+            patched++;
+          }
+        }
+      }
+      if (patched > 0) {
+        logger.info({ patched }, "Inventory: BB values patched from shared object storage at startup");
+      }
+    }
+  } catch (err: any) {
+    logger.warn({ err: err.message }, "Inventory: could not load BB values from object storage at startup (non-fatal)");
+  }
+}
+
+async function persistToDb(): Promise<void> {
+  if (!state.lastUpdated) return;
+  try {
+    await db
+      .insert(inventoryCacheTable)
+      .values({ id: 1, data: state.data, lastUpdated: state.lastUpdated })
+      .onConflictDoUpdate({
+        target: inventoryCacheTable.id,
+        set: { data: state.data, lastUpdated: state.lastUpdated },
+      });
+    logger.info({ count: state.data.length }, "Inventory persisted to database");
+  } catch (err) {
+    logger.warn({ err }, "Could not persist inventory to database (non-fatal)");
+  }
+}
 
 const TYPESENSE_HOST = "v6eba1srpfohj89dp-1.a1.typesense.net";
 
-const PRICE_COLLECTIONS = [
+const TYPESENSE_COLLECTIONS = [
   {
     collection: "37042ac7ece3a217b1a41d6f54ba6855",
     apiKey:     "bENlSmdIaVJWNGhTcjBnZ3BaN2JxajBINWcvdzREZ21hQnFMZWM3OWJBRT1oZmUweyJmaWx0ZXJfYnkiOiJzdGF0dXM6W0luc3RvY2tdICYmIHZpc2liaWxpdHk6PjAgJiYgZGVsZXRlZF9hdDo9MCJ9",
+    siteUrl:    "https://www.parkdalemotors.ca",
   },
   {
     collection: "cebacbca97920d818d57c6f0526d7413",
     apiKey:     "ZWoxa3NxVmJLWFBOK2dWcUFBM1V0aTJyb09wUDhFZ0R5Vnc1blc2RW9Kdz1oZmUweyJmaWx0ZXJfYnkiOiJzdGF0dXM6W0luc3RvY2ssIFNvbGRdICYmIHZpc2liaWxpdHk6PjAgJiYgZGVsZXRlZF9hdDo9MCJ9",
+    siteUrl:    "https://www.matrixmotorsyeg.ca",
   },
 ];
 
-async function fetchOnlinePricesFromTypesense(): Promise<Map<string, string>> {
-  const priceMap = new Map<string, string>();
-  for (const col of PRICE_COLLECTIONS) {
+const PRICE_COLLECTIONS = TYPESENSE_COLLECTIONS;
+
+function extractWebsiteUrl(doc: any, siteUrl: string): string | null {
+  if (doc.page_url) {
+    const path = doc.page_url.toString().trim().replace(/^\/+|\/+$/g, "");
+    return `${siteUrl}/${path}/`;
+  }
+  const id   = doc.id || doc.post_id || doc.vehicle_id || "";
+  let   slug = doc.slug || doc.url_slug || "";
+  if (!slug && doc.year && doc.make && doc.model) {
+    slug = [doc.year, doc.make, doc.model, doc.trim || ""]
+      .filter((p: any) => String(p).trim() !== "")
+      .join(" ").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+  }
+  if (!id || !slug) return null;
+  return `${siteUrl}/inventory/${slug}/${id}/`;
+}
+
+interface TypesenseMaps {
+  prices:  Map<string, string>;
+  website: Map<string, string>;
+  photos:  Set<string>;
+}
+
+async function fetchFromTypesense(): Promise<TypesenseMaps> {
+  const prices  = new Map<string, string>();
+  const website = new Map<string, string>();
+  const photos  = new Set<string>();
+
+  for (const col of TYPESENSE_COLLECTIONS) {
     try {
       let page = 1;
       while (true) {
         const url =
           `https://${TYPESENSE_HOST}/collections/${col.collection}/documents/search` +
           `?q=*&per_page=250&page=${page}&x-typesense-api-key=${col.apiKey}`;
+
         const resp = await fetch(url, { signal: AbortSignal.timeout(10_000) });
         if (!resp.ok) break;
+
         const body: any = await resp.json();
         const hits: any[] = body.hits ?? [];
         if (hits.length === 0) break;
+
         for (const hit of hits) {
           const doc = hit.document ?? {};
           const vin = (doc.vin ?? "").toString().trim().toUpperCase();
-          if (!vin || priceMap.has(vin)) continue;
-          const specialOn    = Number(doc.special_price_on) === 1;
-          const specialPrice = parseFloat(doc.special_price);
-          const regularPrice = parseFloat(doc.price);
-          const raw          = specialOn && specialPrice > 0 ? specialPrice : regularPrice;
-          if (!isNaN(raw) && raw > 0) priceMap.set(vin, String(Math.round(raw)));
+          if (!vin) continue;
+
+          if (!prices.has(vin)) {
+            const specialOn    = Number(doc.special_price_on) === 1;
+            const specialPrice = parseFloat(doc.special_price);
+            const regularPrice = parseFloat(doc.price);
+            const raw          = specialOn && specialPrice > 0 ? specialPrice : regularPrice;
+            if (!isNaN(raw) && raw > 0) prices.set(vin, String(Math.round(raw)));
+          }
+
+          if (!website.has(vin)) {
+            const resolved = extractWebsiteUrl(doc, col.siteUrl);
+            if (resolved) website.set(vin, resolved);
+          }
+
+          if (doc.image_urls && doc.image_urls.toString().trim()) {
+            photos.add(vin);
+          }
         }
+
         if (hits.length < 250) break;
         page++;
       }
     } catch (err) {
-      logger.warn({ err, collection: col.collection }, "Typesense price fetch failed for collection");
+      logger.warn({ err, collection: col.collection }, "Typesense fetch failed for collection");
     }
   }
-  return priceMap;
+
+  return { prices, website, photos };
+}
+
+async function fetchOnlinePricesFromTypesense(): Promise<Map<string, string>> {
+  return (await fetchFromTypesense()).prices;
 }
 
 export async function refreshCache(): Promise<void> {
   if (state.isRefreshing) return;
   state.isRefreshing = true;
+
   try {
     const dataUrl = process.env["INVENTORY_DATA_URL"]?.trim();
-    if (!dataUrl) { logger.warn("INVENTORY_DATA_URL is not set"); return; }
-    const response = await fetch(dataUrl, { signal: AbortSignal.timeout(15_000) });
+    if (!dataUrl) {
+      logger.warn("INVENTORY_DATA_URL is not set — cache not populated");
+      return;
+    }
+
+    const response = await fetch(dataUrl, { signal: AbortSignal.timeout(45_000) });
     if (!response.ok) throw new Error(`Upstream HTTP ${response.status}`);
-    const raw: any[] = await response.json();
-    const items: InventoryItem[] = raw.map((r) => ({
-      location:    String(r.location    ?? "").trim(),
-      vehicle:     String(r.vehicle     ?? "").trim(),
-      vin:         String(r.vin         ?? "").trim().toUpperCase(),
-      price:       String(r.price       ?? "").trim(),
-      km:          String(r.km          ?? "").trim(),
-      carfax:      String(r.carfax      ?? "").trim(),
-      website:     String(r.website     ?? "").trim(),
-      onlinePrice: String(r.onlinePrice ?? "").trim(),
-    }));
-    const needPrice = items.filter((item) => !item.onlinePrice || item.onlinePrice === "NOT FOUND");
-    if (needPrice.length > 0) {
-      const priceMap = await fetchOnlinePricesFromTypesense();
+
+    const raw: any = await response.json();
+
+    if (!Array.isArray(raw)) {
+      logger.error({ type: typeof raw }, "Apps Script returned non-array — keeping stale cache");
+      return;
+    }
+    if (raw.length === 0) {
+      logger.warn("Apps Script returned empty array — keeping stale cache");
+      return;
+    }
+
+    const existingBb = new Map<string, string>();
+    const existingBbDetail = new Map<string, { xclean: number; clean: number; avg: number; rough: number }>();
+    for (const old of state.data) {
+      if (old.bbAvgWholesale) existingBb.set(old.vin.toUpperCase(), old.bbAvgWholesale);
+      if (old.bbValues) existingBbDetail.set(old.vin.toUpperCase(), old.bbValues);
+    }
+    try {
+      const { loadBbValuesFromStore, parseBbEntry } = await import("./bbObjectStore.js");
+      const blob = await loadBbValuesFromStore();
+      if (blob?.values) {
+        for (const [vin, raw] of Object.entries(blob.values)) {
+          if (!raw) continue;
+          const entry = parseBbEntry(raw);
+          if (entry) {
+            existingBb.set(vin.toUpperCase(), entry.avg);
+            if (entry.xclean || entry.clean || entry.average || entry.rough) {
+              existingBbDetail.set(vin.toUpperCase(), { xclean: entry.xclean, clean: entry.clean, avg: entry.average, rough: entry.rough });
+            }
+          }
+        }
+        logger.info({ count: Object.keys(blob.values).length }, "Inventory: BB values loaded from shared object storage");
+      }
+    } catch (err: any) {
+      logger.warn({ err: err.message }, "Inventory: could not load BB values from object storage (non-fatal)");
+    }
+
+    const items: InventoryItem[] = [];
+    for (const r of raw) {
+      if (!r || typeof r !== "object") {
+        logger.warn({ r }, "Skipping malformed inventory item");
+        continue;
+      }
+      const vin = String(r.vin ?? "").trim().toUpperCase();
+      items.push({
+        location:       String(r.location    ?? "").trim(),
+        vehicle:        String(r.vehicle     ?? "").trim(),
+        vin,
+        price:          String(r.price       ?? "").trim(),
+        km:             String(r.km          ?? "").trim(),
+        carfax:         String(r.carfax      ?? "").trim(),
+        website:        String(r.website     ?? "").trim(),
+        onlinePrice:    String(r.onlinePrice ?? "").trim(),
+        matrixPrice:    String(r.matrixPrice ?? "").trim(),
+        cost:           String(r.cost        ?? "").trim(),
+        hasPhotos:      false,
+        bbAvgWholesale: existingBb.get(vin),
+        bbValues:       existingBbDetail.get(vin),
+      });
+    }
+
+    const needEnrichment = items.some(
+      (item) =>
+        !item.onlinePrice || item.onlinePrice === "NOT FOUND" ||
+        !item.website     || item.website     === "NOT FOUND",
+    );
+
+    if (needEnrichment) {
+      const { prices, website, photos } = await fetchFromTypesense();
+
       for (const item of items) {
         if (!item.onlinePrice || item.onlinePrice === "NOT FOUND") {
-          const fetched = priceMap.get(item.vin.toUpperCase());
+          const fetched = prices.get(item.vin.toUpperCase());
           if (fetched) item.onlinePrice = fetched;
         }
+        if (!item.website || item.website === "NOT FOUND") {
+          const fetched = website.get(item.vin.toUpperCase());
+          if (fetched) item.website = fetched;
+        }
+        item.hasPhotos = photos.has(item.vin.toUpperCase());
       }
-      logger.info({ enriched: priceMap.size, total: items.length }, "Typesense price enrichment complete");
+
+      logger.info(
+        { prices: prices.size, websiteUrls: website.size, total: items.length },
+        "Typesense enrichment complete",
+      );
     }
+
     state.data        = items;
     state.lastUpdated = new Date();
     logger.info({ count: items.length }, "Inventory cache refreshed");
+
+    await persistToDb();
   } catch (err) {
     logger.error({ err }, "Inventory cache refresh failed — serving stale data");
   } finally {
@@ -1154,17 +1295,192 @@ export async function refreshCache(): Promise<void> {
   }
 }
 
-export function startBackgroundRefresh(intervalMs = 60 * 60 * 1000): void {
-  refreshCache().catch((err) => logger.error({ err }, "Initial inventory cache fetch failed"));
+export async function applyBlackBookValues(
+  bbMap: Map<string, string>,
+  bbDetailMap?: Map<string, { xclean: number; clean: number; avg: number; rough: number }>,
+): Promise<void> {
+  if (bbMap.size === 0) return;
+  if (!state.lastUpdated) {
+    logger.warn("BB values received but inventory cache not yet loaded — skipping persist");
+    return;
+  }
+  let updated = 0;
+  for (const item of state.data) {
+    const vinKey = item.vin.toUpperCase();
+    const val = bbMap.get(vinKey);
+    if (val !== undefined) {
+      item.bbAvgWholesale = val;
+      const detail = bbDetailMap?.get(vinKey);
+      if (detail) item.bbValues = detail;
+      updated++;
+    }
+  }
+  if (updated > 0) {
+    await persistToDb();
+    logger.info({ updated, total: state.data.length }, "Black Book values applied to inventory");
+  }
+}
+
+export async function startBackgroundRefresh(intervalMs = 60 * 60 * 1000): Promise<void> {
+  await loadFromDb();
+
+  async function fetchWithRetry(attempt = 1): Promise<void> {
+    try {
+      await refreshCache();
+      if (state.data.length === 0 && attempt <= 3) {
+        const delay = attempt * 30_000;
+        logger.warn({ attempt, delayMs: delay }, "Cache still empty after refresh — retrying");
+        setTimeout(() => fetchWithRetry(attempt + 1), delay);
+      }
+    } catch (err) {
+      logger.error({ err, attempt }, "Inventory cache fetch failed");
+      if (attempt <= 3) {
+        const delay = attempt * 30_000;
+        logger.info({ delayMs: delay }, "Scheduling retry");
+        setTimeout(() => fetchWithRetry(attempt + 1), delay);
+      }
+    }
+  }
+
+  fetchWithRetry();
+
   setInterval(() => {
-    refreshCache().catch((err) => logger.error({ err }, "Background inventory cache refresh failed"));
+    refreshCache().catch((err) =>
+      logger.error({ err }, "Background inventory cache refresh failed"),
+    );
   }, intervalMs);
 }
 ```
 
----
+### lib/bbObjectStore.ts
 
-### artifacts/api-server/src/lib/emailService.ts
+```typescript
+import { Storage } from "@google-cloud/storage";
+import { logger } from "./logger.js";
+
+const SIDECAR = "http://127.0.0.1:1106";
+
+const gcs = new Storage({
+  credentials: {
+    audience:            "replit",
+    subject_token_type:  "access_token",
+    token_url:           `${SIDECAR}/token`,
+    type:                "external_account",
+    credential_source: {
+      url:    `${SIDECAR}/credential`,
+      format: { type: "json", subject_token_field_name: "access_token" },
+    },
+    universe_domain: "googleapis.com",
+  } as any,
+  projectId: "",
+});
+
+function bucket() {
+  const id = process.env["DEFAULT_OBJECT_STORAGE_BUCKET_ID"];
+  if (!id) throw new Error("DEFAULT_OBJECT_STORAGE_BUCKET_ID is not set");
+  return gcs.bucket(id);
+}
+
+async function readJson<T>(name: string): Promise<T | null> {
+  try {
+    const [contents] = await bucket().file(name).download();
+    return JSON.parse(contents.toString("utf8")) as T;
+  } catch (err: any) {
+    if (err.code === 404 || err.message?.includes("No such object")) return null;
+    logger.warn({ err: err.message, name }, "bbObjectStore: read failed");
+    return null;
+  }
+}
+
+async function writeJson(name: string, data: unknown): Promise<void> {
+  try {
+    await bucket().file(name).save(JSON.stringify(data), {
+      contentType: "application/json",
+    });
+  } catch (err: any) {
+    logger.warn({ err: err.message, name }, "bbObjectStore: write failed");
+  }
+}
+
+export interface BbSessionBlob {
+  cookies:   any[];
+  updatedAt: string;
+}
+
+export async function loadSessionFromStore(): Promise<BbSessionBlob | null> {
+  return readJson<BbSessionBlob>("bb-session.json");
+}
+
+export async function saveSessionToStore(cookies: any[]): Promise<void> {
+  await writeJson("bb-session.json", {
+    cookies,
+    updatedAt: new Date().toISOString(),
+  });
+}
+
+export interface BbValueEntry {
+  avg:     string;
+  xclean:  number;
+  clean:   number;
+  average: number;
+  rough:   number;
+}
+
+export interface BbValuesBlob {
+  values:    Record<string, string | BbValueEntry>;
+  updatedAt: string;
+}
+
+export function parseBbEntry(raw: string | BbValueEntry): BbValueEntry | null {
+  if (typeof raw === "object" && raw !== null && "avg" in raw) return raw as BbValueEntry;
+  if (typeof raw === "string") {
+    const cleaned = raw.replace(/[$,\s]/g, "");
+    const n = Number(cleaned);
+    if (!isNaN(n) && cleaned.length > 0) return { avg: raw, xclean: 0, clean: 0, average: n, rough: 0 };
+  }
+  return null;
+}
+
+export async function loadBbValuesFromStore(): Promise<BbValuesBlob | null> {
+  return readJson<BbValuesBlob>("bb-values.json");
+}
+
+export async function saveBbValuesToStore(values: Record<string, BbValueEntry>): Promise<void> {
+  await writeJson("bb-values.json", {
+    values,
+    updatedAt: new Date().toISOString(),
+  });
+}
+```
+
+### lib/blackBookWorker.ts
+
+(This is the largest file — 880 lines. Contains CreditApp Auth0 login via Puppeteer,
+CBB API calls, NHTSA VIN decode, trim token scoring, and nightly scheduling.)
+
+See the full source in the codebase at: `artifacts/api-server/src/lib/blackBookWorker.ts`
+
+Key sections:
+- **Constants & Status** (lines 1–66): Config from env vars, status tracking
+- **Session persistence** (lines 70–243): Object storage → DB → file → browser login cascade
+- **Browser & anti-detection** (lines 245–340): Puppeteer stealth, Auth0 login flow
+- **CBB API** (lines 410–433): `callCbbEndpoint()` — POST to `/api/cbb/find`
+- **Health check** (lines 437–453): Validates session before batch
+- **NHTSA decode** (lines 455–494): Free VIN lookup for trim/series/drivetrain
+- **Trim matching** (lines 496–666): Token scoring algorithm:
+  - `trimTokens()` strips make/model/year/colors/noise
+  - Exact series match: 30pts
+  - Token match: 20pts per token
+  - NHTSA trim/series match: 25/20pts
+  - Style tokens: 10pts
+  - Drivetrain bonus/penalty: ±5pts
+  - Cab style bonus: 5–8pts
+  - Fallback: median value when score=0
+- **Batch processing** (lines 668–759): Iterates all VINs, two CBB calls per VIN (KM-adjusted + unadjusted grades)
+- **Self-healing retry** (lines 763–782): Exponential backoff, no notifications
+- **Scheduler** (lines 848–879): Nightly 2:00am with startup catch-up, DB-persisted run date
+
+### lib/emailService.ts
 
 ```typescript
 import { Resend } from "resend";
@@ -1176,10 +1492,19 @@ const APP_URL = (() => {
   return domain ? `https://${domain}` : "https://script-reviewer.replit.app";
 })();
 
-export async function sendInvitationEmail(toEmail: string, role: string, invitedBy: string): Promise<void> {
-  if (!RESEND_API_KEY) { logger.warn("RESEND_API_KEY not set — skipping invitation email"); return; }
+export async function sendInvitationEmail(
+  toEmail: string,
+  role: string,
+  invitedBy: string,
+): Promise<void> {
+  if (!RESEND_API_KEY) {
+    logger.warn("RESEND_API_KEY not set — skipping invitation email");
+    return;
+  }
+
   const resend = new Resend(RESEND_API_KEY);
   const roleName = role === "guest" ? "Guest (prices hidden)" : "Viewer";
+
   try {
     await resend.emails.send({
       from:    "Inventory Portal <onboarding@resend.dev>",
@@ -1192,11 +1517,14 @@ export async function sendInvitationEmail(toEmail: string, role: string, invited
             <strong>${invitedBy}</strong> has given you <strong>${roleName}</strong> access
             to the Vehicle Inventory Portal.
           </p>
-          <a href="${APP_URL}" style="display:inline-block;padding:12px 24px;background:#2563eb;color:#fff;text-decoration:none;border-radius:8px;font-size:15px;font-weight:600;">
+          <a href="${APP_URL}"
+            style="display:inline-block;padding:12px 24px;background:#2563eb;color:#fff;
+                   text-decoration:none;border-radius:8px;font-size:15px;font-weight:600;">
             Open Inventory Portal
           </a>
           <p style="margin:24px 0 0;font-size:13px;color:#888;">
             Sign in with the Google account associated with <strong>${toEmail}</strong>.
+            If you don't have a Google account with this email, contact ${invitedBy}.
           </p>
         </div>
       `,
@@ -1208,550 +1536,78 @@ export async function sendInvitationEmail(toEmail: string, role: string, invited
 }
 ```
 
----
+### lib/carfaxWorker.ts
 
-### artifacts/api-server/src/lib/carfaxWorker.ts
+(Large file — 880+ lines. Contains Carfax Canada dealer portal automation.)
 
-The nightly cloud Carfax worker. Runs at 2:15am, restores session cookies,
-looks up VINs on dealer.carfax.ca, and writes results back to the sheet.
+See the full source in the codebase at: `artifacts/api-server/src/lib/carfaxWorker.ts`
+
+Key sections:
+- Puppeteer stealth with 11+ fingerprinting vector overrides
+- Auth0 login to dealer.carfax.ca
+- VIN search on dealer portal at `/MyReports`
+- Session persistence to disk
+- Apps Script bridge for reading pending VINs and writing results
+- Nightly 2:15am schedule (dev only)
+- Human-like mouse movement, typing, and click patterns
+
+### types/passport.d.ts
+
+```typescript
+declare global {
+  namespace Express {
+    interface User {
+      email:   string;
+      name:    string;
+      picture: string;
+    }
+  }
+}
+
+export {};
+```
+
+### scripts/testCarfax.ts
 
 ```typescript
 /**
- * Carfax Cloud Worker
- *
- * REQUIRED ENVIRONMENT VARIABLES:
- *   APPS_SCRIPT_WEB_APP_URL  — deployed Apps Script web app URL
- *   CARFAX_EMAIL             — Carfax Canada dealer login email
- *   CARFAX_PASSWORD          — Carfax Canada dealer login password
- *   CARFAX_ENABLED           — set to "true" to activate
+ * Quick Carfax test — run directly with:
+ *   npx tsx src/scripts/testCarfax.ts 2C4RC1ZG7RR152266 5YFB4MDE3PP000858
  */
+import { runCarfaxWorkerForVins } from "../lib/carfaxWorker.js";
 
-import { logger } from "./logger.js";
-import * as fs   from "fs";
-import * as path from "path";
+const vins = process.argv.slice(2);
 
-const APPS_SCRIPT_URL = process.env["APPS_SCRIPT_WEB_APP_URL"]?.trim() ?? "";
-const CARFAX_EMAIL    = process.env["CARFAX_EMAIL"]?.trim()    ?? "";
-const CARFAX_PASSWORD = process.env["CARFAX_PASSWORD"]?.trim() ?? "";
-const CARFAX_ENABLED  = process.env["CARFAX_ENABLED"]?.trim().toLowerCase() === "true";
-
-const CARFAX_HOME      = "https://dealer.carfax.ca/";
-const CARFAX_LOGIN_URL = "https://dealer.carfax.ca/login";
-const CARFAX_VHR_URL   = "https://dealer.carfax.ca/MyReports";
-const SESSION_FILE     = path.join(process.cwd(), ".carfax-session.json");
-
-const VIN_SEARCH_SELECTORS = [
-  "input.searchVehicle",
-  "input.searchbox.searchVehicle",
-  'input[placeholder*="VIN"]',
-  'input[type="search"]',
-];
-
-const REPORT_LINK_SELECTORS = [
-  "a.reportLink",
-  'a[href*="cfm/display_cfm"]',
-  'a[href*="vhr"]',
-  'a[href*="/cfm/"]',
-];
-
-const GLOBAL_ARCHIVE_SELECTORS = ["label#global-archive", "input#globalreports"];
-const AUTH0_EMAIL_SELECTORS    = ["#username", 'input[name="username"]', 'input[type="email"]'];
-const AUTH0_PASSWORD_SELECTORS = ["#password", 'input[name="password"]', 'input[type="password"]'];
-
-export interface CarfaxTestResult {
-  vin:    string;
-  status: "found" | "not_found" | "error" | "captcha";
-  url?:   string;
-  error?: string;
+if (vins.length === 0) {
+  console.error("Usage: npx tsx src/scripts/testCarfax.ts <VIN1> <VIN2> ...");
+  process.exit(1);
 }
 
-interface PendingVin { rowIndex: number; vin: string; }
+console.log(`\nRunning Carfax test on ${vins.length} VIN(s): ${vins.join(", ")}\n`);
 
-function sleep(ms: number): Promise<void> { return new Promise((r) => setTimeout(r, ms)); }
-function rand(min: number, max: number): number { return Math.floor(Math.random() * (max - min + 1)) + min; }
-function humanDelay(base: number): Promise<void> { return sleep(base + rand(0, 1000)); }
-
-// ---------------------------------------------------------------------------
-// Apps Script communication (3-attempt retry, 15s timeout)
-// ---------------------------------------------------------------------------
-
-async function fetchPendingVins(): Promise<PendingVin[]> {
-  if (!APPS_SCRIPT_URL) { logger.warn("APPS_SCRIPT_WEB_APP_URL not configured"); return []; }
-  let retries = 3;
-  while (retries > 0) {
-    try {
-      const resp = await fetch(APPS_SCRIPT_URL, { signal: AbortSignal.timeout(15_000) });
-      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-      const data = await resp.json() as PendingVin[];
-      return Array.isArray(data) ? data : [];
-    } catch (err) {
-      retries--;
-      if (retries === 0) { logger.error({ err }, "Carfax worker: failed to fetch pending VINs after 3 attempts"); return []; }
-      logger.warn({ err, retriesLeft: retries }, "Carfax worker: fetch failed, retrying in 2s");
-      await sleep(2_000);
+runCarfaxWorkerForVins(vins).then((results) => {
+  console.log("\n========== RESULTS ==========");
+  for (const r of results) {
+    if (r.status === "found") {
+      console.log(`✓ ${r.vin} — FOUND`);
+      console.log(`  URL: ${r.url}`);
+    } else if (r.status === "not_found") {
+      console.log(`✗ ${r.vin} — NOT FOUND in Carfax`);
+    } else if (r.status === "captcha") {
+      console.log(`! ${r.vin} — CAPTCHA blocked`);
+    } else {
+      console.log(`✗ ${r.vin} — ERROR: ${r.error}`);
     }
   }
-  return [];
-}
-
-async function writeCarfaxResult(rowIndex: number, value: string, batchComplete = false): Promise<void> {
-  if (!APPS_SCRIPT_URL) return;
-  let retries = 3;
-  while (retries > 0) {
-    try {
-      await fetch(APPS_SCRIPT_URL, {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ rowIndex, value, batchComplete }),
-        signal: AbortSignal.timeout(15_000),
-      });
-      return;
-    } catch (err) {
-      retries--;
-      if (retries === 0) logger.error({ err, rowIndex, value }, "Carfax worker: failed to write result after 3 attempts");
-      else await sleep(1_000);
-    }
-  }
-}
-
-async function sendAlert(message: string): Promise<void> {
-  if (!APPS_SCRIPT_URL) return;
-  try {
-    await fetch(APPS_SCRIPT_URL, {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action: "notify", message }),
-    });
-  } catch (_) {}
-}
-
-// ---------------------------------------------------------------------------
-// Session persistence
-// ---------------------------------------------------------------------------
-
-function loadSavedCookies(): any[] {
-  try {
-    if (fs.existsSync(SESSION_FILE)) {
-      const raw = fs.readFileSync(SESSION_FILE, "utf8");
-      const cookies = JSON.parse(raw);
-      logger.info({ count: cookies.length, file: SESSION_FILE }, "Carfax worker: loaded saved session cookies");
-      return cookies;
-    }
-  } catch (_) {}
-  return [];
-}
-
-function saveCookies(cookies: any[]): void {
-  try { fs.writeFileSync(SESSION_FILE, JSON.stringify(cookies, null, 2), "utf8"); logger.info({ count: cookies.length }, "Carfax worker: session cookies saved to disk"); }
-  catch (err) { logger.warn({ err }, "Carfax worker: could not save session cookies"); }
-}
-
-// ---------------------------------------------------------------------------
-// Browser — puppeteer-extra + stealth plugin with plain-puppeteer fallback
-// ---------------------------------------------------------------------------
-
-async function launchBrowser(): Promise<any> {
-  let puppeteer: any;
-  try {
-    puppeteer = (await import("puppeteer-extra")).default;
-    const StealthPlugin = (await import("puppeteer-extra-plugin-stealth")).default;
-    puppeteer.use(StealthPlugin());
-    logger.info("Carfax worker: using puppeteer-extra with stealth plugin");
-  } catch (_) {
-    logger.warn("Carfax worker: puppeteer-extra not available, falling back to plain puppeteer");
-    try { puppeteer = (await import("puppeteer")).default; }
-    catch (__) { throw new Error("puppeteer not installed"); }
-  }
-
-  let executablePath: string | undefined;
-  try {
-    const { execSync } = await import("child_process");
-    const found = execSync("which chromium 2>/dev/null || which chromium-browser 2>/dev/null", { encoding: "utf8" }).trim();
-    if (found) { executablePath = found; logger.info({ executablePath }, "Carfax worker: using system Chromium"); }
-  } catch (_) {}
-
-  return puppeteer.launch({
-    headless: "new" as any,
-    executablePath,
-    defaultViewport: { width: 1280, height: 900 },
-    args: [
-      "--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage",
-      "--disable-gpu", "--no-zygote",
-      "--disable-blink-features=AutomationControlled",
-      "--no-first-run", "--no-default-browser-check",
-      "--disable-infobars", "--disable-extensions-except=",
-      "--disable-plugins-discovery", "--window-size=1280,900",
-    ],
-    ignoreDefaultArgs: ["--enable-automation"],
-  });
-}
-
-// ---------------------------------------------------------------------------
-// Anti-detection — injected before every page load
-// ---------------------------------------------------------------------------
-
-async function addAntiDetectionScripts(page: any): Promise<void> {
-  const USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
-  await page.setUserAgent(USER_AGENT);
-  await page.setExtraHTTPHeaders({
-    "Accept-Language": "en-CA,en-US;q=0.9,en;q=0.8,fr;q=0.7",
-    "Accept-Encoding": "gzip, deflate, br",
-    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
-    "Sec-Fetch-Site": "none", "Sec-Fetch-Mode": "navigate",
-    "Sec-Fetch-User": "?1", "Sec-Fetch-Dest": "document",
-    "Sec-Ch-Ua": '"Google Chrome";v="124", "Chromium";v="124", "Not-A.Brand";v="99"',
-    "Sec-Ch-Ua-Mobile": "?0", "Sec-Ch-Ua-Platform": '"Windows"',
-    "Upgrade-Insecure-Requests": "1", "Cache-Control": "max-age=0",
-  });
-  await page.setCacheEnabled(true);
-  await page.evaluateOnNewDocument(() => {
-    // 1. webdriver flag
-    Object.defineProperty(navigator, "webdriver", { get: () => undefined });
-    // 2. window.chrome
-    (window as any).chrome = {
-      runtime: { connect: () => {}, sendMessage: () => {}, onMessage: { addListener: () => {}, removeListener: () => {} } },
-      loadTimes: () => {}, csi: () => {}, app: {},
-    };
-    // 3. userAgentData (Chrome 90+ API)
-    Object.defineProperty(navigator, "userAgentData", {
-      get: () => ({
-        brands: [{ brand: "Google Chrome", version: "124" }, { brand: "Chromium", version: "124" }, { brand: "Not-A.Brand", version: "99" }],
-        mobile: false, platform: "Windows",
-        getHighEntropyValues: async (_hints: string[]) => ({
-          brands: [{ brand: "Google Chrome", version: "124" }],
-          mobile: false, platform: "Windows", platformVersion: "10.0.0",
-          architecture: "x86", bitness: "64", model: "", uaFullVersion: "124.0.6367.60",
-          fullVersionList: [{ brand: "Google Chrome", version: "124.0.6367.60" }, { brand: "Not-A.Brand", version: "99.0.0.0" }],
-        }),
-      }),
-    });
-    // 4. plugins
-    Object.defineProperty(navigator, "plugins", {
-      get: () => {
-        const plugins = [
-          { name: "Chrome PDF Plugin", filename: "internal-pdf-viewer", description: "Portable Document Format" },
-          { name: "Chrome PDF Viewer", filename: "mhjfbmdgcfjbbpaeojofohoefgiehjai", description: "" },
-          { name: "Native Client",     filename: "internal-nacl-plugin", description: "" },
-        ];
-        return Object.assign(plugins, { item: (i: number) => plugins[i], namedItem: (n: string) => plugins.find(p => p.name === n) || null, refresh: () => {}, length: plugins.length });
-      },
-    });
-    // 5. mimeTypes
-    Object.defineProperty(navigator, "mimeTypes", {
-      get: () => {
-        const types = [{ type: "application/pdf", description: "Portable Document Format", suffixes: "pdf" }];
-        return Object.assign(types, { item: (i: number) => types[i], namedItem: (n: string) => types.find(t => t.type === n) || null, length: types.length });
-      },
-    });
-    // 6. languages / language
-    Object.defineProperty(navigator, "languages", { get: () => ["en-CA", "en-US", "en", "fr-CA"] });
-    Object.defineProperty(navigator, "language",  { get: () => "en-CA" });
-    // 7. hardware profile
-    Object.defineProperty(navigator, "hardwareConcurrency", { get: () => 8 });
-    Object.defineProperty(navigator, "deviceMemory",        { get: () => 8 });
-    // 8. connection (4G)
-    Object.defineProperty(navigator, "connection", {
-      get: () => ({ effectiveType: "4g", rtt: 50 + Math.floor(Math.random() * 50), downlink: 5 + Math.random() * 5, saveData: false, addEventListener: () => {}, removeEventListener: () => {}, dispatchEvent: () => true }),
-    });
-    // 9. screen dimensions
-    Object.defineProperty(screen, "width",       { get: () => 1280 }); Object.defineProperty(screen, "height",      { get: () => 900  });
-    Object.defineProperty(screen, "availWidth",  { get: () => 1280 }); Object.defineProperty(screen, "availHeight", { get: () => 860  });
-    Object.defineProperty(screen, "colorDepth",  { get: () => 24   }); Object.defineProperty(screen, "pixelDepth",  { get: () => 24   });
-    Object.defineProperty(window, "outerWidth",  { get: () => 1280 }); Object.defineProperty(window, "outerHeight", { get: () => 900  });
-    // 10. Canvas fingerprint noise
-    const _origToDataURL    = HTMLCanvasElement.prototype.toDataURL;
-    const _origGetImageData = CanvasRenderingContext2D.prototype.getImageData;
-    const noise = () => Math.floor(Math.random() * 3) - 1;
-    HTMLCanvasElement.prototype.toDataURL = function(...args: any[]) {
-      const ctx = this.getContext("2d");
-      if (ctx) { const img = ctx.getImageData(0, 0, this.width, this.height); for (let i = 0; i < img.data.length; i += 4) { img.data[i] += noise(); img.data[i+1] += noise(); img.data[i+2] += noise(); } ctx.putImageData(img, 0, 0); }
-      return _origToDataURL.apply(this, args);
-    };
-    CanvasRenderingContext2D.prototype.getImageData = function(...args: any[]) {
-      const img = _origGetImageData.apply(this, args);
-      for (let i = 0; i < img.data.length; i += 4) { img.data[i] += noise(); img.data[i+1] += noise(); img.data[i+2] += noise(); }
-      return img;
-    };
-    // 11. Permissions API
-    const _origQuery = window.navigator.permissions?.query.bind(navigator.permissions);
-    if (_origQuery) {
-      (navigator.permissions as any).query = (parameters: any) =>
-        parameters.name === "notifications" ? Promise.resolve({ state: "denied" } as PermissionStatus) : _origQuery(parameters);
-    }
-  });
-}
-
-// ---------------------------------------------------------------------------
-// Human-like interaction helpers
-// ---------------------------------------------------------------------------
-
-async function findSelector(page: any, selectors: string[], timeout = 5000): Promise<any> {
-  for (const sel of selectors) {
-    try { const el = await page.waitForSelector(sel, { timeout }); if (el) return el; } catch (_) {}
-  }
-  return null;
-}
-
-async function humanClick(page: any, element: any): Promise<void> {
-  const box = await element.boundingBox();
-  if (!box) { await element.click(); return; }
-  const tx = box.x + rand(Math.floor(box.width * 0.2),  Math.floor(box.width * 0.8));
-  const ty = box.y + rand(Math.floor(box.height * 0.2), Math.floor(box.height * 0.8));
-  const sx = rand(100, 900); const sy = rand(100, 600);
-  const steps = rand(12, 22);
-  for (let i = 0; i <= steps; i++) {
-    const t = i / steps; const ease = t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t;
-    await page.mouse.move(sx + (tx - sx) * ease + rand(-3, 3), sy + (ty - sy) * ease + rand(-3, 3));
-    await sleep(rand(8, 22));
-  }
-  await sleep(rand(60, 180));
-  await page.mouse.click(tx, ty);
-}
-
-async function humanType(page: any, element: any, text: string): Promise<void> {
-  await element.click(); await sleep(rand(80, 200));
-  for (let i = 0; i < text.length; i++) {
-    await element.type(text[i], { delay: 0 });
-    let d = rand(60, 160);
-    if (i > 0 && i % rand(4, 7) === 0) d += rand(150, 400);
-    await sleep(d);
-  }
-  await sleep(rand(200, 500));
-}
-
-// ---------------------------------------------------------------------------
-// Login
-// ---------------------------------------------------------------------------
-
-async function isLoggedIn(page: any): Promise<boolean> {
-  await page.goto(CARFAX_HOME, { waitUntil: "domcontentloaded", timeout: 20_000 });
-  await humanDelay(1500);
-  const content = (await page.content()).toLowerCase();
-  return content.includes("sign out") || content.includes("log out") || content.includes("my account") || content.includes("my vhrs");
-}
-
-async function loginWithAuth0(page: any): Promise<boolean> {
-  logger.info("Carfax worker: navigating to Auth0 login page");
-  await page.goto(CARFAX_LOGIN_URL, { waitUntil: "domcontentloaded", timeout: 20_000 });
-  await humanDelay(1500);
-  const emailInput = await findSelector(page, AUTH0_EMAIL_SELECTORS, 10_000);
-  if (!emailInput) { logger.error("Carfax worker: could not find email input"); return false; }
-  await humanClick(page, emailInput);
-  await humanType(page, emailInput, CARFAX_EMAIL);
-  const passInput = await findSelector(page, AUTH0_PASSWORD_SELECTORS, 5_000);
-  if (!passInput) { logger.error("Carfax worker: could not find password input"); return false; }
-  await humanClick(page, passInput);
-  await humanType(page, passInput, CARFAX_PASSWORD);
-  const submitBtn = await findSelector(page, ['button[type="submit"]'], 5_000);
-  if (submitBtn) {
-    await humanClick(page, submitBtn);
-    await humanDelay(3000);
-    await page.waitForNavigation({ waitUntil: "domcontentloaded", timeout: 15_000 }).catch(() => {});
-    await humanDelay(2000);
-  }
-  const confirmed = await isLoggedIn(page);
-  if (confirmed) { const cookies = await page.cookies(); saveCookies(cookies); logger.info("Carfax worker: login successful — session saved"); }
-  else { logger.error("Carfax worker: login failed"); }
-  return confirmed;
-}
-
-async function ensureLoggedIn(browser: any, page: any): Promise<boolean> {
-  const savedCookies = loadSavedCookies();
-  if (savedCookies.length > 0) {
-    logger.info("Carfax worker: restoring saved session cookies");
-    await page.setCookie(...savedCookies);
-    const loggedIn = await isLoggedIn(page);
-    if (loggedIn) { logger.info("Carfax worker: session restored — already logged in"); return true; }
-    logger.info("Carfax worker: saved session expired — performing fresh login");
-  }
-  return loginWithAuth0(page);
-}
-
-// ---------------------------------------------------------------------------
-// VIN lookup
-// ---------------------------------------------------------------------------
-
-function isValidReportHref(href: string | null): boolean {
-  if (!href) return false;
-  const h = href.trim();
-  return !(!h || h === "#" || h.startsWith("javascript:") || h === "about:blank");
-}
-
-async function getRawHref(el: any): Promise<string | null> {
-  try { return await el.evaluate((a: Element) => a.getAttribute("href")); } catch (_) { return null; }
-}
-
-async function findReportLink(page: any): Promise<string | null> {
-  for (const sel of REPORT_LINK_SELECTORS) {
-    try {
-      const el = await page.$(sel + ":not([style*='display: none']):not([style*='display:none'])");
-      if (el) {
-        const visible = await el.evaluate((e: Element) => {
-          const s = window.getComputedStyle(e);
-          return s.display !== "none" && s.visibility !== "hidden" && (e as HTMLElement).offsetParent !== null;
-        }).catch(() => false);
-        if (!visible) continue;
-        const href = await getRawHref(el);
-        if (isValidReportHref(href)) {
-          let resolved = href!;
-          if (resolved.startsWith("/")) resolved = "https://dealer.carfax.ca" + resolved;
-          return resolved;
-        }
-      }
-    } catch (_) {}
-  }
-  try {
-    const links = await page.$$("a[href]");
-    for (const link of links) {
-      const href = await getRawHref(link);
-      if (!isValidReportHref(href)) continue;
-      const h = href!;
-      if (h.includes("cfm/display_cfm") || h.includes("vhr.carfax.ca") || h.includes("carfax.ca/cfm")) {
-        return h.startsWith("/") ? "https://dealer.carfax.ca" + h : h;
-      }
-    }
-  } catch (_) {}
-  return null;
-}
-
-async function lookupVinOnDealerPortal(page: any, vin: string): Promise<{ status: "found" | "not_found" | "session_expired" | "error"; url?: string }> {
-  try {
-    logger.info({ vin }, "Carfax worker: navigating to dealer VHR page");
-    await page.goto(CARFAX_VHR_URL, { waitUntil: "domcontentloaded", timeout: 20_000 });
-    await humanDelay(2000);
-    const currentUrl: string = page.url();
-    if (currentUrl.includes("login") || currentUrl.includes("signin")) { logger.warn({ vin }, "Carfax worker: session expired mid-batch"); return { status: "session_expired" }; }
-    const searchInput = await findSelector(page, VIN_SEARCH_SELECTORS, 8_000);
-    if (!searchInput) { logger.error({ vin }, "Carfax worker: could not find VIN search input"); return { status: "error" }; }
-    await searchInput.click({ clickCount: 3 });
-    await sleep(rand(80, 180));
-    await humanType(page, searchInput, vin);
-    // Human scroll after typing — gives AJAX time to fire
-    await page.evaluate(() => window.scrollBy(0, rand(80, 250)));
-    await sleep(rand(300, 700));
-    let reportUrl: string | null = null;
-    try {
-      await page.waitForSelector("a.reportLink", { visible: true, timeout: 8_000 });
-      reportUrl = await findReportLink(page);
-      if (reportUrl) { logger.info({ vin, url: reportUrl }, "Carfax worker: found in My VHRs ✓"); return { status: "found", url: reportUrl }; }
-    } catch (_) {}
-    // Try Global Archive
-    logger.info({ vin }, "Carfax worker: not in My VHRs — trying Global Archive");
-    const archiveToggle = await findSelector(page, GLOBAL_ARCHIVE_SELECTORS, 3_000);
-    if (archiveToggle) {
-      await humanClick(page, archiveToggle);
-      await humanDelay(1500);
-      try {
-        await page.waitForSelector("a.reportLink", { visible: true, timeout: 6_000 });
-        reportUrl = await findReportLink(page);
-        if (reportUrl) { logger.info({ vin, url: reportUrl }, "Carfax worker: found in Global Archive ✓"); return { status: "found", url: reportUrl }; }
-      } catch (_) {}
-    }
-    logger.info({ vin }, "Carfax worker: VIN not found in either archive");
-    return { status: "not_found" };
-  } catch (err: any) {
-    logger.error({ vin, err: err.message }, "Carfax worker: lookup error");
-    return { status: "error" };
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Public API — single VIN or full nightly batch
-// ---------------------------------------------------------------------------
-
-export async function runCarfaxWorkerForVins(vins: string[]): Promise<CarfaxTestResult[]> {
-  const results: CarfaxTestResult[] = [];
-  let browser: any;
-  let page: any;
-  try {
-    logger.info({ vins }, "Carfax test run: starting");
-    browser = await launchBrowser();
-    page    = await browser.newPage();
-    await addAntiDetectionScripts(page);
-    await ensureLoggedIn(browser, page);
-    for (const vin of vins) {
-      logger.info({ vin }, "Carfax test run: looking up VIN");
-      const r = await lookupVinOnDealerPortal(page, vin);
-      if (r.status === "found")      results.push({ vin, status: "found",     url: r.url });
-      else if (r.status === "not_found") results.push({ vin, status: "not_found" });
-      else                               results.push({ vin, status: "error",    error: "Lookup failed" });
-      if (vins.indexOf(vin) < vins.length - 1) await humanDelay(rand(4_000, 9_000));
-    }
-    logger.info({ results }, "Carfax test run: complete");
-  } catch (err: any) {
-    logger.error({ err }, "Carfax test run: fatal error");
-  } finally {
-    await browser?.close();
-  }
-  return results;
-}
-
-async function runCarfaxWorker(): Promise<void> {
-  if (!CARFAX_ENABLED) { logger.info("Carfax worker: CARFAX_ENABLED is not true — skipping nightly run"); return; }
-  const pending = await fetchPendingVins();
-  if (pending.length === 0) { logger.info("Carfax worker: no pending VINs"); return; }
-  logger.info({ count: pending.length }, "Carfax worker: starting nightly batch");
-  let browser: any; let page: any;
-  let processed = 0; let failed = 0;
-  try {
-    browser = await launchBrowser();
-    page    = await browser.newPage();
-    await addAntiDetectionScripts(page);
-    const loggedIn = await ensureLoggedIn(browser, page);
-    if (!loggedIn) { await sendAlert("Carfax worker: login failed — batch aborted"); return; }
-    for (const item of pending) {
-      const r = await lookupVinOnDealerPortal(page, item.vin);
-      if (r.status === "session_expired") {
-        const relogged = await loginWithAuth0(page);
-        if (!relogged) { logger.error("Carfax worker: could not re-login after session expiry"); break; }
-        const r2 = await lookupVinOnDealerPortal(page, item.vin);
-        if (r2.status === "found" && r2.url) await writeCarfaxResult(item.rowIndex, r2.url);
-        else { await writeCarfaxResult(item.rowIndex, "NOT FOUND"); failed++; }
-      } else if (r.status === "found" && r.url) {
-        await writeCarfaxResult(item.rowIndex, r.url);
-      } else {
-        await writeCarfaxResult(item.rowIndex, "NOT FOUND");
-        if (r.status === "error") failed++;
-      }
-      processed++;
-      await humanDelay(rand(4_000, 9_000));
-    }
-    if (processed > 0) await writeCarfaxResult(0, "", true);
-  } catch (err: any) {
-    logger.error({ err }, "Carfax worker: fatal error during batch");
-    await sendAlert(`Carfax worker batch failed: ${err?.message ?? String(err)}`);
-  } finally {
-    await browser?.close();
-    logger.info({ processed, failed }, "Carfax worker: nightly batch complete");
-  }
-}
-
-export function scheduleCarfaxWorker(): void {
-  const SCHEDULE_HOUR   = 2;
-  const SCHEDULE_MINUTE = 15;
-  const now         = new Date();
-  const windowStart = new Date(now); windowStart.setHours(SCHEDULE_HOUR,     SCHEDULE_MINUTE,      0, 0);
-  const windowEnd   = new Date(now); windowEnd.setHours  (SCHEDULE_HOUR + 1, SCHEDULE_MINUTE + 30, 0, 0);
-  if (now >= windowStart && now <= windowEnd) {
-    logger.info("Carfax worker: inside scheduled window on startup — running now (catch-up)");
-    runCarfaxWorker().catch((err) => logger.error({ err }, "Carfax worker: catch-up run failed"));
-  }
-  function scheduleNext() {
-    const n = new Date(); const next = new Date(n);
-    next.setHours(SCHEDULE_HOUR, SCHEDULE_MINUTE, 0, 0);
-    if (next <= n) next.setDate(next.getDate() + 1);
-    const ms = next.getTime() - n.getTime();
-    logger.info({ nextRun: next.toISOString(), minutesFromNow: Math.round(ms / 60_000) }, "Carfax worker: nightly run scheduled");
-    setTimeout(async () => {
-      await runCarfaxWorker().catch((err) => logger.error({ err }, "Carfax worker: scheduled run error"));
-      scheduleNext();
-    }, ms);
-  }
-  scheduleNext();
-}
+  console.log("=============================\n");
+  process.exit(0);
+}).catch((err) => {
+  console.error("Fatal error:", err);
+  process.exit(1);
+});
 ```
 
----
-
-### artifacts/api-server/src/routes/index.ts
+### routes/index.ts
 
 ```typescript
 import { Router, type IRouter } from "express";
@@ -1762,33 +1618,136 @@ import accessRouter    from "./access.js";
 import carfaxRouter    from "./carfax.js";
 
 const router: IRouter = Router();
+
 router.use(healthRouter);
 router.use(authRouter);
 router.use(inventoryRouter);
 router.use(accessRouter);
 router.use(carfaxRouter);
+
 export default router;
 ```
 
----
+### routes/price-lookup.ts
 
-### artifacts/api-server/src/routes/health.ts
+(Not currently registered in routes/index.ts — exists as standalone file.)
+
+```typescript
+import { Router } from "express";
+import { logger } from "../lib/logger.js";
+
+const router = Router();
+
+const TYPESENSE_HOST = "v6eba1srpfohj89dp-1.a1.typesense.net";
+
+const DEALERS: Record<string, { collection: string; apiKey: string }> = {
+  "matrixmotorsyeg.ca": {
+    collection: "cebacbca97920d818d57c6f0526d7413",
+    apiKey: "ZWoxa3NxVmJLWFBOK2dWcUFBM1V0aTJyb09wUDhFZ0R5Vnc1blc2RW9Kdz1oZmUweyJmaWx0ZXJfYnkiOiJzdGF0dXM6W0luc3RvY2ssIFNvbGRdICYmIHZpc2liaWxpdHk6PjAgJiYgZGVsZXRlZF9hdDo9MCJ9",
+  },
+  "parkdalemotors.ca": {
+    collection: "37042ac7ece3a217b1a41d6f54ba6855",
+    apiKey: "bENlSmdIaVJWNGhTcjBnZ3BaN2JxajBINWcvdzREZ21hQnFMZWM3OWJBRT1oZmUweyJmaWx0ZXJfYnkiOiJzdGF0dXM6W0luc3RvY2tdICYmIHZpc2liaWxpdHk6PjAgJiYgZGVsZXRlZF9hdDo9MCJ9",
+  },
+};
+
+function formatPrice(n: number): string {
+  return "$" + Math.round(n).toLocaleString("en-US");
+}
+
+router.get("/price-lookup", async (req, res) => {
+  if (!req.isAuthenticated || !req.isAuthenticated()) {
+    res.status(401).json({ error: "Not authenticated" });
+    return;
+  }
+
+  res.set("Cache-Control", "no-store");
+
+  const url = (req.query.url as string ?? "").trim();
+  if (!url || !url.startsWith("http")) {
+    res.status(400).json({ error: "Invalid URL" });
+    return;
+  }
+
+  try {
+    const parsed = new URL(url);
+    const hostname = parsed.hostname.replace(/^www\./, "");
+    const dealer = DEALERS[hostname];
+
+    if (!dealer) {
+      res.json({ price: null });
+      return;
+    }
+
+    const idMatch = parsed.pathname.match(/\/(\d+)\/?$/);
+    if (!idMatch) {
+      res.json({ price: null });
+      return;
+    }
+    const docId = idMatch[1];
+
+    const params = new URLSearchParams({
+      q: "*",
+      filter_by: `id:=[${docId}]`,
+      per_page: "1",
+      "x-typesense-api-key": dealer.apiKey,
+    });
+    const tsUrl = `https://${TYPESENSE_HOST}/collections/${dealer.collection}/documents/search?${params}`;
+    const tsRes = await fetch(tsUrl, {
+      signal: AbortSignal.timeout(5000),
+    });
+
+    if (!tsRes.ok) {
+      logger.warn({ status: tsRes.status, url, docId }, "Typesense lookup failed");
+      res.json({ price: null });
+      return;
+    }
+
+    const body = await tsRes.json() as { hits?: Array<{ document: Record<string, unknown> }> };
+    if (!body.hits || body.hits.length === 0) {
+      res.json({ price: null });
+      return;
+    }
+    const doc = body.hits[0].document;
+
+    const specialOn = Number(doc.special_price_on) === 1;
+    const specialPrice = Number(doc.special_price);
+    const regularPrice = Number(doc.price);
+
+    const rawPrice = specialOn && specialPrice > 0 ? specialPrice : regularPrice;
+
+    if (!rawPrice || rawPrice <= 0) {
+      res.json({ price: null });
+      return;
+    }
+
+    res.json({ price: formatPrice(rawPrice) });
+  } catch (err) {
+    logger.warn({ err, url }, "price-lookup error");
+    res.json({ price: null });
+  }
+});
+
+export default router;
+```
+
+### routes/health.ts
 
 ```typescript
 import { Router, type IRouter } from "express";
 import { HealthCheckResponse } from "@workspace/api-zod";
 
 const router: IRouter = Router();
+
 router.get("/healthz", (_req, res) => {
   const data = HealthCheckResponse.parse({ status: "ok" });
   res.json(data);
 });
+
 export default router;
 ```
 
----
-
-### artifacts/api-server/src/routes/auth.ts
+### routes/auth.ts
 
 ```typescript
 import { Router } from "express";
@@ -1802,43 +1761,67 @@ const router = Router();
 
 router.get("/auth/debug-callback", (_req, res) => {
   const domain = (process.env["REPLIT_DOMAINS"] ?? "").split(",")[0]?.trim();
-  const callbackURL = domain ? `https://${domain}/api/auth/google/callback` : "http://localhost:8080/api/auth/google/callback";
+  const callbackURL = domain
+    ? `https://${domain}/api/auth/google/callback`
+    : "http://localhost:8080/api/auth/google/callback";
   res.json({ callbackURL, REPLIT_DOMAINS: process.env["REPLIT_DOMAINS"] ?? "(not set)" });
 });
 
 router.get("/auth/google", passport.authenticate("google", { scope: ["email", "profile"] }));
 
-router.get("/auth/google/callback",
+router.get(
+  "/auth/google/callback",
   passport.authenticate("google", { failureRedirect: "/?auth_error=1" }),
-  (_req, res) => { res.redirect("/"); }
+  (_req, res) => {
+    res.redirect("/");
+  }
 );
 
 router.get("/auth/logout", (req, res, next) => {
-  req.logout((err) => { if (err) return next(err); res.redirect("/"); });
+  req.logout((err) => {
+    if (err) return next(err);
+    res.redirect("/");
+  });
 });
 
 router.get("/me", async (req, res) => {
-  if (!req.isAuthenticated || !req.isAuthenticated()) { res.status(401).json({ error: "Not authenticated" }); return; }
+  if (!req.isAuthenticated || !req.isAuthenticated()) {
+    res.status(401).json({ error: "Not authenticated" });
+    return;
+  }
   const user  = req.user as { email: string; name: string; picture: string };
   const email = user.email.toLowerCase();
   const owner = isOwner(email);
+
   let role = "viewer";
   if (owner) {
     role = "owner";
   } else {
-    const [entry] = await db.select().from(accessListTable).where(eq(accessListTable.email, email)).limit(1);
+    const [entry] = await db
+      .select()
+      .from(accessListTable)
+      .where(eq(accessListTable.email, email))
+      .limit(1);
     if (entry) role = entry.role;
-    else { res.status(403).json({ error: "Access denied" }); return; }
+    else {
+      res.status(403).json({ error: "Access denied" });
+      return;
+    }
   }
-  res.json({ email: user.email, name: user.name, picture: user.picture, isOwner: owner, role });
+
+  res.json({
+    email:   user.email,
+    name:    user.name,
+    picture: user.picture,
+    isOwner: owner,
+    role,
+  });
 });
 
 export default router;
 ```
 
----
-
-### artifacts/api-server/src/routes/inventory.ts
+### routes/inventory.ts
 
 ```typescript
 import { Router } from "express";
@@ -1848,30 +1831,69 @@ import { eq } from "drizzle-orm";
 import { isOwner } from "../lib/auth.js";
 import { logger } from "../lib/logger.js";
 import { getCacheState, refreshCache } from "../lib/inventoryCache.js";
+import { runBlackBookWorker, getBlackBookStatus } from "../lib/blackBookWorker.js";
 
 const router = Router();
+
 const TYPESENSE_HOST = "v6eba1srpfohj89dp-1.a1.typesense.net";
 const IMAGE_CDN_BASE = "https://zopsoftware-asset.b-cdn.net";
 
 const DEALER_COLLECTIONS = [
-  { name: "Matrix",   collection: "cebacbca97920d818d57c6f0526d7413", apiKey: "ZWoxa3NxVmJLWFBOK2dWcUFBM1V0aTJyb09wUDhFZ0R5Vnc1blc2RW9Kdz1oZmUweyJmaWx0ZXJfYnkiOiJzdGF0dXM6W0luc3RvY2ssIFNvbGRdICYmIHZpc2liaWxpdHk6PjAgJiYgZGVsZXRlZF9hdDo9MCJ9" },
-  { name: "Parkdale", collection: "37042ac7ece3a217b1a41d6f54ba6855", apiKey: "bENlSmdIaVJWNGhTcjBnZ3BaN2JxajBINWcvdzREZ21hQnFMZWM3OWJBRT1oZmUweyJmaWx0ZXJfYnkiOiJzdGF0dXM6W0luc3RvY2tdICYmIHZpc2liaWxpdHk6PjAgJiYgZGVsZXRlZF9hdDo9MCJ9" },
+  {
+    name:       "Matrix",
+    collection: "cebacbca97920d818d57c6f0526d7413",
+    apiKey:     "ZWoxa3NxVmJLWFBOK2dWcUFBM1V0aTJyb09wUDhFZ0R5Vnc1blc2RW9Kdz1oZmUweyJmaWx0ZXJfYnkiOiJzdGF0dXM6W0luc3RvY2ssIFNvbGRdICYmIHZpc2liaWxpdHk6PjAgJiYgZGVsZXRlZF9hdDo9MCJ9",
+    siteUrl:    "https://www.matrixmotorsyeg.ca",
+  },
+  {
+    name:       "Parkdale",
+    collection: "37042ac7ece3a217b1a41d6f54ba6855",
+    apiKey:     "bENlSmdIaVJWNGhTcjBnZ3BaN2JxajBINWcvdzREZ21hQnFMZWM3OWJBRT1oZmUweyJmaWx0ZXJfYnkiOiJzdGF0dXM6W0luc3RvY2tdICYmIHZpc2liaWxpdHk6PjAgJiYgZGVsZXRlZF9hdDo9MCJ9",
+    siteUrl:    "https://www.parkdalemotors.ca",
+  },
 ];
+
+function extractWebsiteUrl(doc: any, siteUrl: string): string | null {
+  if (doc.page_url) {
+    const path = doc.page_url.toString().trim().replace(/^\/+|\/+$/g, "");
+    return `${siteUrl}/${path}/`;
+  }
+  const id   = doc.id || doc.post_id || doc.vehicle_id || "";
+  let   slug = doc.slug || doc.url_slug || "";
+  if (!slug && doc.year && doc.make && doc.model) {
+    slug = [doc.year, doc.make, doc.model, doc.trim || ""]
+      .filter((p: any) => String(p).trim() !== "")
+      .join(" ").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+  }
+  if (!id || !slug) return null;
+  return `${siteUrl}/inventory/${slug}/${id}/`;
+}
 
 async function getUserRole(req: any): Promise<string> {
   const user  = req.user as { email: string };
   const email = user.email.toLowerCase();
   if (isOwner(email)) return "owner";
-  const [entry] = await db.select().from(accessListTable).where(eq(accessListTable.email, email)).limit(1);
+  const [entry] = await db
+    .select()
+    .from(accessListTable)
+    .where(eq(accessListTable.email, email))
+    .limit(1);
   return entry?.role ?? "viewer";
 }
 
 async function requireAccess(req: any, res: any, next: any) {
-  if (!req.isAuthenticated || !req.isAuthenticated()) { res.status(401).json({ error: "Not authenticated" }); return; }
+  if (!req.isAuthenticated || !req.isAuthenticated()) {
+    res.status(401).json({ error: "Not authenticated" });
+    return;
+  }
   const user  = req.user as { email: string };
   const email = user.email.toLowerCase();
   if (isOwner(email)) { next(); return; }
-  const [entry] = await db.select().from(accessListTable).where(eq(accessListTable.email, email)).limit(1);
+  const [entry] = await db
+    .select()
+    .from(accessListTable)
+    .where(eq(accessListTable.email, email))
+    .limit(1);
   if (entry) { next(); return; }
   res.status(403).json({ error: "Access denied" });
 }
@@ -1879,57 +1901,122 @@ async function requireAccess(req: any, res: any, next: any) {
 router.get("/inventory", requireAccess, async (req, res) => {
   const role = await getUserRole(req);
   const { data } = getCacheState();
-  const items = role === "guest" ? data.map((item) => ({ ...item, price: "" })) : data;
+
+  const items = data.map((item) => {
+    if (role === "owner") return item;
+
+    const { matrixPrice, cost, ...rest } = item;
+
+    if (role === "viewer") return rest;
+
+    const { bbAvgWholesale, bbValues, ...guestRest } = rest;
+    if (role === "guest") return { ...guestRest, price: "" };
+
+    return guestRest;
+  });
+
   res.set("Cache-Control", "no-store");
   res.json(items);
 });
 
 router.get("/cache-status", requireAccess, (_req, res) => {
   const { lastUpdated, isRefreshing, data } = getCacheState();
+  const bb = getBlackBookStatus();
   res.set("Cache-Control", "no-store");
-  res.json({ lastUpdated: lastUpdated?.toISOString() ?? null, isRefreshing, count: data.length });
+  res.json({
+    lastUpdated:    lastUpdated?.toISOString() ?? null,
+    isRefreshing,
+    count:          data.length,
+    bbRunning:      bb.running,
+    bbLastRun:      bb.lastRun,
+    bbCount:        bb.lastCount,
+  });
+});
+
+router.post("/refresh-blackbook", requireAccess, async (req, res) => {
+  const role = await getUserRole(req);
+  if (role !== "owner") {
+    res.status(403).json({ error: "Owner only" });
+    return;
+  }
+  const { running } = getBlackBookStatus();
+  if (running) {
+    res.json({ ok: true, message: "Already running", running: true });
+    return;
+  }
+  runBlackBookWorker().catch((err) =>
+    logger.error({ err }, "Manual BB refresh error"),
+  );
+  res.json({ ok: true, message: "Black Book refresh started", running: true });
 });
 
 router.post("/refresh", (req, res) => {
   const secret   = req.headers["x-refresh-secret"];
   const expected = process.env["REFRESH_SECRET"]?.trim();
-  if (!expected || secret !== expected) { logger.warn({ ip: (req as any).ip }, "Unauthorized /refresh attempt"); res.status(401).json({ error: "Unauthorized" }); return; }
-  refreshCache().catch((err) => logger.error({ err }, "Webhook-triggered refresh failed"));
+
+  if (!expected || secret !== expected) {
+    logger.warn({ ip: (req as any).ip }, "Unauthorized /refresh attempt");
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+
+  refreshCache().catch((err) =>
+    logger.error({ err }, "Webhook-triggered refresh failed"),
+  );
+
   res.json({ ok: true, message: "Cache refresh triggered" });
 });
 
 router.get("/vehicle-images", requireAccess, async (req, res) => {
   const vin = (req.query["vin"] as string ?? "").trim().toUpperCase();
-  if (!vin || vin.length < 10) { res.json({ vin, urls: [] }); return; }
+  if (!vin || vin.length < 10) {
+    res.json({ vin, urls: [] });
+    return;
+  }
+
   const urls: string[] = [];
+  let websiteUrl: string | null = null;
+
   for (const dealer of DEALER_COLLECTIONS) {
     try {
       const endpoint =
         `https://${TYPESENSE_HOST}/collections/${dealer.collection}/documents/search` +
-        `?q=${encodeURIComponent(vin)}&query_by=vin&num_typos=0&per_page=1&x-typesense-api-key=${dealer.apiKey}`;
+        `?q=${encodeURIComponent(vin)}&query_by=vin&num_typos=0&per_page=1` +
+        `&x-typesense-api-key=${dealer.apiKey}`;
+
       const resp = await fetch(endpoint);
       if (!resp.ok) continue;
+
       const body: any = await resp.json();
       if (!body.hits?.length) continue;
+
       const doc    = body.hits[0].document;
       const docVin = (doc.vin ?? "").toString().trim().toUpperCase();
       if (docVin !== vin) continue;
+
       const rawUrls: string = doc.image_urls ?? "";
       if (!rawUrls) continue;
-      rawUrls.split(";").forEach((path: string) => { const trimmed = path.trim(); if (trimmed) urls.push(IMAGE_CDN_BASE + trimmed); });
+
+      rawUrls.split(";").forEach((path: string) => {
+        const trimmed = path.trim();
+        if (trimmed) urls.push(IMAGE_CDN_BASE + trimmed);
+      });
+
+      websiteUrl = extractWebsiteUrl(doc, dealer.siteUrl);
+
       break;
-    } catch (_err) {}
+    } catch (_err) {
+    }
   }
+
   res.set("Cache-Control", "public, max-age=300");
-  res.json({ vin, urls });
+  res.json({ vin, urls, websiteUrl });
 });
 
 export default router;
 ```
 
----
-
-### artifacts/api-server/src/routes/access.ts
+### routes/access.ts
 
 ```typescript
 import { Router } from "express";
@@ -1942,14 +2029,35 @@ import { sendInvitationEmail } from "../lib/emailService.js";
 const router = Router();
 
 function requireOwner(req: any, res: any, next: any) {
-  if (!req.isAuthenticated || !req.isAuthenticated()) { res.status(401).json({ error: "Not authenticated" }); return; }
+  if (!req.isAuthenticated || !req.isAuthenticated()) {
+    res.status(401).json({ error: "Not authenticated" });
+    return;
+  }
   const user = req.user as { email: string };
-  if (!isOwner(user.email)) { res.status(403).json({ error: "Owner only" }); return; }
+  if (!isOwner(user.email)) {
+    res.status(403).json({ error: "Owner only" });
+    return;
+  }
   next();
 }
 
-async function writeAudit(action: string, targetEmail: string, changedBy: string, roleFrom?: string | null, roleTo?: string | null) {
-  try { await db.insert(auditLogTable).values({ action, targetEmail, changedBy, roleFrom: roleFrom ?? null, roleTo: roleTo ?? null }); } catch (_err) {}
+async function writeAudit(
+  action: string,
+  targetEmail: string,
+  changedBy: string,
+  roleFrom?: string | null,
+  roleTo?: string | null,
+) {
+  try {
+    await db.insert(auditLogTable).values({
+      action,
+      targetEmail,
+      changedBy,
+      roleFrom:  roleFrom  ?? null,
+      roleTo:    roleTo    ?? null,
+    });
+  } catch (_err) {
+  }
 }
 
 router.get("/access", requireOwner, async (_req, res) => {
@@ -1959,69 +2067,144 @@ router.get("/access", requireOwner, async (_req, res) => {
 
 router.post("/access", requireOwner, async (req, res) => {
   const rawEmail = (req.body?.email ?? "").toString().trim().toLowerCase();
-  if (!rawEmail || !rawEmail.includes("@")) { res.status(400).json({ error: "Invalid email" }); return; }
+  if (!rawEmail || !rawEmail.includes("@")) {
+    res.status(400).json({ error: "Invalid email" });
+    return;
+  }
   const role  = ["viewer", "guest"].includes(req.body?.role) ? req.body.role : "viewer";
   const owner = (req.user as { email: string }).email;
-  const [entry] = await db.insert(accessListTable).values({ email: rawEmail, addedBy: owner, role }).onConflictDoNothing().returning();
+
+  const [entry] = await db
+    .insert(accessListTable)
+    .values({ email: rawEmail, addedBy: owner, role })
+    .onConflictDoNothing()
+    .returning();
+
   await writeAudit("add", rawEmail, owner, null, role);
-  if (entry) sendInvitationEmail(rawEmail, role, owner).catch(() => {});
+
+  if (entry) {
+    sendInvitationEmail(rawEmail, role, owner).catch(() => {});
+  }
+
   res.json(entry ?? { email: rawEmail, addedBy: owner, addedAt: new Date().toISOString(), role });
 });
 
 router.patch("/access/:email", requireOwner, async (req, res) => {
   const email   = decodeURIComponent(req.params.email ?? "").toLowerCase();
   const newRole = (req.body?.role ?? "").toString().trim().toLowerCase();
-  if (!["viewer", "guest"].includes(newRole)) { res.status(400).json({ error: "Role must be 'viewer' or 'guest'" }); return; }
-  const [existing] = await db.select().from(accessListTable).where(eq(accessListTable.email, email)).limit(1);
-  if (!existing) { res.status(404).json({ error: "User not found" }); return; }
-  const [updated] = await db.update(accessListTable).set({ role: newRole }).where(eq(accessListTable.email, email)).returning();
+
+  if (!["viewer", "guest"].includes(newRole)) {
+    res.status(400).json({ error: "Role must be 'viewer' or 'guest'" });
+    return;
+  }
+
+  const [existing] = await db
+    .select()
+    .from(accessListTable)
+    .where(eq(accessListTable.email, email))
+    .limit(1);
+
+  if (!existing) {
+    res.status(404).json({ error: "User not found" });
+    return;
+  }
+
+  const [updated] = await db
+    .update(accessListTable)
+    .set({ role: newRole })
+    .where(eq(accessListTable.email, email))
+    .returning();
+
   const owner = (req.user as { email: string }).email;
   await writeAudit("role_change", email, owner, existing.role, newRole);
+
   res.json(updated);
 });
 
 router.delete("/access/:email", requireOwner, async (req, res) => {
   const email = decodeURIComponent(req.params.email ?? "").toLowerCase();
   const owner = (req.user as { email: string }).email;
-  const [existing] = await db.select().from(accessListTable).where(eq(accessListTable.email, email)).limit(1);
+
+  const [existing] = await db
+    .select()
+    .from(accessListTable)
+    .where(eq(accessListTable.email, email))
+    .limit(1);
+
   await db.delete(accessListTable).where(eq(accessListTable.email, email));
   await writeAudit("remove", email, owner, existing?.role ?? null, null);
+
   res.json({ ok: true });
 });
 
 router.get("/audit-log", requireOwner, async (_req, res) => {
-  const entries = await db.select().from(auditLogTable).orderBy(desc(auditLogTable.timestamp)).limit(200);
+  const entries = await db
+    .select()
+    .from(auditLogTable)
+    .orderBy(desc(auditLogTable.timestamp))
+    .limit(200);
   res.json(entries);
 });
 
 export default router;
 ```
 
----
-
-### artifacts/api-server/src/routes/carfax.ts
+### routes/carfax.ts
 
 ```typescript
 import { Router } from "express";
 import { isOwner } from "../lib/auth.js";
-import { runCarfaxWorkerForVins } from "../lib/carfaxWorker.js";
+import { runCarfaxWorkerForVins, runCarfaxWorker, getCarfaxBatchStatus } from "../lib/carfaxWorker.js";
 import { logger } from "../lib/logger.js";
 
 const router = Router();
 
 function requireOwner(req: any, res: any, next: any) {
-  if (!req.isAuthenticated || !req.isAuthenticated()) { res.status(401).json({ error: "Not authenticated" }); return; }
+  if (!req.isAuthenticated || !req.isAuthenticated()) {
+    res.status(401).json({ error: "Not authenticated" });
+    return;
+  }
   const user = req.user as { email: string };
-  if (!isOwner(user.email)) { res.status(403).json({ error: "Owner only" }); return; }
+  if (!isOwner(user.email)) {
+    res.status(403).json({ error: "Owner only" });
+    return;
+  }
   next();
 }
 
+router.get("/carfax/batch-status", requireOwner, (_req, res) => {
+  res.json(getCarfaxBatchStatus());
+});
+
+router.post("/carfax/run-batch", requireOwner, (req: any, res: any) => {
+  const status = getCarfaxBatchStatus();
+  if (status.running) {
+    res.status(409).json({ ok: false, error: "A batch is already running", startedAt: status.startedAt });
+    return;
+  }
+  logger.info({ requestedBy: (req.user as any)?.email }, "Manual Carfax batch triggered via API");
+  runCarfaxWorker({ force: true }).catch((err) =>
+    logger.error({ err }, "Manual Carfax batch failed")
+  );
+  res.json({ ok: true, message: "Carfax batch started. Check server logs for progress." });
+});
+
 router.post("/carfax/test", requireOwner, async (req: any, res: any) => {
   const { vins } = req.body as { vins?: string[] };
-  if (!Array.isArray(vins) || vins.length === 0) { res.status(400).json({ error: "Provide an array of VINs: { vins: [...] }" }); return; }
-  if (vins.length > 10) { res.status(400).json({ error: "Maximum 10 VINs per test run" }); return; }
+
+  if (!Array.isArray(vins) || vins.length === 0) {
+    res.status(400).json({ error: "Provide an array of VINs in the request body: { vins: [...] }" });
+    return;
+  }
+
+  if (vins.length > 10) {
+    res.status(400).json({ error: "Maximum 10 VINs per test run" });
+    return;
+  }
+
   const cleanVins = vins.map((v) => String(v).trim().toUpperCase()).filter(Boolean);
   logger.info({ vins: cleanVins, requestedBy: (req.user as any)?.email }, "Carfax test run requested via API");
+
   try {
     const results = await runCarfaxWorkerForVins(cleanVins);
     res.json({ ok: true, results });
@@ -2034,86 +2217,7 @@ router.post("/carfax/test", requireOwner, async (req: any, res: any) => {
 export default router;
 ```
 
----
-
-### artifacts/api-server/src/routes/price-lookup.ts
-
-```typescript
-import { Router } from "express";
-import { logger } from "../lib/logger.js";
-
-const router = Router();
-const TYPESENSE_HOST = "v6eba1srpfohj89dp-1.a1.typesense.net";
-
-const DEALERS: Record<string, { collection: string; apiKey: string }> = {
-  "matrixmotorsyeg.ca": { collection: "cebacbca97920d818d57c6f0526d7413", apiKey: "ZWoxa3NxVmJLWFBOK2dWcUFBM1V0aTJyb09wUDhFZ0R5Vnc1blc2RW9Kdz1oZmUweyJmaWx0ZXJfYnkiOiJzdGF0dXM6W0luc3RvY2ssIFNvbGRdICYmIHZpc2liaWxpdHk6PjAgJiYgZGVsZXRlZF9hdDo9MCJ9" },
-  "parkdalemotors.ca":  { collection: "37042ac7ece3a217b1a41d6f54ba6855", apiKey: "bENlSmdIaVJWNGhTcjBnZ3BaN2JxajBINWcvdzREZ21hQnFMZWM3OWJBRT1oZmUweyJmaWx0ZXJfYnkiOiJzdGF0dXM6W0luc3RvY2tdICYmIHZpc2liaWxpdHk6PjAgJiYgZGVsZXRlZF9hdDo9MCJ9" },
-};
-
-function formatPrice(n: number): string { return "$" + Math.round(n).toLocaleString("en-US"); }
-
-router.get("/price-lookup", async (req, res) => {
-  if (!req.isAuthenticated || !req.isAuthenticated()) { res.status(401).json({ error: "Not authenticated" }); return; }
-  res.set("Cache-Control", "no-store");
-  const url = (req.query.url as string ?? "").trim();
-  if (!url || !url.startsWith("http")) { res.status(400).json({ error: "Invalid URL" }); return; }
-  try {
-    const parsed   = new URL(url);
-    const hostname = parsed.hostname.replace(/^www\./, "");
-    const dealer   = DEALERS[hostname];
-    if (!dealer) { res.json({ price: null }); return; }
-    const idMatch = parsed.pathname.match(/\/(\d+)\/?$/);
-    if (!idMatch) { res.json({ price: null }); return; }
-    const docId = idMatch[1];
-    const params = new URLSearchParams({ q: "*", filter_by: `id:=[${docId}]`, per_page: "1", "x-typesense-api-key": dealer.apiKey });
-    const tsRes  = await fetch(`https://${TYPESENSE_HOST}/collections/${dealer.collection}/documents/search?${params}`, { signal: AbortSignal.timeout(5000) });
-    if (!tsRes.ok) { res.json({ price: null }); return; }
-    const body = await tsRes.json() as { hits?: Array<{ document: Record<string, unknown> }> };
-    if (!body.hits || body.hits.length === 0) { res.json({ price: null }); return; }
-    const doc = body.hits[0].document;
-    const specialOn    = Number(doc.special_price_on) === 1;
-    const specialPrice = Number(doc.special_price);
-    const regularPrice = Number(doc.price);
-    const rawPrice     = specialOn && specialPrice > 0 ? specialPrice : regularPrice;
-    if (!rawPrice || rawPrice <= 0) { res.json({ price: null }); return; }
-    res.json({ price: formatPrice(rawPrice) });
-  } catch (err) { logger.warn({ err, url }, "price-lookup error"); res.json({ price: null }); }
-});
-
-export default router;
-```
-
----
-
-### artifacts/api-server/src/scripts/testCarfax.ts
-
-```typescript
-/**
- * Quick Carfax test:
- *   npx tsx src/scripts/testCarfax.ts 2C4RC1ZG7RR152266 5YFB4MDE3PP000858
- */
-import { runCarfaxWorkerForVins } from "../lib/carfaxWorker.js";
-
-const vins = process.argv.slice(2);
-if (vins.length === 0) { console.error("Usage: npx tsx src/scripts/testCarfax.ts <VIN1> <VIN2> ..."); process.exit(1); }
-
-console.log(`\nRunning Carfax test on ${vins.length} VIN(s): ${vins.join(", ")}\n`);
-
-runCarfaxWorkerForVins(vins).then((results) => {
-  console.log("\n========== RESULTS ==========");
-  for (const r of results) {
-    if (r.status === "found")     { console.log(`✓ ${r.vin} — FOUND`); console.log(`  URL: ${r.url}`); }
-    else if (r.status === "not_found") console.log(`✗ ${r.vin} — NOT FOUND`);
-    else                               console.log(`✗ ${r.vin} — ERROR: ${r.error}`);
-  }
-  console.log("=============================\n");
-  process.exit(0);
-}).catch((err) => { console.error("Fatal error:", err); process.exit(1); });
-```
-
----
-
-### artifacts/api-server/build.mjs
+### build.mjs
 
 ```javascript
 import { createRequire } from "node:module";
@@ -2124,37 +2228,107 @@ import esbuildPluginPino from "esbuild-plugin-pino";
 import { rm } from "node:fs/promises";
 
 globalThis.require = createRequire(import.meta.url);
-const artifactDir  = path.dirname(fileURLToPath(import.meta.url));
+
+const artifactDir = path.dirname(fileURLToPath(import.meta.url));
 
 async function buildAll() {
   const distDir = path.resolve(artifactDir, "dist");
   await rm(distDir, { recursive: true, force: true });
+
   await esbuild({
     entryPoints: [path.resolve(artifactDir, "src/index.ts")],
-    platform: "node", bundle: true, format: "esm",
-    outdir: distDir, outExtension: { ".js": ".mjs" }, logLevel: "info",
+    platform: "node",
+    bundle: true,
+    format: "esm",
+    outdir: distDir,
+    outExtension: { ".js": ".mjs" },
+    logLevel: "info",
     external: [
-      "*.node", "connect-pg-simple", "sharp", "better-sqlite3", "sqlite3", "canvas",
-      "bcrypt", "argon2", "fsevents", "re2", "farmhash", "xxhash-addon", "bufferutil",
-      "utf-8-validate", "ssh2", "cpu-features", "dtrace-provider", "isolated-vm",
-      "lightningcss", "pg-native", "oracledb", "mongodb-client-encryption", "nodemailer",
-      "handlebars", "knex", "typeorm", "protobufjs", "onnxruntime-node",
-      "@tensorflow/*", "@prisma/client", "@mikro-orm/*", "@grpc/*", "@swc/*",
-      "@aws-sdk/*", "@azure/*", "@opentelemetry/*", "@google-cloud/*", "@google/*",
-      "googleapis", "firebase-admin", "@parcel/watcher", "@sentry/profiling-node",
-      "@tree-sitter/*", "aws-sdk", "classic-level", "dd-trace", "ffi-napi", "grpc",
-      "hiredis", "kerberos", "leveldown", "miniflare", "mysql2", "newrelic", "odbc",
-      "piscina", "realm", "ref-napi", "rocksdb", "sass-embedded", "sequelize",
-      "serialport", "snappy", "tinypool", "usb", "workerd", "wrangler", "zeromq",
-      "zeromq-prebuilt", "playwright", "puppeteer", "puppeteer-core",
-      "puppeteer-extra", "puppeteer-extra-plugin-stealth", "electron",
+      "*.node",
+      "connect-pg-simple",
+      "sharp",
+      "better-sqlite3",
+      "sqlite3",
+      "canvas",
+      "bcrypt",
+      "argon2",
+      "fsevents",
+      "re2",
+      "farmhash",
+      "xxhash-addon",
+      "bufferutil",
+      "utf-8-validate",
+      "ssh2",
+      "cpu-features",
+      "dtrace-provider",
+      "isolated-vm",
+      "lightningcss",
+      "pg-native",
+      "oracledb",
+      "mongodb-client-encryption",
+      "nodemailer",
+      "handlebars",
+      "knex",
+      "typeorm",
+      "protobufjs",
+      "onnxruntime-node",
+      "@tensorflow/*",
+      "@prisma/client",
+      "@mikro-orm/*",
+      "@grpc/*",
+      "@swc/*",
+      "@aws-sdk/*",
+      "@azure/*",
+      "@opentelemetry/*",
+      "@google-cloud/*",
+      "@google/*",
+      "googleapis",
+      "firebase-admin",
+      "@parcel/watcher",
+      "@sentry/profiling-node",
+      "@tree-sitter/*",
+      "aws-sdk",
+      "classic-level",
+      "dd-trace",
+      "ffi-napi",
+      "grpc",
+      "hiredis",
+      "kerberos",
+      "leveldown",
+      "miniflare",
+      "mysql2",
+      "newrelic",
+      "odbc",
+      "piscina",
+      "realm",
+      "ref-napi",
+      "rocksdb",
+      "sass-embedded",
+      "sequelize",
+      "serialport",
+      "snappy",
+      "tinypool",
+      "usb",
+      "workerd",
+      "wrangler",
+      "zeromq",
+      "zeromq-prebuilt",
+      "playwright",
+      "puppeteer",
+      "puppeteer-core",
+      "puppeteer-extra",
+      "puppeteer-extra-plugin-stealth",
+      "electron",
     ],
     sourcemap: "linked",
-    plugins: [esbuildPluginPino({ transports: ["pino-pretty"] })],
+    plugins: [
+      esbuildPluginPino({ transports: ["pino-pretty"] })
+    ],
     banner: {
       js: `import { createRequire as __bannerCrReq } from 'node:module';
 import __bannerPath from 'node:path';
 import __bannerUrl from 'node:url';
+
 globalThis.require = __bannerCrReq(import.meta.url);
 globalThis.__filename = __bannerUrl.fileURLToPath(import.meta.url);
 globalThis.__dirname = __bannerPath.dirname(globalThis.__filename);
@@ -2163,12 +2337,13 @@ globalThis.__dirname = __bannerPath.dirname(globalThis.__filename);
   });
 }
 
-buildAll().catch((err) => { console.error(err); process.exit(1); });
+buildAll().catch((err) => {
+  console.error(err);
+  process.exit(1);
+});
 ```
 
----
-
-### artifacts/api-server/package.json
+### package.json (API Server)
 
 ```json
 {
@@ -2177,43 +2352,45 @@ buildAll().catch((err) => { console.error(err); process.exit(1); });
   "private": true,
   "type": "module",
   "scripts": {
-    "dev":       "export NODE_ENV=development && pnpm run build && pnpm run start",
-    "build":     "node ./build.mjs",
-    "start":     "node --enable-source-maps ./dist/index.mjs",
+    "dev": "export NODE_ENV=development && pnpm run build && pnpm run start",
+    "build": "node ./build.mjs",
+    "start": "node --enable-source-maps ./dist/index.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@workspace/api-zod":              "workspace:*",
-    "@workspace/db":                   "workspace:*",
-    "connect-pg-simple":               "^10.0.0",
-    "cookie-parser":                   "^1.4.7",
-    "cors":                            "^2",
-    "drizzle-orm":                     "catalog:",
-    "express":                         "^5",
-    "express-rate-limit":              "^8.3.2",
-    "express-session":                 "^1.19.0",
-    "passport":                        "^0.7.0",
-    "passport-google-oauth20":         "^2.0.0",
-    "pino":                            "^9",
-    "pino-http":                       "^10",
-    "puppeteer":                       "^24.40.0",
-    "puppeteer-extra":                 "^3.3.6",
-    "puppeteer-extra-plugin-stealth":  "^2.11.2",
-    "resend":                          "^6.10.0"
+    "@google-cloud/storage": "^7.19.0",
+    "@workspace/api-zod": "workspace:*",
+    "@workspace/db": "workspace:*",
+    "connect-pg-simple": "^10.0.0",
+    "cookie-parser": "^1.4.7",
+    "cors": "^2",
+    "drizzle-orm": "catalog:",
+    "express": "^5",
+    "express-rate-limit": "^8.3.2",
+    "express-session": "^1.19.0",
+    "google-auth-library": "^10.6.2",
+    "passport": "^0.7.0",
+    "passport-google-oauth20": "^2.0.0",
+    "pino": "^9",
+    "pino-http": "^10",
+    "puppeteer": "^24.40.0",
+    "puppeteer-extra": "^3.3.6",
+    "puppeteer-extra-plugin-stealth": "^2.11.2",
+    "resend": "^6.10.0"
   },
   "devDependencies": {
-    "@types/connect-pg-simple":        "^7.0.3",
-    "@types/cookie-parser":            "^1.4.10",
-    "@types/cors":                     "^2.8.19",
-    "@types/express":                  "^5.0.6",
-    "@types/express-session":          "^1.18.2",
-    "@types/node":                     "catalog:",
-    "@types/passport":                 "^1.0.17",
-    "@types/passport-google-oauth20":  "^2.0.17",
-    "esbuild":                         "^0.27.3",
-    "esbuild-plugin-pino":             "^2.3.3",
-    "pino-pretty":                     "^13",
-    "thread-stream":                   "3.1.0"
+    "@types/connect-pg-simple": "^7.0.3",
+    "@types/cookie-parser": "^1.4.10",
+    "@types/cors": "^2.8.19",
+    "@types/express": "^5.0.6",
+    "@types/express-session": "^1.18.2",
+    "@types/node": "catalog:",
+    "@types/passport": "^1.0.17",
+    "@types/passport-google-oauth20": "^2.0.17",
+    "esbuild": "^0.27.3",
+    "esbuild-plugin-pino": "^2.3.3",
+    "pino-pretty": "^13",
+    "thread-stream": "3.1.0"
   }
 }
 ```
@@ -2222,9 +2399,9 @@ buildAll().catch((err) => { console.error(err); process.exit(1); });
 
 ## 5. INVENTORY PORTAL — React/Vite Frontend {#portal}
 
-### artifacts/inventory-portal/src/main.tsx
+### main.tsx
 
-```tsx
+```typescript
 import { createRoot } from "react-dom/client";
 import App from "./App";
 import "./index.css";
@@ -2232,17 +2409,16 @@ import "./index.css";
 createRoot(document.getElementById("root")!).render(<App />);
 ```
 
----
+### App.tsx
 
-### artifacts/inventory-portal/src/App.tsx
-
-```tsx
+```typescript
 import React from "react";
 import { Switch, Route, Router as WouterRouter, useLocation } from "wouter";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { useGetMe } from "@workspace/api-client-react";
+
 import { Layout } from "@/components/layout";
 import { FullScreenSpinner } from "@/components/ui/spinner";
 import NotFound from "@/pages/not-found";
@@ -2256,34 +2432,48 @@ const queryClient = new QueryClient();
 function RequireAuth({ children }: { children: React.ReactNode }) {
   const [, setLocation] = useLocation();
   const { isLoading, error } = useGetMe({ query: { retry: false } });
+
   React.useEffect(() => {
     if (!error) return;
     const status = (error as any)?.response?.status;
     if (status === 401) setLocation("/login");
     else if (status === 403) setLocation("/denied");
   }, [error, setLocation]);
+
   if (isLoading) return <FullScreenSpinner />;
   if (error)     return null;
+
   return <>{children}</>;
 }
 
 function Router() {
   return (
     <Switch>
-      <Route path="/login"  component={Login} />
+      <Route path="/login" component={Login} />
       <Route path="/denied" component={AccessDenied} />
+      
       <Route path="/">
-        <RequireAuth><Layout><Inventory /></Layout></RequireAuth>
+        <RequireAuth>
+          <Layout>
+            <Inventory />
+          </Layout>
+        </RequireAuth>
       </Route>
+      
       <Route path="/admin">
-        <RequireAuth><Layout><Admin /></Layout></RequireAuth>
+        <RequireAuth>
+          <Layout>
+            <Admin />
+          </Layout>
+        </RequireAuth>
       </Route>
+
       <Route component={NotFound} />
     </Switch>
   );
 }
 
-export default function App() {
+function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
@@ -2295,24 +2485,26 @@ export default function App() {
     </QueryClientProvider>
   );
 }
+
+export default App;
 ```
 
----
+### components/layout.tsx
 
-### artifacts/inventory-portal/src/components/layout.tsx
-
-```tsx
+```typescript
 import { Link } from "wouter";
 import { useGetMe } from "@workspace/api-client-react";
 import { Car, LogOut, Settings } from "lucide-react";
 
 export function Layout({ children }: { children: React.ReactNode }) {
   const { data: user } = useGetMe({ query: { retry: false } });
+
   return (
     <div className="min-h-screen flex flex-col bg-gray-50">
       <header className="sticky top-0 z-40 w-full bg-white border-b border-gray-200 shadow-sm">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center h-14">
+
             <div className="flex items-center gap-2.5">
               <div className="w-7 h-7 rounded-lg bg-blue-600 flex items-center justify-center">
                 <Car className="w-4 h-4 text-white" />
@@ -2321,23 +2513,38 @@ export function Layout({ children }: { children: React.ReactNode }) {
                 Inventory Portal
               </Link>
             </div>
+
             {user && (
               <div className="flex items-center gap-3">
                 {user.isOwner && (
-                  <Link href="/admin" className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-900 transition-colors px-3 py-1.5 rounded-lg hover:bg-gray-100">
-                    <Settings className="w-4 h-4" /><span className="hidden sm:inline">Manage Access</span>
+                  <Link
+                    href="/admin"
+                    className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-900 transition-colors px-3 py-1.5 rounded-lg hover:bg-gray-100"
+                  >
+                    <Settings className="w-4 h-4" />
+                    <span className="hidden sm:inline">Manage Access</span>
                   </Link>
                 )}
+
                 <div className="h-5 w-px bg-gray-200 hidden sm:block" />
+
                 <div className="flex items-center gap-2.5">
                   <div className="hidden sm:flex flex-col items-end">
                     <span className="text-sm font-medium text-gray-800 leading-none">{user.name}</span>
                     <span className="text-xs text-gray-400 mt-0.5">{user.email}</span>
                   </div>
-                  {user.picture
-                    ? <img src={user.picture} alt={user.name} className="w-8 h-8 rounded-full ring-1 ring-gray-200" />
-                    : <div className="w-8 h-8 rounded-full bg-gray-100 border border-gray-200 flex items-center justify-center"><span className="text-xs font-bold text-gray-600">{user.name.charAt(0).toUpperCase()}</span></div>}
-                  <a href="/api/auth/logout" title="Sign Out" className="p-1.5 rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 transition-colors">
+                  {user.picture ? (
+                    <img src={user.picture} alt={user.name} className="w-8 h-8 rounded-full ring-1 ring-gray-200" />
+                  ) : (
+                    <div className="w-8 h-8 rounded-full bg-gray-100 border border-gray-200 flex items-center justify-center">
+                      <span className="text-xs font-bold text-gray-600">{user.name.charAt(0).toUpperCase()}</span>
+                    </div>
+                  )}
+                  <a
+                    href="/api/auth/logout"
+                    title="Sign Out"
+                    className="p-1.5 rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 transition-colors"
+                  >
                     <LogOut className="w-4 h-4" />
                   </a>
                 </div>
@@ -2346,17 +2553,18 @@ export function Layout({ children }: { children: React.ReactNode }) {
           </div>
         </div>
       </header>
-      <main className="flex-1 w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">{children}</main>
+
+      <main className="flex-1 w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        {children}
+      </main>
     </div>
   );
 }
 ```
 
----
+### pages/login.tsx
 
-### artifacts/inventory-portal/src/pages/login.tsx
-
-```tsx
+```typescript
 import { Car, Lock } from "lucide-react";
 
 export default function Login() {
@@ -2366,10 +2574,16 @@ export default function Login() {
         <div className="w-12 h-12 rounded-xl bg-blue-600 flex items-center justify-center mb-5">
           <Car className="w-6 h-6 text-white" />
         </div>
+
         <h1 className="text-xl font-semibold text-gray-900 mb-2">Inventory Portal</h1>
-        <p className="text-sm text-gray-500 mb-7">Access is restricted to authorized personnel. Sign in with your Google account to continue.</p>
-        <a href="/api/auth/google"
-          className="w-full inline-flex items-center justify-center gap-3 px-5 py-2.5 border border-gray-200 rounded-lg bg-white text-sm font-medium text-gray-700 hover:bg-gray-50 hover:border-gray-300 transition-colors shadow-sm">
+        <p className="text-sm text-gray-500 mb-7">
+          Access is restricted to authorized personnel. Sign in with your Google account to continue.
+        </p>
+
+        <a
+          href="/api/auth/google"
+          className="w-full inline-flex items-center justify-center gap-3 px-5 py-2.5 border border-gray-200 rounded-lg bg-white text-sm font-medium text-gray-700 hover:bg-gray-50 hover:border-gray-300 transition-colors shadow-sm"
+        >
           <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24">
             <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/>
             <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/>
@@ -2378,38 +2592,49 @@ export default function Login() {
           </svg>
           Sign in with Google
         </a>
-        <p className="mt-6 flex items-center gap-1.5 text-xs text-gray-400"><Lock className="w-3 h-3" />Secure authentication via Google</p>
+
+        <p className="mt-6 flex items-center gap-1.5 text-xs text-gray-400">
+          <Lock className="w-3 h-3" />
+          Secure authentication via Google
+        </p>
       </div>
     </div>
   );
 }
 ```
 
----
+### pages/denied.tsx
 
-### artifacts/inventory-portal/src/pages/denied.tsx
-
-```tsx
+```typescript
 import { ShieldAlert } from "lucide-react";
 import { useGetMe } from "@workspace/api-client-react";
 
 export default function AccessDenied() {
   const { data: user } = useGetMe({ query: { retry: false } });
+
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-50 px-4">
       <div className="w-full max-w-sm bg-white border border-gray-200 rounded-xl shadow-sm p-8 flex flex-col items-center text-center">
         <div className="w-12 h-12 rounded-full bg-red-50 border border-red-100 flex items-center justify-center mb-5">
           <ShieldAlert className="w-6 h-6 text-red-500" />
         </div>
+
         <h1 className="text-xl font-semibold text-gray-900 mb-2">Access Denied</h1>
-        <p className="text-sm text-gray-500 mb-5">You don't have permission to view this portal. Contact the owner to request access.</p>
+        <p className="text-sm text-gray-500 mb-5">
+          You don't have permission to view this portal. Contact the owner to request access.
+        </p>
+
         {user && (
           <div className="w-full bg-gray-50 border border-gray-200 rounded-lg px-4 py-3 mb-6 text-left">
             <p className="text-xs text-gray-400 mb-0.5">Signed in as</p>
             <p className="text-sm font-medium text-gray-800">{user.email}</p>
           </div>
         )}
-        <a href="/api/auth/logout" className="w-full inline-flex items-center justify-center px-5 py-2.5 border border-gray-200 rounded-lg text-sm font-medium text-gray-600 hover:bg-gray-50 hover:text-gray-900 transition-colors">
+
+        <a
+          href="/api/auth/logout"
+          className="w-full inline-flex items-center justify-center px-5 py-2.5 border border-gray-200 rounded-lg text-sm font-medium text-gray-600 hover:bg-gray-50 hover:text-gray-900 transition-colors"
+        >
           Sign out and try another account
         </a>
       </div>
@@ -2418,71 +2643,476 @@ export default function AccessDenied() {
 }
 ```
 
+### pages/not-found.tsx
+
+```typescript
+import { Card, CardContent } from "@/components/ui/card";
+import { AlertCircle } from "lucide-react";
+
+export default function NotFound() {
+  return (
+    <div className="min-h-screen w-full flex items-center justify-center bg-gray-50">
+      <Card className="w-full max-w-md mx-4">
+        <CardContent className="pt-6">
+          <div className="flex mb-4 gap-2">
+            <AlertCircle className="h-8 w-8 text-red-500" />
+            <h1 className="text-2xl font-bold text-gray-900">404 Page Not Found</h1>
+          </div>
+
+          <p className="mt-4 text-sm text-gray-600">
+            Did you forget to add the page to the router?
+          </p>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+```
+
+### pages/inventory.tsx
+
+(698 lines — full source in codebase at `artifacts/inventory-portal/src/pages/inventory.tsx`)
+
+Key features:
+- **View mode toggle**: Own / User / Cust — persisted to localStorage
+  - Own: shows matrixPrice, cost, bbAvgWholesale, BB expanded rows
+  - User: shows PAC cost, online price, BB values (no matrixPrice/cost)
+  - Cust: hides all pricing and BB values
+- **BB expanded rows**: Click book avg value to expand inline purple row showing X-Clean/Clean/Average/Rough wholesale grades
+- **Photo gallery modal**: Full-screen lightbox with keyboard navigation, thumbnail strip
+- **Filters**: Year range, KM max, PAC cost range — with active filter chips
+- **Sort**: Location, vehicle, VIN, KM, price — ascending/descending
+- **Search**: Vehicle name, VIN, location
+- **Mobile cards**: Responsive card layout under 768px width
+- **Desktop table**: Full-width row layout with all columns
+- **Deduplication**: By VIN — keeps lowest-priced entry
+- **Auto-refresh**: Polls cache-status every 60s, refetches inventory on change
+- **Manual BB refresh**: Owner-only "Book Avg" button triggers `/api/refresh-blackbook`
+
+### pages/admin.tsx
+
+(327 lines — full source in codebase at `artifacts/inventory-portal/src/pages/admin.tsx`)
+
+Key features:
+- **Grant Access form**: Email input + role selector (Viewer/Guest) + invitation email via Resend
+- **Users tab**: Table of approved users with inline role selector dropdown and remove button
+- **Audit Log tab**: Chronological table of all add/remove/role_change events
+- **Role legend**: Viewer (sees all data) / Guest (prices hidden)
+
+### vite.config.ts
+
+```typescript
+import { defineConfig } from "vite";
+import react from "@vitejs/plugin-react";
+import tailwindcss from "@tailwindcss/vite";
+import path from "path";
+import runtimeErrorOverlay from "@replit/vite-plugin-runtime-error-modal";
+
+const rawPort = process.env.PORT;
+const port = rawPort ? Number(rawPort) : 3000;
+
+const basePath = process.env.BASE_PATH || "/";
+
+export default defineConfig({
+  base: basePath,
+  plugins: [
+    react(),
+    tailwindcss(),
+    runtimeErrorOverlay(),
+    ...(process.env.NODE_ENV !== "production" &&
+    process.env.REPL_ID !== undefined
+      ? [
+          await import("@replit/vite-plugin-cartographer").then((m) =>
+            m.cartographer({
+              root: path.resolve(import.meta.dirname, ".."),
+            }),
+          ),
+          await import("@replit/vite-plugin-dev-banner").then((m) =>
+            m.devBanner(),
+          ),
+        ]
+      : []),
+  ],
+  resolve: {
+    alias: {
+      "@": path.resolve(import.meta.dirname, "src"),
+      "@assets": path.resolve(import.meta.dirname, "..", "..", "attached_assets"),
+    },
+    dedupe: ["react", "react-dom"],
+  },
+  root: path.resolve(import.meta.dirname),
+  build: {
+    outDir: path.resolve(import.meta.dirname, "dist/public"),
+    emptyOutDir: true,
+  },
+  server: {
+    port,
+    host: "0.0.0.0",
+    allowedHosts: true,
+    fs: {
+      strict: true,
+      deny: ["**/.*"],
+    },
+  },
+  preview: {
+    port,
+    host: "0.0.0.0",
+    allowedHosts: true,
+  },
+});
+```
+
+### package.json (Inventory Portal)
+
+```json
+{
+  "name": "@workspace/inventory-portal",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --config vite.config.ts --host 0.0.0.0",
+    "build": "vite build --config vite.config.ts",
+    "serve": "vite preview --config vite.config.ts --host 0.0.0.0",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "devDependencies": {
+    "@hookform/resolvers": "^3.10.0",
+    "@radix-ui/react-accordion": "^1.2.4",
+    "@radix-ui/react-alert-dialog": "^1.1.7",
+    "@radix-ui/react-aspect-ratio": "^1.1.3",
+    "@radix-ui/react-avatar": "^1.1.4",
+    "@radix-ui/react-checkbox": "^1.1.5",
+    "@radix-ui/react-collapsible": "^1.1.4",
+    "@radix-ui/react-context-menu": "^2.2.7",
+    "@radix-ui/react-dialog": "^1.1.7",
+    "@radix-ui/react-dropdown-menu": "^2.1.7",
+    "@radix-ui/react-hover-card": "^1.1.7",
+    "@radix-ui/react-label": "^2.1.3",
+    "@radix-ui/react-menubar": "^1.1.7",
+    "@radix-ui/react-navigation-menu": "^1.2.6",
+    "@radix-ui/react-popover": "^1.1.7",
+    "@radix-ui/react-progress": "^1.1.3",
+    "@radix-ui/react-radio-group": "^1.2.4",
+    "@radix-ui/react-scroll-area": "^1.2.4",
+    "@radix-ui/react-select": "^2.1.7",
+    "@radix-ui/react-separator": "^1.1.3",
+    "@radix-ui/react-slider": "^1.2.4",
+    "@radix-ui/react-slot": "^1.2.0",
+    "@radix-ui/react-switch": "^1.1.4",
+    "@radix-ui/react-tabs": "^1.1.4",
+    "@radix-ui/react-toast": "^1.2.7",
+    "@radix-ui/react-toggle": "^1.1.3",
+    "@radix-ui/react-toggle-group": "^1.1.3",
+    "@radix-ui/react-tooltip": "^1.2.0",
+    "@replit/vite-plugin-cartographer": "catalog:",
+    "@replit/vite-plugin-dev-banner": "catalog:",
+    "@replit/vite-plugin-runtime-error-modal": "catalog:",
+    "@tailwindcss/typography": "^0.5.15",
+    "@tailwindcss/vite": "catalog:",
+    "@tanstack/react-query": "catalog:",
+    "@types/node": "catalog:",
+    "@types/react": "catalog:",
+    "@types/react-dom": "catalog:",
+    "@vitejs/plugin-react": "catalog:",
+    "@workspace/api-client-react": "workspace:*",
+    "class-variance-authority": "catalog:",
+    "clsx": "catalog:",
+    "cmdk": "^1.1.1",
+    "date-fns": "^3.6.0",
+    "embla-carousel-react": "^8.6.0",
+    "framer-motion": "catalog:",
+    "input-otp": "^1.4.2",
+    "lucide-react": "catalog:",
+    "next-themes": "^0.4.6",
+    "react": "catalog:",
+    "react-day-picker": "^9.11.1",
+    "react-dom": "catalog:",
+    "react-hook-form": "^7.55.0",
+    "react-icons": "^5.4.0",
+    "react-resizable-panels": "^2.1.7",
+    "recharts": "^2.15.2",
+    "sonner": "^2.0.7",
+    "tailwind-merge": "catalog:",
+    "tailwindcss": "catalog:",
+    "tw-animate-css": "^1.4.0",
+    "vaul": "^1.1.2",
+    "vite": "catalog:",
+    "wouter": "^3.3.5",
+    "zod": "catalog:"
+  }
+}
+```
+
 ---
 
-### artifacts/inventory-portal/src/pages/inventory.tsx
+## 6. OPENAPI SPECIFICATION {#openapi}
 
-Full inventory page — search, sort, filters, mobile cards, desktop table,
-photo gallery modal, Carfax link, website link, online price, copy-VIN.
+```yaml
+openapi: 3.1.0
+info:
+  title: Api
+  version: 0.1.0
+  description: API specification
+servers:
+  - url: /api
+    description: Base API path
+tags:
+  - name: health
+    description: Health operations
+  - name: auth
+    description: Authentication
+  - name: inventory
+    description: Inventory data
+  - name: access
+    description: Access list management
+  - name: audit
+    description: Audit log
+paths:
+  /healthz:
+    get:
+      operationId: healthCheck
+      tags: [health]
+      summary: Health check
+      responses:
+        "200":
+          description: Healthy
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthStatus"
 
-(See full source in the repository at artifacts/inventory-portal/src/pages/inventory.tsx — 537 lines)
+  /me:
+    get:
+      operationId: getMe
+      tags: [auth]
+      summary: Get current authenticated user
+      responses:
+        "200":
+          description: Current user
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+        "401":
+          description: Not authenticated
 
-The key logical sections:
-- `parseNum / extractYear / formatPrice / timeAgo` — formatting utilities
-- `CopyVin` — click-to-copy VIN with checkmark feedback
-- `PhotoGallery` — full-screen lightbox with keyboard nav (arrow keys + Esc)
-- `PhotoThumb` — camera icon that opens the gallery
-- `VehicleCard` — mobile card layout
-- `RangeInputs` — reusable min/max filter pair
-- `FilterChip` — removable active filter badge
-- `Inventory` (default export) — main page:
-  - Deduplicates VINs (keeps lowest price when same VIN appears twice)
-  - Filters: text search, year range, max KM, price range (hidden for guests)
-  - Sorts: any column, asc/desc
-  - Auto-refreshes when cache-status detects a new update (polls every 60s)
-  - Renders mobile cards on viewports < 768px, desktop table otherwise
+  /inventory:
+    get:
+      operationId: getInventory
+      tags: [inventory]
+      summary: Get all inventory items (role-filtered)
+      responses:
+        "200":
+          description: List of inventory items
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/InventoryItem"
+        "401":
+          description: Not authenticated
+        "403":
+          description: Access denied
+
+  /cache-status:
+    get:
+      operationId: getCacheStatus
+      tags: [inventory]
+      summary: Get cache refresh status and BB worker status
+      responses:
+        "200":
+          description: Cache status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CacheStatus"
+
+  /vehicle-images:
+    get:
+      operationId: getVehicleImages
+      tags: [inventory]
+      summary: Get photo gallery URLs for a vehicle by VIN
+      parameters:
+        - name: vin
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Vehicle image URLs
+
+  /access:
+    get:
+      operationId: getAccessList
+      tags: [access]
+      summary: Get list of approved emails (owner only)
+    post:
+      operationId: addAccessEntry
+      tags: [access]
+      summary: Add an email to the access list (owner only)
+
+  /access/{email}:
+    patch:
+      operationId: updateAccessRole
+      tags: [access]
+      summary: Update a user's role (owner only)
+    delete:
+      operationId: removeAccessEntry
+      tags: [access]
+      summary: Remove an email from the access list (owner only)
+
+  /audit-log:
+    get:
+      operationId: getAuditLog
+      tags: [audit]
+      summary: Get audit log of access changes (owner only)
+
+components:
+  schemas:
+    HealthStatus:
+      type: object
+      properties:
+        status:
+          type: string
+      required: [status]
+
+    User:
+      type: object
+      properties:
+        email:
+          type: string
+        name:
+          type: string
+        picture:
+          type: string
+        isOwner:
+          type: boolean
+        role:
+          type: string
+      required: [email, name, isOwner, role]
+
+    InventoryItem:
+      type: object
+      properties:
+        location:
+          type: string
+        vehicle:
+          type: string
+        vin:
+          type: string
+        price:
+          type: string
+        km:
+          type: string
+        carfax:
+          type: string
+        website:
+          type: string
+        onlinePrice:
+          type: string
+        matrixPrice:
+          type: string
+          nullable: true
+        cost:
+          type: string
+          nullable: true
+        bbAvgWholesale:
+          type: string
+          nullable: true
+      required: [location, vehicle, vin, price]
+
+    CacheStatus:
+      type: object
+      properties:
+        lastUpdated:
+          type: string
+          nullable: true
+        isRefreshing:
+          type: boolean
+        count:
+          type: integer
+      required: [isRefreshing, count]
+
+    VehicleImages:
+      type: object
+      properties:
+        vin:
+          type: string
+        urls:
+          type: array
+          items:
+            type: string
+      required: [vin, urls]
+
+    AccessEntry:
+      type: object
+      properties:
+        email:
+          type: string
+        addedAt:
+          type: string
+        addedBy:
+          type: string
+        role:
+          type: string
+      required: [email, addedAt, addedBy, role]
+
+    AddAccessRequest:
+      type: object
+      properties:
+        email:
+          type: string
+        role:
+          type: string
+      required: [email]
+
+    UpdateAccessRoleRequest:
+      type: object
+      properties:
+        role:
+          type: string
+      required: [role]
+
+    AuditLogEntry:
+      type: object
+      properties:
+        id:
+          type: integer
+        action:
+          type: string
+        targetEmail:
+          type: string
+        changedBy:
+          type: string
+        roleFrom:
+          type: string
+          nullable: true
+        roleTo:
+          type: string
+          nullable: true
+        timestamp:
+          type: string
+      required: [id, action, targetEmail, changedBy, timestamp]
+
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+      required: [error]
+
+    SuccessResponse:
+      type: object
+      properties:
+        ok:
+          type: boolean
+      required: [ok]
+```
 
 ---
 
-### artifacts/inventory-portal/src/pages/admin.tsx
-
-Access management page — owner only.
-
-Key sections:
-- `RoleSelector` — dropdown to switch a user between Viewer and Guest
-- `Admin` (default export):
-  - Tab 1 (Users): lists all approved users, add/remove/change-role
-  - Tab 2 (Audit Log): timestamped record of every add/remove/role-change
-  - Role legend explaining Viewer vs Guest permissions
-  - Invitation email sent automatically on user add (via emailService)
-
----
-
-## 6. REUSABLE AUTOMATION TEMPLATE {#template}
-
-### templates/dealerPortalWorker.template.ts
-
-Generic template for adapting this automation approach to any dealer portal
-(e.g. Cherry Black Book). Fill in the three functions marked IMPLEMENT and
-the constants at the top. Everything else is portal-agnostic and reusable.
-
-(See full source at templates/dealerPortalWorker.template.ts)
-
-What to fill in:
-| Item | What it is |
-|---|---|
-| `PORTAL_LOGIN_URL` | Login page URL |
-| `PORTAL_HOME_URL` | Authenticated home page URL |
-| `PORTAL_SEARCH_URL` | Search page URL |
-| `SESSION_FILE` | Path to save session cookies |
-| `isLoggedIn(page)` | Return true if already authenticated |
-| `loginFresh(page)` | Enter credentials, submit, save cookies |
-| `lookupId(page, id)` | Search for one ID, return the extracted value |
-
-Everything else (anti-detection, stealth plugin, human behavior,
-session persistence, Apps Script bridge, retry logic, nightly scheduler)
-is already written and ready to use.
-
----
-
-*End of document — generated April 2026*
+*Document generated April 11, 2026. Covers all source code as of latest deployment to script-reviewer.replit.app.*
+*The blackBookWorker.ts (880 lines) and carfaxWorker.ts (880+ lines) are summarized with key section references — full source is in the codebase.*
