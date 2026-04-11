@@ -77,10 +77,15 @@ function CopyVin({ vin }: { vin: string }) {
 }
 
 // Photo gallery modal
-function PhotoGallery({ vin, onClose }: { vin: string; onClose: () => void }) {
+function PhotoGallery({ vin, onClose, onWebsiteFound }: { vin: string; onClose: () => void; onWebsiteFound?: (url: string) => void }) {
   const [idx, setIdx] = useState(0);
   const { data, isLoading } = useGetVehicleImages({ vin });
   const urls = data?.urls ?? [];
+
+  useEffect(() => {
+    const url = (data as any)?.websiteUrl;
+    if (url && onWebsiteFound) onWebsiteFound(url);
+  }, [(data as any)?.websiteUrl]);
 
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
@@ -141,7 +146,7 @@ function PhotoGallery({ vin, onClose }: { vin: string; onClose: () => void }) {
   );
 }
 
-function PhotoThumb({ vin }: { vin: string }) {
+function PhotoThumb({ vin, onWebsiteFound }: { vin: string; onWebsiteFound?: (url: string) => void }) {
   const [open, setOpen] = useState(false);
   return (
     <>
@@ -149,26 +154,27 @@ function PhotoThumb({ vin }: { vin: string }) {
         className="p-1.5 rounded text-gray-400 hover:text-blue-600 hover:bg-blue-50 transition-colors">
         <Camera className="w-4 h-4" />
       </button>
-      {open && <PhotoGallery vin={vin} onClose={() => setOpen(false)} />}
+      {open && <PhotoGallery vin={vin} onClose={() => setOpen(false)} onWebsiteFound={onWebsiteFound} />}
     </>
   );
 }
 
-function VehicleCard({ item, showPacCost, showOwnerCols }: { item: any; showPacCost: boolean; showOwnerCols: boolean }) {
+function VehicleCard({ item, showPacCost, showOwnerCols, websiteUrl, onWebsiteFound }: { item: any; showPacCost: boolean; showOwnerCols: boolean; websiteUrl?: string; onWebsiteFound?: (url: string) => void }) {
+  const listingUrl = websiteUrl || (item.website && item.website !== "NOT FOUND" ? item.website : null);
   return (
     <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
       <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
         <span className="text-xs font-bold text-gray-500 uppercase tracking-wide">{item.location}</span>
         <div className="flex items-center gap-2">
-          <PhotoThumb vin={item.vin} />
+          <PhotoThumb vin={item.vin} onWebsiteFound={onWebsiteFound} />
           {item.carfax && item.carfax !== "NOT FOUND" && (
             <a href={item.carfax} target="_blank" rel="noopener noreferrer"
               className="p-1.5 text-gray-500 hover:text-gray-900 hover:bg-gray-100 rounded transition-colors" title="Carfax">
               <FileText className="w-4 h-4" />
             </a>
           )}
-          {item.website && item.website !== "NOT FOUND" && (
-            <a href={item.website} target="_blank" rel="noopener noreferrer"
+          {listingUrl && (
+            <a href={listingUrl} target="_blank" rel="noopener noreferrer"
               className="p-1.5 text-blue-500 hover:text-blue-700 hover:bg-blue-50 rounded transition-colors" title="Listing">
               <ExternalLink className="w-4 h-4" />
             </a>
@@ -259,11 +265,16 @@ function FilterChip({ label, onRemove }: { label: string; onRemove: () => void }
 
 // ─── Main page ───────────────────────────────────────────────────────────────
 export default function Inventory() {
-  const [search,      setSearch]      = useState("");
-  const [sortKey,     setSortKey]     = useState<SortKey>("vehicle");
-  const [sortDir,     setSortDir]     = useState<SortDir>("asc");
-  const [showFilters, setShowFilters] = useState(false);
-  const [filters,     setFilters]     = useState<Filters>(EMPTY_FILTERS);
+  const [search,          setSearch]          = useState("");
+  const [sortKey,         setSortKey]         = useState<SortKey>("vehicle");
+  const [sortDir,         setSortDir]         = useState<SortDir>("asc");
+  const [showFilters,     setShowFilters]     = useState(false);
+  const [filters,         setFilters]         = useState<Filters>(EMPTY_FILTERS);
+  const [discoveredLinks, setDiscoveredLinks] = useState<Record<string, string>>({});
+
+  const handleWebsiteFound = useCallback((vin: string, url: string) => {
+    setDiscoveredLinks((prev) => (prev[vin] === url ? prev : { ...prev, [vin]: url }));
+  }, []);
   const [, setLocation]               = useLocation();
   const lastKnownUpdate               = useRef<string | null>(null);
 
@@ -515,7 +526,9 @@ export default function Inventory() {
         sorted.length === 0 ? emptyState : (
           <div className="space-y-3">
             {sorted.map((item, i) => (
-              <VehicleCard key={`${item.vin}-${i}`} item={item} showPacCost={showPacCost} showOwnerCols={showOwnerCols} />
+              <VehicleCard key={`${item.vin}-${i}`} item={item} showPacCost={showPacCost} showOwnerCols={showOwnerCols}
+                websiteUrl={discoveredLinks[item.vin]}
+                onWebsiteFound={(url) => handleWebsiteFound(item.vin, url)} />
             ))}
           </div>
         )
@@ -574,14 +587,19 @@ export default function Inventory() {
                         </a>
                       : <span className="text-gray-200 text-sm">—</span>}
                   </div>
-                  <div className="w-8 shrink-0 flex justify-center"><PhotoThumb vin={item.vin} /></div>
                   <div className="w-8 shrink-0 flex justify-center">
-                    {item.website && item.website !== "NOT FOUND"
-                      ? <a href={item.website} target="_blank" rel="noopener noreferrer"
-                          className="p-1 text-blue-500 hover:text-blue-700 hover:bg-blue-50 rounded transition-colors" title="View Listing">
-                          <ExternalLink className="w-4 h-4" />
-                        </a>
-                      : <span className="text-gray-200 text-sm">—</span>}
+                    <PhotoThumb vin={item.vin} onWebsiteFound={(url) => handleWebsiteFound(item.vin, url)} />
+                  </div>
+                  <div className="w-8 shrink-0 flex justify-center">
+                    {(() => {
+                      const url = discoveredLinks[item.vin] || (item.website && item.website !== "NOT FOUND" ? item.website : null);
+                      return url
+                        ? <a href={url} target="_blank" rel="noopener noreferrer"
+                            className="p-1 text-blue-500 hover:text-blue-700 hover:bg-blue-50 rounded transition-colors" title="View Listing">
+                            <ExternalLink className="w-4 h-4" />
+                          </a>
+                        : <span className="text-gray-200 text-sm">—</span>;
+                    })()}
                   </div>
                 </div>
               ))}

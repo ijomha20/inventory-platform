@@ -16,13 +16,31 @@ const DEALER_COLLECTIONS = [
     name:       "Matrix",
     collection: "cebacbca97920d818d57c6f0526d7413",
     apiKey:     "ZWoxa3NxVmJLWFBOK2dWcUFBM1V0aTJyb09wUDhFZ0R5Vnc1blc2RW9Kdz1oZmUweyJmaWx0ZXJfYnkiOiJzdGF0dXM6W0luc3RvY2ssIFNvbGRdICYmIHZpc2liaWxpdHk6PjAgJiYgZGVsZXRlZF9hdDo9MCJ9",
+    siteUrl:    "https://www.matrixmotorsyeg.ca",
   },
   {
     name:       "Parkdale",
     collection: "37042ac7ece3a217b1a41d6f54ba6855",
     apiKey:     "bENlSmdIaVJWNGhTcjBnZ3BaN2JxajBINWcvdzREZ21hQnFMZWM3OWJBRT1oZmUweyJmaWx0ZXJfYnkiOiJzdGF0dXM6W0luc3RvY2tdICYmIHZpc2liaWxpdHk6PjAgJiYgZGVsZXRlZF9hdDo9MCJ9",
+    siteUrl:    "https://www.parkdalemotors.ca",
   },
 ];
+
+function extractWebsiteUrl(doc: any, siteUrl: string): string | null {
+  if (doc.page_url) {
+    const path = doc.page_url.toString().trim().replace(/^\/+|\/+$/g, "");
+    return `${siteUrl}/${path}/`;
+  }
+  const id   = doc.id || doc.post_id || doc.vehicle_id || "";
+  let   slug = doc.slug || doc.url_slug || "";
+  if (!slug && doc.year && doc.make && doc.model) {
+    slug = [doc.year, doc.make, doc.model, doc.trim || ""]
+      .filter((p: any) => String(p).trim() !== "")
+      .join(" ").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+  }
+  if (!id || !slug) return null;
+  return `${siteUrl}/inventory/${slug}/${id}/`;
+}
 
 // Determine the calling user's role ('owner' | 'viewer' | 'guest')
 async function getUserRole(req: any): Promise<string> {
@@ -115,6 +133,7 @@ router.get("/vehicle-images", requireAccess, async (req, res) => {
   }
 
   const urls: string[] = [];
+  let websiteUrl: string | null = null;
 
   for (const dealer of DEALER_COLLECTIONS) {
     try {
@@ -141,6 +160,9 @@ router.get("/vehicle-images", requireAccess, async (req, res) => {
         if (trimmed) urls.push(IMAGE_CDN_BASE + trimmed);
       });
 
+      // Extract website listing URL from the same document
+      websiteUrl = extractWebsiteUrl(doc, dealer.siteUrl);
+
       break; // Stop after first successful collection
     } catch (_err) {
       // Silently continue to next collection
@@ -148,7 +170,7 @@ router.get("/vehicle-images", requireAccess, async (req, res) => {
   }
 
   res.set("Cache-Control", "public, max-age=300"); // Cache images for 5 min
-  res.json({ vin, urls });
+  res.json({ vin, urls, websiteUrl });
 });
 
 export default router;
