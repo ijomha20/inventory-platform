@@ -77,35 +77,123 @@ function parseKm(kmStr: string): number {
 }
 
 // ---------------------------------------------------------------------------
-// Session persistence
+// Session persistence — file + database (shared between dev and prod)
 // ---------------------------------------------------------------------------
 
-function loadSavedCookies(): any[] {
+function loadCookiesFromFile(): any[] {
   try {
     if (fs.existsSync(SESSION_FILE)) {
       const raw     = fs.readFileSync(SESSION_FILE, "utf8");
       const cookies = JSON.parse(raw);
-      logger.info({ count: cookies.length }, "BB worker: loaded saved session cookies");
+      logger.info({ count: cookies.length }, "BB worker: loaded session cookies from file");
       return cookies;
     }
   } catch (_) {}
   return [];
 }
 
-function saveCookies(cookies: any[]): void {
+function saveCookiesToFile(cookies: any[]): void {
   try {
     fs.writeFileSync(SESSION_FILE, JSON.stringify(cookies, null, 2), "utf8");
-    logger.info({ count: cookies.length }, "BB worker: session cookies saved to disk");
+  } catch (_) {}
+}
+
+async function loadCookiesFromDb(): Promise<any[]> {
+  try {
+    const { db, bbSessionTable } = await import("@workspace/db");
+    const { eq }                 = await import("drizzle-orm");
+    const rows = await db.select().from(bbSessionTable).where(eq(bbSessionTable.id, "singleton"));
+    if (rows.length > 0 && rows[0].cookies) {
+      const cookies = JSON.parse(rows[0].cookies);
+      logger.info({ count: cookies.length }, "BB worker: loaded session cookies from database");
+      return cookies;
+    }
   } catch (err) {
-    logger.warn({ err }, "BB worker: could not save session cookies");
+    logger.warn({ err: String(err) }, "BB worker: could not load session from database");
+  }
+  return [];
+}
+
+async function saveCookiesToDb(cookies: any[]): Promise<void> {
+  try {
+    const { db, bbSessionTable } = await import("@workspace/db");
+    await db
+      .insert(bbSessionTable)
+      .values({ id: "singleton", cookies: JSON.stringify(cookies), updatedAt: new Date() })
+      .onConflictDoUpdate({
+        target: bbSessionTable.id,
+        set:    { cookies: JSON.stringify(cookies), updatedAt: new Date() },
+      });
+    logger.info({ count: cookies.length }, "BB worker: session cookies saved to database");
+  } catch (err) {
+    logger.warn({ err: String(err) }, "BB worker: could not save session to database");
   }
 }
 
 function extractAuthCookies(cookies: any[]): { appSession: string; csrfToken: string } | null {
-  const appSession = cookies.find((c) => c.name === "appSession");
-  const csrfToken  = cookies.find((c) => c.name === "CA_CSRF_TOKEN");
+  const appSession = cookies.find((c: any) => c.name === "appSession");
+  const csrfToken  = cookies.find((c: any) => c.name === "CA_CSRF_TOKEN");
   if (!appSession || !csrfToken) return null;
   return { appSession: appSession.value, csrfToken: csrfToken.value };
+}
+
+/**
+ * Get valid auth cookies — tries DB first, then file, then full browser login.
+ * Browser is only launched when existing cookies fail the health check.
+ */
+async function getAuthCookies(): Promise<{ appSession: string; csrfToken: string }> {
+  // 1. Try database cookies (shared across dev + prod, no browser needed)
+  const dbCookies = await loadCookiesFromDb();
+  if (dbCookies.length > 0) {
+    const auth = extractAuthCookies(dbCookies);
+    if (auth) {
+      const ok = await healthCheck(auth.appSession, auth.csrfToken);
+      if (ok) {
+        logger.info("BB worker: database session valid — skipping browser login");
+        return auth;
+      }
+      logger.info("BB worker: database session expired — will re-login");
+    }
+  }
+
+  // 2. Try file cookies (dev convenience)
+  const fileCookies = loadCookiesFromFile();
+  if (fileCookies.length > 0) {
+    const auth = extractAuthCookies(fileCookies);
+    if (auth) {
+      const ok = await healthCheck(auth.appSession, auth.csrfToken);
+      if (ok) {
+        logger.info("BB worker: file session valid — saving to database");
+        await saveCookiesToDb(fileCookies);
+        return auth;
+      }
+      logger.info("BB worker: file session expired — will re-login");
+    }
+  }
+
+  // 3. Full browser login
+  logger.info("BB worker: launching browser for fresh login");
+  let browser: any = null;
+  try {
+    browser = await launchBrowser();
+    const page = await browser.newPage();
+    await addAntiDetection(page);
+
+    const loggedIn = await loginWithAuth0(page);
+    if (!loggedIn) throw new Error("Login to CreditApp failed");
+
+    const cookies = await page.cookies();
+    const auth    = extractAuthCookies(cookies);
+    if (!auth) throw new Error("Required auth cookies not found after login");
+
+    // Persist to both DB and file
+    await saveCookiesToDb(cookies);
+    saveCookiesToFile(cookies);
+
+    return auth;
+  } finally {
+    if (browser) { try { await browser.close(); } catch (_) {} }
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -382,36 +470,9 @@ async function runBlackBookBatch(): Promise<void> {
   const { data: items } = getCacheState();
   if (items.length === 0) throw new Error("Inventory cache is empty — cannot run BB batch");
 
-  let browser: any = null;
-  let appSession = "";
-  let csrfToken  = "";
-
-  // --- Login ---
-  try {
-    browser = await launchBrowser();
-    const page = await browser.newPage();
-    await addAntiDetection(page);
-
-    const loggedIn = await ensureLoggedIn(page);
-    if (!loggedIn) throw new Error("Login to CreditApp failed");
-
-    const cookies = await page.cookies();
-    saveCookies(cookies);
-    const auth = extractAuthCookies(cookies);
-    if (!auth) throw new Error("Required auth cookies not found after login");
-
-    appSession = auth.appSession;
-    csrfToken  = auth.csrfToken;
-  } finally {
-    if (browser) { try { await browser.close(); } catch (_) {} browser = null; }
-  }
-
-  logger.info("BB worker: browser closed — proceeding with direct API calls");
-
-  // --- Health check ---
-  const healthy = await healthCheck(appSession, csrfToken);
-  if (!healthy) throw new Error("BB endpoint health check failed — aborting run (endpoint may have changed)");
-  logger.info("BB worker: health check passed");
+  // --- Get valid auth cookies (DB → file → browser login) ---
+  const { appSession, csrfToken } = await getAuthCookies();
+  logger.info("BB worker: auth ready — proceeding with API calls");
 
   // --- Process each VIN ---
   const bbMap = new Map<string, string>();
