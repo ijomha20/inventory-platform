@@ -154,3 +154,5 @@ One-time setup steps:
 - **Image CDN**: Vehicle photos served from `https://zopsoftware-asset.b-cdn.net` + path from Typesense `image_urls` field (semicolon-delimited)
 - **Archive tab**: Vehicles removed from Matrix feed are archived (not deleted) before removal from My List
 - **Rate limiting**: 60 req/min per IP on all /api routes, skips /api/healthz
+- **Object storage as shared state**: Dev and production use separate Postgres databases (Replit provisions them independently). Replit's GCS-backed object storage bucket is shared between environments. BB session cookies (`bb-session.json`) and computed BB values map (`bb-values.json`) are stored there so both environments see the same data. Dev does browser login + computes values; production reads from object storage.
+- **BB nightly run**: Runs only in dev (production skips browser login gracefully). Dev writes fresh cookies + values to object storage at 2am. Production reads them on startup and at every hourly inventory refresh via `loadBbValuesFromStore()`.

@@ -21,6 +21,11 @@ import { logger }                         from "./logger.js";
 import * as fs                            from "fs";
 import * as path                          from "path";
 import { getCacheState, applyBlackBookValues } from "./inventoryCache.js";
+import {
+  loadSessionFromStore,
+  saveSessionToStore,
+  saveBbValuesToStore,
+} from "./bbObjectStore.js";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -144,36 +149,58 @@ function extractAuthCookies(cookies: any[]): { appSession: string; csrfToken: st
 }
 
 /**
- * Get valid auth cookies — tries DB first, then file, then (dev only) full browser login.
+ * Get valid auth cookies — tries object storage first (shared between dev + prod),
+ * then DB, then file, then (dev only) full browser login.
  *
- * In production, browser login is skipped entirely. Dev's nightly 2am run keeps
- * cookies fresh in the shared database, so production can always use them.
+ * Object storage (GCS-backed) is the primary shared store.
+ * In production, browser login is skipped entirely — dev's nightly run keeps
+ * cookies fresh in the shared object storage bucket.
  */
 async function getAuthCookies(): Promise<{ appSession: string; csrfToken: string }> {
   const isProduction = process.env["REPLIT_DEPLOYMENT"] === "1";
 
-  // 1. Try database cookies (shared across dev + prod, no browser needed)
+  // 1. Object storage (shared between dev + prod — primary source)
+  try {
+    const blob = await loadSessionFromStore();
+    if (blob?.cookies?.length) {
+      const auth = extractAuthCookies(blob.cookies);
+      if (auth) {
+        const ok = await healthCheck(auth.appSession, auth.csrfToken);
+        if (ok) {
+          logger.info("BB worker: object-storage session valid — skipping browser login");
+          return auth;
+        }
+        logger.info({ isProduction }, "BB worker: object-storage session expired");
+      }
+    }
+  } catch (err: any) {
+    logger.warn({ err: err.message }, "BB worker: could not load session from object storage");
+  }
+
+  // 2. Database cookies (fallback — only visible to the env that wrote them)
   const dbCookies = await loadCookiesFromDb();
   if (dbCookies.length > 0) {
     const auth = extractAuthCookies(dbCookies);
     if (auth) {
       const ok = await healthCheck(auth.appSession, auth.csrfToken);
       if (ok) {
-        logger.info("BB worker: database session valid — skipping browser login");
+        logger.info("BB worker: database session valid — promoting to object storage");
+        await saveSessionToStore(dbCookies);
         return auth;
       }
-      logger.info({ isProduction }, "BB worker: database session expired");
+      logger.info("BB worker: database session expired");
     }
   }
 
-  // 2. Try file cookies (dev convenience)
+  // 3. File cookies (dev convenience)
   const fileCookies = loadCookiesFromFile();
   if (fileCookies.length > 0) {
     const auth = extractAuthCookies(fileCookies);
     if (auth) {
       const ok = await healthCheck(auth.appSession, auth.csrfToken);
       if (ok) {
-        logger.info("BB worker: file session valid — saving to database");
+        logger.info("BB worker: file session valid — promoting to object storage + database");
+        await saveSessionToStore(fileCookies);
         await saveCookiesToDb(fileCookies);
         return auth;
       }
@@ -181,7 +208,7 @@ async function getAuthCookies(): Promise<{ appSession: string; csrfToken: string
     }
   }
 
-  // 3. Production: no browser login — cookies must come from dev's nightly run
+  // 4. Production: no browser login — cookies must come from dev's nightly run
   if (isProduction) {
     throw new Error(
       "BB worker: session cookies expired in production — dev's nightly 2am run will refresh them. " +
@@ -189,7 +216,7 @@ async function getAuthCookies(): Promise<{ appSession: string; csrfToken: string
     );
   }
 
-  // 4. Dev only: full browser login to refresh cookies
+  // 5. Dev only: full browser login to refresh cookies
   logger.info("BB worker: launching browser for fresh login (dev)");
   let browser: any = null;
   try {
@@ -204,7 +231,8 @@ async function getAuthCookies(): Promise<{ appSession: string; csrfToken: string
     const auth    = extractAuthCookies(cookies);
     if (!auth) throw new Error("Required auth cookies not found after login");
 
-    // Persist to both DB (shared with prod) and local file
+    // Persist to object storage (shared), DB, and local file
+    await saveSessionToStore(cookies);
     await saveCookiesToDb(cookies);
     saveCookiesToFile(cookies);
 
@@ -545,7 +573,14 @@ async function runBlackBookBatch(): Promise<void> {
   logger.info({ succeeded, skipped, failed, total: items.length }, "BB worker: batch complete");
 
   if (bbMap.size > 0) {
+    // Apply to in-memory cache (this env)
     await applyBlackBookValues(bbMap);
+
+    // Write to shared object storage so the OTHER environment (dev/prod) can read them
+    const valuesRecord: Record<string, string> = {};
+    for (const [vin, val] of bbMap) valuesRecord[vin] = val;
+    await saveBbValuesToStore(valuesRecord);
+    logger.info({ count: bbMap.size }, "BB worker: BB values saved to shared object storage");
   }
 }
 

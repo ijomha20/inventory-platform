@@ -56,6 +56,27 @@ async function loadFromDb(): Promise<void> {
   } catch (err) {
     logger.warn({ err }, "Could not load inventory from database — will fetch fresh from source");
   }
+
+  // Patch BB values from shared object storage (visible to all environments)
+  try {
+    const { loadBbValuesFromStore } = await import("./bbObjectStore.js");
+    const blob = await loadBbValuesFromStore();
+    if (blob?.values) {
+      let patched = 0;
+      for (const item of state.data) {
+        const val = blob.values[item.vin.toUpperCase()];
+        if (val && !item.bbAvgWholesale) {
+          item.bbAvgWholesale = val;
+          patched++;
+        }
+      }
+      if (patched > 0) {
+        logger.info({ patched }, "Inventory: BB values patched from shared object storage at startup");
+      }
+    }
+  } catch (err: any) {
+    logger.warn({ err: err.message }, "Inventory: could not load BB values from object storage at startup (non-fatal)");
+  }
 }
 
 async function persistToDb(): Promise<void> {
@@ -214,10 +235,26 @@ export async function refreshCache(): Promise<void> {
       return;
     }
 
-    // Preserve existing Black Book values — they survive inventory refreshes
+    // Preserve existing Black Book values — merge from:
+    //   1. Object storage  (shared between dev + prod — source of truth)
+    //   2. In-memory cache (current process — may have values from this env)
     const existingBb = new Map<string, string>();
+    // In-memory first (lower priority)
     for (const old of state.data) {
       if (old.bbAvgWholesale) existingBb.set(old.vin.toUpperCase(), old.bbAvgWholesale);
+    }
+    // Object storage second (higher priority — may have values from the other env)
+    try {
+      const { loadBbValuesFromStore } = await import("./bbObjectStore.js");
+      const blob = await loadBbValuesFromStore();
+      if (blob?.values) {
+        for (const [vin, val] of Object.entries(blob.values)) {
+          if (val) existingBb.set(vin.toUpperCase(), val);
+        }
+        logger.info({ count: Object.keys(blob.values).length }, "Inventory: BB values loaded from shared object storage");
+      }
+    } catch (err: any) {
+      logger.warn({ err: err.message }, "Inventory: could not load BB values from object storage (non-fatal)");
     }
 
     // Normalise each item — guard against differing field names / missing keys
