@@ -13,6 +13,7 @@ export interface InventoryItem {
   onlinePrice: string;
   matrixPrice: string; // Column F — matrix list price (owner only)
   cost:        string; // Column G — business acquisition cost (owner only)
+  hasPhotos:   boolean;
 }
 
 interface CacheState {
@@ -113,6 +114,7 @@ function extractWebsiteUrl(doc: any, siteUrl: string): string | null {
 interface TypesenseMaps {
   prices:  Map<string, string>; // VIN → online price string
   website: Map<string, string>; // VIN → listing URL
+  photos:  Set<string>;         // VINs that have image_urls
 }
 
 /**
@@ -123,6 +125,7 @@ interface TypesenseMaps {
 async function fetchFromTypesense(): Promise<TypesenseMaps> {
   const prices  = new Map<string, string>();
   const website = new Map<string, string>();
+  const photos  = new Set<string>();
 
   for (const col of TYPESENSE_COLLECTIONS) {
     try {
@@ -158,6 +161,11 @@ async function fetchFromTypesense(): Promise<TypesenseMaps> {
             const resolved = extractWebsiteUrl(doc, col.siteUrl);
             if (resolved) website.set(vin, resolved);
           }
+
+          // Photos — mark VIN if image_urls is non-empty
+          if (doc.image_urls && doc.image_urls.toString().trim()) {
+            photos.add(vin);
+          }
         }
 
         if (hits.length < 250) break;
@@ -168,7 +176,7 @@ async function fetchFromTypesense(): Promise<TypesenseMaps> {
     }
   }
 
-  return { prices, website };
+  return { prices, website, photos };
 }
 
 // Keep old name as alias for any future callers
@@ -223,6 +231,7 @@ export async function refreshCache(): Promise<void> {
         onlinePrice: String(r.onlinePrice ?? "").trim(),
         matrixPrice: String(r.matrixPrice ?? "").trim(), // Column F
         cost:        String(r.cost        ?? "").trim(), // Column G
+        hasPhotos:   false, // filled in during Typesense enrichment
       });
     }
 
@@ -236,7 +245,7 @@ export async function refreshCache(): Promise<void> {
     );
 
     if (needEnrichment) {
-      const { prices, website } = await fetchFromTypesense();
+      const { prices, website, photos } = await fetchFromTypesense();
 
       for (const item of items) {
         if (!item.onlinePrice || item.onlinePrice === "NOT FOUND") {
@@ -247,6 +256,7 @@ export async function refreshCache(): Promise<void> {
           const fetched = website.get(item.vin.toUpperCase());
           if (fetched) item.website = fetched;
         }
+        item.hasPhotos = photos.has(item.vin.toUpperCase());
       }
 
       logger.info(

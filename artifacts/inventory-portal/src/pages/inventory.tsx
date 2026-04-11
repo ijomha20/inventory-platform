@@ -141,12 +141,16 @@ function PhotoGallery({ vin, onClose }: { vin: string; onClose: () => void }) {
   );
 }
 
-function PhotoThumb({ vin }: { vin: string }) {
+function PhotoThumb({ vin, hasPhotos }: { vin: string; hasPhotos?: boolean }) {
   const [open, setOpen] = useState(false);
   return (
     <>
-      <button onClick={() => setOpen(true)} title="View photos"
-        className="p-1.5 rounded text-gray-400 hover:text-blue-600 hover:bg-blue-50 transition-colors">
+      <button onClick={() => setOpen(true)} title={hasPhotos ? "View photos" : "No photos available"}
+        className={`p-1.5 rounded transition-colors ${
+          hasPhotos
+            ? "text-blue-500 hover:text-blue-700 hover:bg-blue-50"
+            : "text-gray-300 cursor-default"
+        }`}>
         <Camera className="w-4 h-4" />
       </button>
       {open && <PhotoGallery vin={vin} onClose={() => setOpen(false)} />}
@@ -160,7 +164,7 @@ function VehicleCard({ item, showPacCost, showOwnerCols }: { item: any; showPacC
       <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
         <span className="text-xs font-bold text-gray-500 uppercase tracking-wide">{item.location}</span>
         <div className="flex items-center gap-2">
-          <PhotoThumb vin={item.vin} />
+          <PhotoThumb vin={item.vin} hasPhotos={!!item.hasPhotos} />
           {item.carfax && item.carfax !== "NOT FOUND" && (
             <a href={item.carfax} target="_blank" rel="noopener noreferrer"
               className="p-1.5 text-gray-500 hover:text-gray-900 hover:bg-gray-100 rounded transition-colors" title="Carfax">
@@ -574,7 +578,7 @@ export default function Inventory() {
                         </a>
                       : <span className="text-gray-200 text-sm">—</span>}
                   </div>
-                  <div className="w-8 shrink-0 flex justify-center"><PhotoThumb vin={item.vin} /></div>
+                  <div className="w-8 shrink-0 flex justify-center"><PhotoThumb vin={item.vin} hasPhotos={!!item.hasPhotos} /></div>
                   <div className="w-8 shrink-0 flex justify-center">
                     {item.website && item.website !== "NOT FOUND"
                       ? <a href={item.website} target="_blank" rel="noopener noreferrer"
