@@ -1,0 +1,35 @@
+If you’re looking to get that data without the overhead of a browser-based scraper, you’re looking for API Bridge Hijacking (or "reverse engineering" the internal API).
+Since the first platform already has a "handshake" with the second, you can often intercept and mimic those calls directly. Here are the three most common ways to do it:
+## 1. The "Network Tab" Shortcut
+The easiest way is to log in manually, open your browser’s Developer Tools (F12), and go to the Network tab.
+
+* Perform the action that triggers the data fetch.
+* Find the XHR/Fetch request that goes to the internal API.
+* Right-click it and select "Copy as cURL".
+* You can now paste that into a tool like Postman or a Python script. This gives you the exact headers, cookies, and tokens used for the "internal" conversation. [1, 2] 
+* 
+
+## 2. Session Token Extraction
+Instead of scraping HTML, you just scrape the Session Cookie or Bearer Token. Most platforms use a JWT (JSON Web Token) or a session ID. [3] 
+
+* Use a script to log in once.
+* Extract the auth token.
+* Use that token to send requests directly to the API endpoint you discovered in Step 1.
+* This is much faster and more stable than UI scraping because you’re dealing with raw JSON.
+* 
+
+## 3. Proxy Interception (MITM)
+If the platform is a mobile app or uses heavy obfuscation, use a tool like Charles Proxy or Fiddler. [4] 
+
+* Route your traffic through the proxy.
+* It will show you exactly how Platform A talks to Platform B.
+* You’ll often find that Platform A is sending a simple GET request to an endpoint like ://platform-b.com. If you have the right headers, you can call that endpoint yourself.
+* 
+
+The Catch: Internal APIs often use CORS restrictions or short-lived tokens. If the token expires every 30 minutes, you’ll still need a small script to "refresh" the login and grab a new one.
+Do you have the URL of the internal endpoint yet, or do you need help figuring out how to find it in the network traffic?
+
+[1] [https://support.crashplan.com](https://support.crashplan.com/hc/en-us/articles/9057650650765-Tools-for-interacting-with-the-CrashPlan-API#:~:text=In%20the%20developer%20tools%2C%20right%2Dclick%20the%20network%20request%2C%20then%20select%20Copy%20as%20cURL.)
+[2] [https://www.domo.com](https://www.domo.com/learn/article/build-custom-data-integrations-with-an-api#:~:text=With%20these%20tools%20available%2C%20you%27ll%20only%20need,to%20the%20source%20you%27d%20like%20to%20ingest.)
+[3] [https://appcheck-ng.com](https://appcheck-ng.com/session-hijacking/#:~:text=However%2C%20over%20time%20there%20has%20been%20a,creation%20time%20and%20transmitted%20to%20the%20user.)
+[4] [https://treblle.com](https://treblle.com/blog/send-receive-data-rest-api#:~:text=Browser%20Dev%20Tools%20&%20Request%20Interception%20Start,are%20essential%20for%20capturing%20and%20replaying%20traffic.)
