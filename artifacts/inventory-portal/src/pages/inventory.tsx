@@ -158,25 +158,26 @@ function PhotoThumb({ vin, hasPhotos }: { vin: string; hasPhotos?: boolean }) {
   );
 }
 
-function BbTooltip({ bbValues, children }: { bbValues?: { xclean: number; clean: number; avg: number; rough: number }; children: React.ReactNode }) {
-  const [show, setShow] = useState(false);
-  if (!bbValues || (!bbValues.xclean && !bbValues.clean && !bbValues.avg && !bbValues.rough)) return <>{children}</>;
+function BbExpandedRow({ bbValues }: { bbValues?: { xclean: number; clean: number; avg: number; rough: number } }) {
+  if (!bbValues || (!bbValues.xclean && !bbValues.clean && !bbValues.avg && !bbValues.rough)) return null;
   const fmt = (v: number) => v ? `$${v.toLocaleString("en-US")}` : "—";
+  const grades = [
+    { label: "X-Clean", value: bbValues.xclean, color: "text-emerald-700" },
+    { label: "Clean", value: bbValues.clean, color: "text-blue-700" },
+    { label: "Average", value: bbValues.avg, color: "text-purple-700" },
+    { label: "Rough", value: bbValues.rough, color: "text-orange-700" },
+  ];
   return (
-    <div className="relative" onMouseEnter={() => setShow(true)} onMouseLeave={() => setShow(false)}>
-      {children}
-      {show && (
-        <div className="absolute z-50 bottom-full left-1/2 -translate-x-1/2 mb-2 w-48 bg-white border border-purple-200 rounded-lg shadow-lg p-3 text-xs">
-          <div className="absolute left-1/2 -translate-x-1/2 top-full w-0 h-0 border-l-[6px] border-l-transparent border-r-[6px] border-r-transparent border-t-[6px] border-t-purple-200" />
-          <p className="font-semibold text-purple-800 mb-2 text-center">CBB Wholesale</p>
-          <div className="space-y-1">
-            <div className="flex justify-between"><span className="text-gray-500">X-Clean</span><span className="font-medium text-gray-900">{fmt(bbValues.xclean)}</span></div>
-            <div className="flex justify-between"><span className="text-gray-500">Clean</span><span className="font-medium text-gray-900">{fmt(bbValues.clean)}</span></div>
-            <div className="flex justify-between"><span className="text-gray-500">Average</span><span className="font-semibold text-purple-700">{fmt(bbValues.avg)}</span></div>
-            <div className="flex justify-between"><span className="text-gray-500">Rough</span><span className="font-medium text-gray-900">{fmt(bbValues.rough)}</span></div>
+    <div className="bg-purple-50 border-b border-purple-100 px-4 py-2.5 flex items-center gap-8 animate-in slide-in-from-top-1 duration-150">
+      <span className="text-xs font-semibold text-purple-800 uppercase tracking-wide shrink-0">CBB Wholesale</span>
+      <div className="flex items-center gap-6">
+        {grades.map((g) => (
+          <div key={g.label} className="flex items-center gap-1.5">
+            <span className="text-xs text-gray-500">{g.label}</span>
+            <span className={`text-sm font-semibold ${g.color}`}>{fmt(g.value)}</span>
           </div>
-        </div>
-      )}
+        ))}
+      </div>
     </div>
   );
 }
@@ -338,6 +339,7 @@ export default function Inventory() {
   const showPacCost   = !isGuest && viewMode !== "customer";
   const showBb        = viewMode !== "customer";
 
+  const [expandedBbVin, setExpandedBbVin] = useState<string | null>(null);
   const [bbClicked, setBbClicked] = useState(false);
   const bbCooldownRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -640,40 +642,44 @@ export default function Inventory() {
             </div>
             <div>
               {sorted.map((item, i) => (
-                <div key={`${item.vin}-${i}`}
-                  className={`flex items-center gap-3 px-4 py-3 hover:bg-gray-50 transition-colors ${i < sorted.length - 1 ? "border-b border-gray-100" : ""}`}>
-                  <div className="w-24 shrink-0 text-sm text-gray-700 truncate font-medium">{item.location || "—"}</div>
-                  <div className="flex-1 min-w-0 text-sm text-gray-900 font-medium truncate">{item.vehicle}</div>
-                  <div className="w-40 shrink-0"><CopyVin vin={item.vin} /></div>
-                  <div className="w-24 shrink-0 text-sm text-gray-600">
-                    {item.km ? Number(item.km.replace(/[^0-9]/g, "")).toLocaleString("en-US") + " km" : "—"}
+                <div key={`${item.vin}-${i}`}>
+                  <div className={`flex items-center gap-3 px-4 py-3 hover:bg-gray-50 transition-colors ${i < sorted.length - 1 && expandedBbVin !== item.vin ? "border-b border-gray-100" : ""}`}>
+                    <div className="w-24 shrink-0 text-sm text-gray-700 truncate font-medium">{item.location || "—"}</div>
+                    <div className="flex-1 min-w-0 text-sm text-gray-900 font-medium truncate">{item.vehicle}</div>
+                    <div className="w-40 shrink-0"><CopyVin vin={item.vin} /></div>
+                    <div className="w-24 shrink-0 text-sm text-gray-600">
+                      {item.km ? Number(item.km.replace(/[^0-9]/g, "")).toLocaleString("en-US") + " km" : "—"}
+                    </div>
+                    {showOwnerCols && <div className="w-24 shrink-0 text-sm text-gray-700">{formatPrice(item.matrixPrice ?? "")}</div>}
+                    {showOwnerCols && <div className="w-24 shrink-0 text-sm font-medium text-red-700">{formatPrice(item.cost ?? "")}</div>}
+                    {showBb && (
+                      <div className="w-24 shrink-0 text-sm font-medium text-purple-700 cursor-pointer hover:underline select-none"
+                        onClick={() => setExpandedBbVin(expandedBbVin === item.vin ? null : item.vin)}>
+                        {formatPrice((item as any).bbAvgWholesale ?? "")}
+                      </div>
+                    )}
+                    {showPacCost && <div className="w-24 shrink-0 text-sm text-gray-700">{formatPrice(item.price)}</div>}
+                    <div className="w-28 shrink-0 text-sm text-gray-700">{formatPrice(item.onlinePrice)}</div>
+                    <div className="w-8 shrink-0 flex justify-center">
+                      {item.carfax && item.carfax !== "NOT FOUND"
+                        ? <a href={item.carfax} target="_blank" rel="noopener noreferrer"
+                            className="p-1 text-gray-500 hover:text-gray-900 hover:bg-gray-100 rounded transition-colors" title="Carfax">
+                            <FileText className="w-4 h-4" />
+                          </a>
+                        : <span className="text-gray-200 text-sm">—</span>}
+                    </div>
+                    <div className="w-8 shrink-0 flex justify-center"><PhotoThumb vin={item.vin} hasPhotos={!!item.hasPhotos} /></div>
+                    <div className="w-8 shrink-0 flex justify-center">
+                      {item.website && item.website !== "NOT FOUND"
+                        ? <a href={item.website} target="_blank" rel="noopener noreferrer"
+                            className="p-1 text-blue-500 hover:text-blue-700 hover:bg-blue-50 rounded transition-colors" title="View Listing">
+                            <ExternalLink className="w-4 h-4" />
+                          </a>
+                        : <span className="text-gray-200 text-sm">—</span>}
+                    </div>
                   </div>
-                  {showOwnerCols && <div className="w-24 shrink-0 text-sm text-gray-700">{formatPrice(item.matrixPrice ?? "")}</div>}
-                  {showOwnerCols && <div className="w-24 shrink-0 text-sm font-medium text-red-700">{formatPrice(item.cost ?? "")}</div>}
-                  {showBb && (
-                    <BbTooltip bbValues={(item as any).bbValues}>
-                      <div className="w-24 shrink-0 text-sm font-medium text-purple-700 cursor-default">{formatPrice((item as any).bbAvgWholesale ?? "")}</div>
-                    </BbTooltip>
-                  )}
-                  {showPacCost && <div className="w-24 shrink-0 text-sm text-gray-700">{formatPrice(item.price)}</div>}
-                  <div className="w-28 shrink-0 text-sm text-gray-700">{formatPrice(item.onlinePrice)}</div>
-                  <div className="w-8 shrink-0 flex justify-center">
-                    {item.carfax && item.carfax !== "NOT FOUND"
-                      ? <a href={item.carfax} target="_blank" rel="noopener noreferrer"
-                          className="p-1 text-gray-500 hover:text-gray-900 hover:bg-gray-100 rounded transition-colors" title="Carfax">
-                          <FileText className="w-4 h-4" />
-                        </a>
-                      : <span className="text-gray-200 text-sm">—</span>}
-                  </div>
-                  <div className="w-8 shrink-0 flex justify-center"><PhotoThumb vin={item.vin} hasPhotos={!!item.hasPhotos} /></div>
-                  <div className="w-8 shrink-0 flex justify-center">
-                    {item.website && item.website !== "NOT FOUND"
-                      ? <a href={item.website} target="_blank" rel="noopener noreferrer"
-                          className="p-1 text-blue-500 hover:text-blue-700 hover:bg-blue-50 rounded transition-colors" title="View Listing">
-                          <ExternalLink className="w-4 h-4" />
-                        </a>
-                      : <span className="text-gray-200 text-sm">—</span>}
-                  </div>
+                  {expandedBbVin === item.vin && <BbExpandedRow bbValues={(item as any).bbValues} />}
+                  {(i < sorted.length - 1 || expandedBbVin === item.vin) && expandedBbVin === item.vin && <div className="border-b border-gray-100" />}
                 </div>
               ))}
             </div>
