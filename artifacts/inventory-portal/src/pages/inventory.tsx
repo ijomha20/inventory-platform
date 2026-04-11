@@ -182,25 +182,72 @@ function BbExpandedRow({ bbValues }: { bbValues?: { xclean: number; clean: numbe
   );
 }
 
-function BbCardDetail({ bbValues }: { bbValues?: { xclean: number; clean: number; avg: number; rough: number } }) {
-  if (!bbValues || (!bbValues.xclean && !bbValues.clean && !bbValues.avg && !bbValues.rough)) return null;
+function BbCardDetail({
+  bbValues,
+  bbAvgWholesale,
+}: {
+  bbValues?: { xclean: number; clean: number; avg: number; rough: number };
+  bbAvgWholesale?: string;
+}) {
+  const hasGrades = bbValues && (bbValues.xclean || bbValues.clean || bbValues.avg || bbValues.rough);
+  const hasAdj    = !!bbAvgWholesale && bbAvgWholesale !== "NOT FOUND";
+  if (!hasGrades && !hasAdj) return null;
+
   const fmt = (v: number) => v ? `$${v.toLocaleString("en-US")}` : "—";
+
   return (
-    <div className="mt-2 bg-purple-50 rounded-lg p-2.5 text-xs">
-      <p className="font-semibold text-purple-800 mb-1.5">CBB Wholesale</p>
-      <div className="grid grid-cols-2 gap-x-4 gap-y-1">
-        <div className="flex justify-between"><span className="text-gray-500">X-Clean</span><span className="font-medium text-gray-900">{fmt(bbValues.xclean)}</span></div>
-        <div className="flex justify-between"><span className="text-gray-500">Clean</span><span className="font-medium text-gray-900">{fmt(bbValues.clean)}</span></div>
-        <div className="flex justify-between"><span className="text-gray-500">Average</span><span className="font-semibold text-purple-700">{fmt(bbValues.avg)}</span></div>
-        <div className="flex justify-between"><span className="text-gray-500">Rough</span><span className="font-medium text-gray-900">{fmt(bbValues.rough)}</span></div>
+    <div className="mt-2 rounded-lg border border-purple-200 overflow-hidden text-xs">
+      {/* Header */}
+      <div className="bg-purple-100 px-3 py-1.5">
+        <span className="font-semibold text-purple-800 text-[11px] uppercase tracking-wide">CBB Wholesale</span>
       </div>
+
+      {/* 2-column grade grid: left = X-Clean / Clean, right = Average / Rough */}
+      {hasGrades && (
+        <div className="grid grid-cols-2 divide-x divide-purple-100 bg-white">
+          {/* Left column */}
+          <div className="divide-y divide-purple-100">
+            <div className="flex items-center justify-between px-3 py-2">
+              <span className="text-gray-500">X-Clean</span>
+              <span className="font-semibold text-emerald-700">{fmt(bbValues!.xclean)}</span>
+            </div>
+            <div className="flex items-center justify-between px-3 py-2">
+              <span className="text-gray-500">Clean</span>
+              <span className="font-semibold text-blue-700">{fmt(bbValues!.clean)}</span>
+            </div>
+          </div>
+          {/* Right column */}
+          <div className="divide-y divide-purple-100">
+            <div className="flex items-center justify-between px-3 py-2">
+              <span className="text-gray-500">Average</span>
+              <span className="font-semibold text-purple-700">{fmt(bbValues!.avg)}</span>
+            </div>
+            <div className="flex items-center justify-between px-3 py-2">
+              <span className="text-gray-500">Rough</span>
+              <span className="font-semibold text-orange-700">{fmt(bbValues!.rough)}</span>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Full-width KM-adjusted bar */}
+      {hasAdj && (
+        <div className="flex items-center justify-between px-3 py-2 bg-purple-700">
+          <span className="text-purple-200 font-medium">KM Adjusted</span>
+          <span className="font-bold text-white">{formatPrice(bbAvgWholesale)}</span>
+        </div>
+      )}
     </div>
   );
 }
 
 function VehicleCard({ item, showPacCost, showOwnerCols, showBb }: { item: any; showPacCost: boolean; showOwnerCols: boolean; showBb: boolean }) {
+  const kmDisplay = item.km ? Number(item.km.replace(/[^0-9]/g, "")).toLocaleString("en-US") + " km" : null;
+  const hasBb = showBb && (item.bbAvgWholesale || item.bbValues);
+
   return (
     <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+      {/* Header: location + icons */}
       <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
         <span className="text-xs font-bold text-gray-500 uppercase tracking-wide">{item.location}</span>
         <div className="flex items-center gap-2">
@@ -219,39 +266,38 @@ function VehicleCard({ item, showPacCost, showOwnerCols, showBb }: { item: any; 
           )}
         </div>
       </div>
-      <div className="px-4 py-3">
-        <p className="font-semibold text-gray-900 text-sm mb-1">{item.vehicle}</p>
-        <CopyVin vin={item.vin} />
-        <div className="mt-3 grid grid-cols-3 gap-2 text-xs">
-          <div>
-            <p className="text-gray-400 mb-0.5">KM</p>
-            <p className="font-medium text-gray-700">
-              {item.km ? Number(item.km.replace(/[^0-9]/g, "")).toLocaleString("en-US") : "—"}
-            </p>
-          </div>
-          {showOwnerCols && (
+
+      <div className="px-4 py-3 space-y-2.5">
+        {/* Line 1: vehicle name */}
+        <p className="font-semibold text-gray-900 text-sm leading-snug">{item.vehicle}</p>
+
+        {/* Line 2: VIN  •  KM */}
+        <div className="flex items-center gap-2">
+          <CopyVin vin={item.vin} />
+          {kmDisplay && (
+            <>
+              <span className="text-gray-300 text-xs">•</span>
+              <span className="text-xs text-gray-500 font-medium">{kmDisplay}</span>
+            </>
+          )}
+        </div>
+
+        {/* Owner-only row: Matrix Price + Cost */}
+        {showOwnerCols && (
+          <div className="flex gap-4 text-xs">
             <div>
               <p className="text-gray-400 mb-0.5">Matrix Price</p>
               <p className="font-medium text-gray-700">{formatPrice(item.matrixPrice)}</p>
             </div>
-          )}
-          {showOwnerCols && (
             <div>
               <p className="text-gray-400 mb-0.5">Cost</p>
               <p className="font-semibold text-red-700">{formatPrice(item.cost)}</p>
             </div>
-          )}
-          {showBb && item.bbAvgWholesale && (
-            <div>
-              <p className="text-gray-400 mb-0.5">Book Avg</p>
-              <p className="font-medium text-purple-700">{formatPrice(item.bbAvgWholesale)}</p>
-            </div>
-          )}
-        </div>
-        {showBb && item.bbAvgWholesale && (
-          <BbCardDetail bbValues={item.bbValues} />
+          </div>
         )}
-        <div className="mt-2 grid grid-cols-2 gap-2 text-xs">
+
+        {/* Line 3: PAC Cost + Online Price (always shown; PAC Cost hidden for guests/customer view) */}
+        <div className="flex gap-4 text-xs">
           {showPacCost && (
             <div>
               <p className="text-gray-400 mb-0.5">PAC Cost</p>
@@ -263,6 +309,11 @@ function VehicleCard({ item, showPacCost, showOwnerCols, showBb }: { item: any; 
             <p className="font-medium text-gray-700">{formatPrice(item.onlinePrice)}</p>
           </div>
         </div>
+
+        {/* CBB Wholesale box */}
+        {hasBb && (
+          <BbCardDetail bbValues={item.bbValues} bbAvgWholesale={item.bbAvgWholesale} />
+        )}
       </div>
     </div>
   );
