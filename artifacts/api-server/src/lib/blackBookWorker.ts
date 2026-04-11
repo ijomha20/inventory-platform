@@ -103,11 +103,17 @@ async function loadCookiesFromDb(): Promise<any[]> {
     const { db, bbSessionTable } = await import("@workspace/db");
     const { eq }                 = await import("drizzle-orm");
     const rows = await db.select().from(bbSessionTable).where(eq(bbSessionTable.id, "singleton"));
-    if (rows.length > 0 && rows[0].cookies) {
-      const cookies = JSON.parse(rows[0].cookies);
-      logger.info({ count: cookies.length }, "BB worker: loaded session cookies from database");
-      return cookies;
+    if (rows.length === 0) {
+      logger.warn("BB worker: bb_session row not found in database (no data seeded yet)");
+      return [];
     }
+    if (!rows[0].cookies) {
+      logger.warn("BB worker: bb_session cookies field is null/empty");
+      return [];
+    }
+    const cookies = JSON.parse(rows[0].cookies);
+    logger.info({ count: cookies.length }, "BB worker: loaded session cookies from database");
+    return cookies;
   } catch (err) {
     logger.warn({ err: String(err) }, "BB worker: could not load session from database");
   }
@@ -547,12 +553,20 @@ async function runBlackBookBatch(): Promise<void> {
 // Self-healing retry — infinite, no notifications
 // ---------------------------------------------------------------------------
 
+const PERMANENT_ERROR_PREFIX = "BB worker: session cookies expired in production";
+
 async function runWithRetry(attempt = 1): Promise<void> {
   try {
     await runBlackBookBatch();
   } catch (err) {
+    const msg = String(err);
+    // Permanent errors: no cookies available in production — do not retry
+    if (msg.includes(PERMANENT_ERROR_PREFIX)) {
+      logger.warn({ err: msg }, "BB worker: no valid session — aborting (will recover after next dev nightly run)");
+      return;
+    }
     const waitMin = Math.min(attempt * 5, 30);
-    logger.warn({ err: String(err), attempt, waitMin }, "BB worker: run failed — self-healing, will retry");
+    logger.warn({ err: msg, attempt, waitMin }, "BB worker: run failed — self-healing, will retry");
     await sleep(waitMin * 60_000);
     return runWithRetry(attempt + 1);
   }
