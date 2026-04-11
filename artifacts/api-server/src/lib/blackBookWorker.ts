@@ -138,10 +138,14 @@ function extractAuthCookies(cookies: any[]): { appSession: string; csrfToken: st
 }
 
 /**
- * Get valid auth cookies — tries DB first, then file, then full browser login.
- * Browser is only launched when existing cookies fail the health check.
+ * Get valid auth cookies — tries DB first, then file, then (dev only) full browser login.
+ *
+ * In production, browser login is skipped entirely. Dev's nightly 2am run keeps
+ * cookies fresh in the shared database, so production can always use them.
  */
 async function getAuthCookies(): Promise<{ appSession: string; csrfToken: string }> {
+  const isProduction = process.env["REPLIT_DEPLOYMENT"] === "1";
+
   // 1. Try database cookies (shared across dev + prod, no browser needed)
   const dbCookies = await loadCookiesFromDb();
   if (dbCookies.length > 0) {
@@ -152,7 +156,7 @@ async function getAuthCookies(): Promise<{ appSession: string; csrfToken: string
         logger.info("BB worker: database session valid — skipping browser login");
         return auth;
       }
-      logger.info("BB worker: database session expired — will re-login");
+      logger.info({ isProduction }, "BB worker: database session expired");
     }
   }
 
@@ -167,12 +171,20 @@ async function getAuthCookies(): Promise<{ appSession: string; csrfToken: string
         await saveCookiesToDb(fileCookies);
         return auth;
       }
-      logger.info("BB worker: file session expired — will re-login");
+      logger.info("BB worker: file session expired");
     }
   }
 
-  // 3. Full browser login
-  logger.info("BB worker: launching browser for fresh login");
+  // 3. Production: no browser login — cookies must come from dev's nightly run
+  if (isProduction) {
+    throw new Error(
+      "BB worker: session cookies expired in production — dev's nightly 2am run will refresh them. " +
+      "Values remain from the last successful run.",
+    );
+  }
+
+  // 4. Dev only: full browser login to refresh cookies
+  logger.info("BB worker: launching browser for fresh login (dev)");
   let browser: any = null;
   try {
     browser = await launchBrowser();
@@ -186,7 +198,7 @@ async function getAuthCookies(): Promise<{ appSession: string; csrfToken: string
     const auth    = extractAuthCookies(cookies);
     if (!auth) throw new Error("Required auth cookies not found after login");
 
-    // Persist to both DB and file
+    // Persist to both DB (shared with prod) and local file
     await saveCookiesToDb(cookies);
     saveCookiesToFile(cookies);
 
@@ -393,12 +405,15 @@ async function callCbbEndpoint(appSession: string, csrfToken: string, vin: strin
 async function healthCheck(appSession: string, csrfToken: string): Promise<boolean> {
   try {
     const data = await callCbbEndpoint(appSession, csrfToken, HEALTH_CHECK_VIN, HEALTH_CHECK_KM);
-    if (!Array.isArray(data) || data.length === 0) return false;
+    if (!Array.isArray(data) || data.length === 0) {
+      logger.warn({ data }, "BB worker: health check — empty or non-array response");
+      return false;
+    }
     const ok = "adjusted_whole_avg" in data[0] && "uvc" in data[0];
     if (!ok) logger.warn({ keys: Object.keys(data[0]) }, "BB worker: health check — unexpected response structure");
     return ok;
-  } catch (err) {
-    logger.warn({ err: String(err) }, "BB worker: health check failed");
+  } catch (err: any) {
+    logger.warn({ err: err.message ?? String(err), cause: err.cause?.message }, "BB worker: health check failed");
     return false;
   }
 }
