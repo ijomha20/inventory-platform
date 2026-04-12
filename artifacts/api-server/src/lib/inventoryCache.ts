@@ -326,16 +326,80 @@ export async function refreshCache(): Promise<void> {
       );
     }
 
+    const previousVins = new Set(state.data.map(i => i.vin.toUpperCase()).filter(v => v.length > 0));
+
     state.data        = items;
     state.lastUpdated = new Date();
     logger.info({ count: items.length }, "Inventory cache refreshed");
 
     // Persist the fresh data to the database so future restarts load instantly
     await persistToDb();
+
+    if (previousVins.size > 0) {
+      const newVins = [...new Set(
+        items
+          .map(i => i.vin.toUpperCase())
+          .filter(v => v.length >= 10 && !previousVins.has(v)),
+      )];
+
+      if (newVins.length > 0) {
+        logger.info({ count: newVins.length, vins: newVins }, "New VINs detected during inventory refresh");
+        triggerNewVinLookups(newVins);
+      }
+    }
   } catch (err) {
     logger.error({ err }, "Inventory cache refresh failed — serving stale data");
   } finally {
     state.isRefreshing = false;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Carfax — apply targeted lookup results to cache
+// ---------------------------------------------------------------------------
+
+export async function applyCarfaxResults(results: Map<string, string>): Promise<void> {
+  if (results.size === 0) return;
+  if (!state.lastUpdated) {
+    logger.warn("Carfax results received but inventory cache not yet loaded — skipping");
+    return;
+  }
+  let updated = 0;
+  for (const item of state.data) {
+    const vinKey = item.vin.toUpperCase();
+    const val = results.get(vinKey);
+    if (val !== undefined) {
+      item.carfax = val;
+      updated++;
+    }
+  }
+  if (updated > 0) {
+    await persistToDb();
+    logger.info({ updated, total: state.data.length }, "Carfax results applied to inventory cache");
+  }
+}
+
+// ---------------------------------------------------------------------------
+// New-VIN detection — trigger targeted BB and Carfax lookups
+// ---------------------------------------------------------------------------
+
+function triggerNewVinLookups(newVins: string[]): void {
+  const isProduction = process.env["REPLIT_DEPLOYMENT"] === "1";
+
+  import("./blackBookWorker.js").then(({ runBlackBookForVins }) => {
+    runBlackBookForVins(newVins).catch(err =>
+      logger.error({ err }, "Targeted BB lookup for new VINs failed"),
+    );
+  }).catch(err => logger.error({ err }, "Failed to import blackBookWorker for targeted run"));
+
+  if (!isProduction) {
+    import("./carfaxWorker.js").then(({ runCarfaxForNewVins }) => {
+      runCarfaxForNewVins(newVins).catch(err =>
+        logger.error({ err }, "Targeted Carfax lookup for new VINs failed"),
+      );
+    }).catch(err => logger.error({ err }, "Failed to import carfaxWorker for targeted run"));
+  } else {
+    logger.info("Production deployment — skipping targeted Carfax lookup for new VINs");
   }
 }
 

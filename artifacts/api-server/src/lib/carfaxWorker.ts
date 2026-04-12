@@ -1,7 +1,7 @@
 /**
  * Carfax Cloud Worker
  *
- * Runs nightly at 2:15am on the Replit cloud server.
+ * Runs daily at a random time during business hours (Mountain Time).
  * Modelled on the proven desktop script — uses the dealer portal VIN search
  * at dealer.carfax.ca/MyReports, hides automation detection, and saves the
  * login session to disk so login only happens once.
@@ -707,13 +707,33 @@ export async function runCarfaxWorker(opts: { force?: boolean } = {}): Promise<v
   batchRunning   = true;
   batchStartedAt = new Date();
 
-  const pendingVins = await fetchPendingVins();
-  if (pendingVins.length === 0) {
+  const rawPending = await fetchPendingVins();
+  if (rawPending.length === 0) {
     logger.info("Carfax worker: no pending VINs — nothing to do");
     batchRunning = false; batchStartedAt = null;
     return;
   }
-  logger.info({ count: pendingVins.length }, "Carfax worker: fetched pending VINs");
+
+  const { getCacheState } = await import("./inventoryCache.js");
+  const cache = getCacheState();
+  const pendingVins = rawPending.filter(({ vin }) => {
+    const item = cache.data.find(i => i.vin.toUpperCase() === vin.toUpperCase());
+    if (item) {
+      const url = item.carfax?.trim();
+      if (url && url.startsWith("http")) {
+        logger.info({ vin }, "Carfax worker: skipping VIN — already has Carfax URL in cache");
+        return false;
+      }
+    }
+    return true;
+  });
+
+  if (pendingVins.length === 0) {
+    logger.info({ originalCount: rawPending.length }, "Carfax worker: all pending VINs already have URLs — nothing to do");
+    batchRunning = false; batchStartedAt = null;
+    return;
+  }
+  logger.info({ count: pendingVins.length, skipped: rawPending.length - pendingVins.length }, "Carfax worker: fetched pending VINs (after skip-if-has-URL filter)");
 
   let browser: any = null;
   let processed = 0, succeeded = 0, notFound = 0, failed = 0;
@@ -838,32 +858,133 @@ export async function runCarfaxWorkerForVins(vins: string[]): Promise<CarfaxTest
 }
 
 // ---------------------------------------------------------------------------
-// Scheduler — nightly 2:15am with startup catch-up
+// Scheduler — randomized business-hours with in-memory run guard
 // ---------------------------------------------------------------------------
 export function scheduleCarfaxWorker(): void {
   let lastRunDate = "";
 
-  const tryRun = (reason: string) => {
-    const today = new Date().toISOString().slice(0, 10);
-    if (lastRunDate === today) return;
-    lastRunDate = today;
-    logger.info({ reason }, "Carfax worker: triggering run");
-    runCarfaxWorker().catch((err) => logger.error({ err }, "Carfax worker: run error"));
-  };
+  const { scheduleRandomDaily, toMountainDateStr } = require("./randomScheduler.js") as typeof import("./randomScheduler.js");
 
-  // Catch-up: if server starts after 2:15am, run in 30s
-  const now = new Date();
-  const isPast215 = now.getHours() > 2 || (now.getHours() === 2 && now.getMinutes() >= 15);
-  if (isPast215) {
-    logger.info("Carfax worker: server started after 2:15am — running catch-up in 30s");
-    setTimeout(() => tryRun("startup catch-up"), 30_000);
+  scheduleRandomDaily({
+    name: "Carfax worker",
+    hasRunToday: () => {
+      const today = toMountainDateStr();
+      return lastRunDate === today;
+    },
+    execute: (reason: string) => {
+      const today = toMountainDateStr();
+      lastRunDate = today;
+      logger.info({ reason }, "Carfax worker: triggering run");
+      runCarfaxWorker().catch((err) => logger.error({ err }, "Carfax worker: run error"));
+    },
+  });
+
+  logger.info("Carfax cloud worker scheduled — randomized daily within business hours (Mountain Time)");
+}
+
+// ---------------------------------------------------------------------------
+// Targeted Carfax lookup for specific new VINs (skips VINs with existing URLs)
+// ---------------------------------------------------------------------------
+export async function runCarfaxForNewVins(vins: string[]): Promise<void> {
+  if (!CARFAX_ENABLED) {
+    logger.info("Carfax worker (targeted): CARFAX_ENABLED is not true — skipping");
+    return;
+  }
+  if (!CARFAX_EMAIL || !CARFAX_PASSWORD) {
+    logger.warn("Carfax worker (targeted): credentials not set — skipping");
+    return;
+  }
+  if (batchRunning) {
+    logger.warn("Carfax worker (targeted): batch already in progress — skipping");
+    return;
   }
 
-  // Check every minute for 2:15am
-  setInterval(() => {
-    const n = new Date();
-    if (n.getHours() === 2 && n.getMinutes() === 15) tryRun("nightly schedule");
-  }, 60_000);
+  const { getCacheState } = await import("./inventoryCache.js");
+  const cache = getCacheState();
+  const filteredVins = vins.filter(vin => {
+    const item = cache.data.find(i => i.vin.toUpperCase() === vin.toUpperCase());
+    if (!item) return true;
+    const url = item.carfax?.trim();
+    if (url && url.startsWith("http")) {
+      logger.info({ vin }, "Carfax worker (targeted): skipping VIN — already has Carfax URL");
+      return false;
+    }
+    return true;
+  });
 
-  logger.info("Carfax cloud worker scheduled — runs nightly at 2:15am (with startup catch-up)");
+  if (filteredVins.length === 0) {
+    logger.info("Carfax worker (targeted): all VINs already have Carfax URLs — nothing to do");
+    return;
+  }
+
+  logger.info({ count: filteredVins.length, vins: filteredVins }, "Carfax worker (targeted): processing new VINs");
+
+  batchRunning   = true;
+  batchStartedAt = new Date();
+  let browser: any = null;
+  let processed = 0, succeeded = 0, notFound = 0, failed = 0;
+  const carfaxResults = new Map<string, string>();
+
+  try {
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      try {
+        browser = await launchBrowser();
+        break;
+      } catch (launchErr: any) {
+        logger.warn({ attempt, err: String(launchErr) }, "Carfax worker (targeted): browser launch attempt failed");
+        if (attempt === 3) throw launchErr;
+        await sleep(10_000 * attempt);
+      }
+    }
+    const page = await browser.newPage();
+    await addAntiDetectionScripts(page);
+
+    const loggedIn = await ensureLoggedIn(browser, page);
+    if (!loggedIn) {
+      logger.warn("Carfax worker (targeted): login failed — aborting");
+      return;
+    }
+
+    for (const vin of filteredVins) {
+      logger.info({ vin, processed: processed + 1, total: filteredVins.length }, "Carfax worker (targeted): processing VIN");
+
+      let finalResult: { status: string; url?: string } | null = null;
+      const result = await lookupVinOnDealerPortal(page, vin);
+
+      if (result.status === "session_expired") {
+        logger.info("Carfax worker (targeted): re-logging in after session expiry");
+        const relogged = await loginWithAuth0(page);
+        if (!relogged) { failed++; processed++; continue; }
+        finalResult = await lookupVinOnDealerPortal(page, vin);
+      } else {
+        finalResult = result;
+      }
+
+      if (finalResult.status === "found" && finalResult.url) {
+        carfaxResults.set(vin.toUpperCase(), finalResult.url);
+        succeeded++;
+      } else if (finalResult.status === "not_found") {
+        carfaxResults.set(vin.toUpperCase(), "NOT FOUND");
+        notFound++;
+      } else {
+        failed++;
+      }
+
+      processed++;
+      await humanDelay(rand(4_000, 9_000));
+    }
+
+    if (carfaxResults.size > 0) {
+      const { applyCarfaxResults } = await import("./inventoryCache.js");
+      await applyCarfaxResults(carfaxResults);
+    }
+  } catch (err) {
+    logger.error({ err }, "Carfax worker (targeted): unexpected crash");
+  } finally {
+    if (browser) await browser.close();
+    batchRunning   = false;
+    batchStartedAt = null;
+  }
+
+  logger.info({ processed, succeeded, notFound, failed }, "Carfax worker (targeted): run complete");
 }

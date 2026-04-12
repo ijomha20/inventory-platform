@@ -1,7 +1,8 @@
 /**
  * Black Book Worker
  *
- * Runs nightly at 2:00am. Manual trigger via POST /api/refresh-blackbook (owner only).
+ * Runs daily at a random time during business hours (Mountain Time).
+ * Manual trigger via POST /api/refresh-blackbook (owner only).
  *
  * Flow:
  *  1. Login to admin.creditapp.ca via Auth0 (Puppeteer + stealth)
@@ -826,11 +827,12 @@ async function getLastRunDateFromDb(): Promise<string> {
   try {
     const { db, bbSessionTable } = await import("@workspace/db");
     const { eq }                 = await import("drizzle-orm");
+    const { toMountainDateStr }  = await import("./randomScheduler.js");
     const rows = await db.select({ lastRunAt: bbSessionTable.lastRunAt })
       .from(bbSessionTable)
       .where(eq(bbSessionTable.id, "singleton"));
     if (rows.length > 0 && rows[0].lastRunAt) {
-      return rows[0].lastRunAt.toISOString().slice(0, 10);
+      return toMountainDateStr(rows[0].lastRunAt);
     }
   } catch (err) {
     logger.warn({ err: String(err) }, "BB worker: could not read last run date from DB");
@@ -854,34 +856,122 @@ async function recordRunDateToDb(): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
-// Scheduler — nightly 2:00am with startup catch-up
-// DB-persisted run date prevents duplicate runs across restarts and dev/prod
+// Scheduler — randomized business-hours with DB-persisted run guard
 // ---------------------------------------------------------------------------
 
 export function scheduleBlackBookWorker(): void {
-  const tryRun = async (reason: string) => {
-    const today   = new Date().toISOString().slice(0, 10);
-    const lastRan = await getLastRunDateFromDb();
-    if (lastRan === today) {
-      logger.info({ reason, lastRan }, "BB worker: already ran today — skipping");
-      return;
-    }
-    logger.info({ reason }, "BB worker: triggering scheduled run");
-    runBlackBookWorker().catch((err) => logger.error({ err }, "BB worker: scheduled run error"));
-  };
+  const { scheduleRandomDaily, toMountainDateStr } = require("./randomScheduler.js") as typeof import("./randomScheduler.js");
 
-  // Catch-up: if server starts after 2am and today's run not yet recorded
-  const now = new Date();
-  if (now.getHours() >= 2) {
-    logger.info("BB worker: server started after 2am — catch-up check in 60s");
-    setTimeout(() => tryRun("startup catch-up"), 60_000);
+  scheduleRandomDaily({
+    name: "BB worker",
+    hasRunToday: async () => {
+      const today = toMountainDateStr();
+      const lastRan = await getLastRunDateFromDb();
+      return lastRan === today;
+    },
+    execute: (reason: string) => {
+      runBlackBookWorker().catch((err) => logger.error({ err }, "BB worker: scheduled run error"));
+    },
+  });
+
+  logger.info("BB worker scheduled — randomized daily within business hours (Mountain Time)");
+}
+
+// ---------------------------------------------------------------------------
+// Targeted processing — run BB for a specific list of VINs (new-unit detection)
+// ---------------------------------------------------------------------------
+
+export async function runBlackBookForVins(targetVins: string[]): Promise<void> {
+  if (!BB_ENABLED) {
+    logger.info("BB worker (targeted): CREDITAPP_EMAIL or CREDITAPP_PASSWORD not set — skipping");
+    return;
+  }
+  if (status.running) {
+    logger.warn("BB worker (targeted): batch already running — skipping");
+    return;
   }
 
-  // Check every minute for 2:00am
-  setInterval(() => {
-    const n = new Date();
-    if (n.getHours() === 2 && n.getMinutes() === 0) tryRun("nightly schedule");
-  }, 60_000);
+  const { data: items } = getCacheState();
+  const targetSet = new Set(targetVins.map(v => v.toUpperCase()));
+  const targetItems = items.filter(i => targetSet.has(i.vin.toUpperCase()));
 
-  logger.info("BB worker scheduled — runs nightly at 2:00am");
+  if (targetItems.length === 0) {
+    logger.info({ vins: targetVins }, "BB worker (targeted): no matching items in cache — skipping");
+    return;
+  }
+
+  status.running   = true;
+  status.startedAt = new Date().toISOString();
+  logger.info({ count: targetItems.length }, "BB worker (targeted): processing new VINs");
+
+  try {
+    const { appSession, csrfToken } = await getAuthCookies();
+
+    const bbMap = new Map<string, string>();
+    const bbDetailMap = new Map<string, { xclean: number; clean: number; avg: number; rough: number }>();
+    let succeeded = 0, skipped = 0, failed = 0;
+
+    for (const item of targetItems) {
+      const { vin, vehicle, km } = item;
+      if (!vin || vin.length < 10) continue;
+
+      try {
+        const kmInt = parseKm(km);
+        const nhtsa = await decodeVinNhtsa(vin);
+        const options = await callCbbEndpoint(appSession, csrfToken, vin, kmInt);
+
+        if (options.length === 0) { skipped++; continue; }
+        if (!("adjusted_whole_avg" in options[0])) { skipped++; continue; }
+
+        const best = matchBestTrim(vehicle, nhtsa, options, vin);
+        if (!best) { skipped++; continue; }
+
+        const vinKey = vin.toUpperCase();
+        bbMap.set(vinKey, String(Math.round(best.adjusted_whole_avg)));
+
+        await sleep(rand(1000, 2000));
+        try {
+          const unadjOptions = await callCbbEndpoint(appSession, csrfToken, vin, 0);
+          const unadjBest = matchBestTrim(vehicle, nhtsa, unadjOptions, vin);
+          if (unadjBest) {
+            bbDetailMap.set(vinKey, {
+              xclean: Math.round(unadjBest.adjusted_whole_xclean ?? 0),
+              clean:  Math.round(unadjBest.adjusted_whole_clean ?? 0),
+              avg:    Math.round(unadjBest.adjusted_whole_avg ?? 0),
+              rough:  Math.round(unadjBest.adjusted_whole_rough ?? 0),
+            });
+          }
+        } catch (err) {
+          logger.warn({ vin, err: String(err) }, "BB worker (targeted): unadjusted lookup failed (non-fatal)");
+        }
+
+        succeeded++;
+        logger.info({ vin, series: best.series, avg: best.adjusted_whole_avg }, "BB worker (targeted): VIN processed");
+        await sleep(rand(1500, 3000));
+      } catch (err) {
+        logger.warn({ vin, err: String(err) }, "BB worker (targeted): VIN lookup failed — skipping");
+        failed++;
+      }
+    }
+
+    logger.info({ succeeded, skipped, failed, total: targetItems.length }, "BB worker (targeted): batch complete");
+
+    if (bbMap.size > 0) {
+      await applyBlackBookValues(bbMap, bbDetailMap);
+      const valuesRecord: Record<string, any> = {};
+      for (const [vin, val] of bbMap) {
+        const detail = bbDetailMap.get(vin);
+        valuesRecord[vin] = detail
+          ? { avg: val, xclean: detail.xclean, clean: detail.clean, average: detail.avg, rough: detail.rough }
+          : val;
+      }
+      await saveBbValuesToStore(valuesRecord);
+      logger.info({ count: bbMap.size }, "BB worker (targeted): BB values saved to shared object storage");
+    }
+  } catch (err) {
+    logger.error({ err }, "BB worker (targeted): run failed");
+  } finally {
+    status.running   = false;
+    status.startedAt = null;
+  }
 }

@@ -53,7 +53,7 @@ Every package extends `tsconfig.base.json` which sets `composite: true`. The roo
 
 Express 5 API server. Routes live in `src/routes/` and use `@workspace/api-zod` for request and response validation and `@workspace/db` for persistence.
 
-- Entry: `src/index.ts` — reads `PORT`, starts Express, schedules Carfax worker (nightly 2:15am)
+- Entry: `src/index.ts` — reads `PORT`, starts Express, schedules Carfax & BB workers (randomized daily within business hours, Mountain Time)
 - App setup: `src/app.ts` — CORS, session, Passport, rate limiting (60 req/min), trust proxy
 - Routes: `src/routes/index.ts` mounts sub-routers
   - `health.ts` — GET /healthz
@@ -61,7 +61,8 @@ Express 5 API server. Routes live in `src/routes/` and use `@workspace/api-zod` 
   - `inventory.ts` — GET /inventory (role-filtered), GET /cache-status, POST /refresh, GET /vehicle-images
   - `access.ts` — GET /access, POST /access, PATCH /access/:email, DELETE /access/:email, GET /audit-log
 - Lib: `src/lib/inventoryCache.ts` — in-memory cache of Apps Script inventory, auto-refreshes hourly
-- Lib: `src/lib/carfaxWorker.ts` — cloud Carfax lookup bot (puppeteer, nightly cron)
+- Lib: `src/lib/carfaxWorker.ts` — cloud Carfax lookup bot (puppeteer, randomized daily schedule)
+- Lib: `src/lib/randomScheduler.ts` — shared utility for randomized business-hours scheduling (Mon–Fri 8:30AM–7PM, Sat–Sun 10AM–4PM Mountain Time)
 - Lib: `src/lib/auth.ts` — Passport Google OAuth strategy, isOwner() helper
 - Depends on: `@workspace/db`, `@workspace/api-zod`, `express-rate-limit`, `puppeteer`
 
@@ -150,13 +151,14 @@ One-time setup steps:
 
 - **One-sheet architecture**: Apps Script serves filtered inventory (col H filled = "Your Cost") directly via `?action=inventory` — no SharedInventory sheet needed
 - **Server-side role enforcement**: Guests get price stripped server-side (not just hidden in UI)
-- **Carfax cloud worker**: Runs headless Puppeteer on Replit server nightly; results written back to Apps Script via doPost
+- **Carfax cloud worker**: Runs headless Puppeteer on Replit server at a randomized time daily during business hours (Mountain Time); results written back to Apps Script via doPost. Skips VINs that already have a Carfax URL (starts with "http"), but re-searches VINs marked "NOT FOUND".
 - **Image CDN**: Vehicle photos served from `https://zopsoftware-asset.b-cdn.net` + path from Typesense `image_urls` field (semicolon-delimited)
 - **Archive tab**: Vehicles removed from Matrix feed are archived (not deleted) before removal from My List
 - **Rate limiting**: 60 req/min per IP on all /api routes, skips /api/healthz
 - **Object storage as shared state**: Dev and production use separate Postgres databases (Replit provisions them independently). Replit's GCS-backed object storage bucket is shared between environments. BB session cookies (`bb-session.json`) and computed BB values map (`bb-values.json`) are stored there so both environments see the same data. Dev does browser login + computes values; production reads from object storage.
 - **BB values merge-not-replace**: `saveBbValuesToStore()` loads existing values from object storage, merges in new values, then writes back. This prevents partial dev test runs from wiping production BB data.
-- **BB nightly run**: Runs only in dev (production skips browser login gracefully). Dev writes fresh cookies + values to object storage at 2am. Production reads them on startup and at every hourly inventory refresh via `loadBbValuesFromStore()`.
+- **BB daily run**: Runs at a randomized time daily during business hours (Mountain Time). Dev writes fresh cookies + values to object storage. Production reads them on startup and at every hourly inventory refresh via `loadBbValuesFromStore()`.
+- **New-unit detection**: When the hourly inventory refresh detects VINs not in the previous cache, it triggers targeted BB and Carfax lookups for only the new VINs (not a full batch). Carfax targeted lookups respect the skip-if-already-has-URL rule.
 - **BB trim matching**: When CBB returns multiple trim options for a VIN, the worker scores each option using: (1) vehicle description token matching against CBB series/style fields, (2) NHTSA VIN decode fields (trim, series, body class, drivetrain, displacement, cylinders, fuel type), and (3) cross-field token overlap. When no trim can be matched, the **median** value is used as fallback (not lowest). All returned trims are logged with their values for auditability.
 - **NHTSA decode caching**: `decodeVinNhtsa()` results are cached in an in-memory Map for the lifetime of the server process. Same 70 VINs don't need repeated NHTSA API calls on subsequent BB runs.
 - **Session invalidation on revoke**: When an owner removes a user via DELETE /access/:email, their active sessions are purged from the `session` table in Postgres, forcing immediate logout.
