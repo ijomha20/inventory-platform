@@ -660,11 +660,11 @@ export default function Inventory() {
       ) : (
         /* Desktop table */
         sorted.length === 0 ? emptyState : (
-          <div className="rounded-lg border border-gray-200 overflow-hidden bg-white shadow-sm">
+          <div className="rounded-lg border border-gray-200 overflow-x-auto bg-white shadow-sm">
             <div className="flex items-center gap-3 px-4 py-2.5 bg-gray-50 border-b border-gray-200">
               {[
                 { key: "location" as SortKey, label: "Location",   cls: "w-24 shrink-0" },
-                { key: "vehicle"  as SortKey, label: "Vehicle",    cls: "flex-1 min-w-0" },
+                { key: "vehicle"  as SortKey, label: "Vehicle",    cls: "flex-1 min-w-[280px]" },
                 { key: "vin"      as SortKey, label: "VIN",        cls: "w-40 shrink-0" },
                 { key: "km"       as SortKey, label: "KM",         cls: "w-24 shrink-0" },
               ].map((col) => (
@@ -696,7 +696,7 @@ export default function Inventory() {
                 <div key={`${item.vin}-${i}`}>
                   <div className={`flex items-center gap-3 px-4 py-3 hover:bg-gray-50 transition-colors ${i < sorted.length - 1 && expandedBbVin !== item.vin ? "border-b border-gray-100" : ""}`}>
                     <div className="w-24 shrink-0 text-sm text-gray-700 truncate font-medium">{item.location || "—"}</div>
-                    <div className="flex-1 min-w-0 text-sm text-gray-900 font-medium truncate">{item.vehicle}</div>
+                    <div className="flex-1 min-w-[280px] text-sm text-gray-900 font-medium truncate">{item.vehicle}</div>
                     <div className="w-40 shrink-0"><CopyVin vin={item.vin} /></div>
                     <div className="w-24 shrink-0 text-sm text-gray-600">
                       {item.km ? Number(item.km.replace(/[^0-9]/g, "")).toLocaleString("en-US") + " km" : "—"}
