@@ -337,6 +337,34 @@ async function handle2FA(page: any): Promise<void> {
     }
     await sleep(3000);
     try { await page.waitForNavigation({ waitUntil: "domcontentloaded", timeout: 20_000 }); } catch (_) {}
+
+    const postRecoveryUrl = page.url() as string;
+    logger.info({ url: postRecoveryUrl }, "Lender auth: page after recovery code submit");
+
+    if (postRecoveryUrl.includes("recovery-code-challenge-new-code") || postRecoveryUrl.includes("new-code")) {
+      logger.info("Lender auth: Auth0 showing new recovery code page — clicking continue");
+      const continueBtn = await findSelector(page, [
+        'button[type="submit"]',
+        'button[name="action"]',
+        'a[class*="button"]',
+        'button',
+      ], 5_000);
+      if (continueBtn) {
+        const btnText = await continueBtn.evaluate((el: HTMLElement) => el.textContent?.trim());
+        logger.info({ btnText }, "Lender auth: clicking button on new-code page");
+        try { await continueBtn.click(); } catch (_) {
+          await continueBtn.evaluate((el: HTMLElement) => el.click());
+        }
+        await sleep(3000);
+        try { await page.waitForNavigation({ waitUntil: "domcontentloaded", timeout: 20_000 }); } catch (_) {}
+        logger.info({ url: page.url() }, "Lender auth: page after new-code continue");
+      } else {
+        logger.warn("Lender auth: no button found on new-code page — trying Enter");
+        await page.keyboard.press("Enter");
+        await sleep(3000);
+        try { await page.waitForNavigation({ waitUntil: "domcontentloaded", timeout: 15_000 }); } catch (_) {}
+      }
+    }
   } else {
     const finalText = await getPageText(page);
     logger.warn({ pageTextSnippet: finalText.substring(0, 400) }, "Lender auth: could not find recovery code input field");
