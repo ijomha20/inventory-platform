@@ -1,6 +1,8 @@
 import { logger } from "./logger.js";
 import * as fs from "fs";
 import * as path from "path";
+import * as otplibModule from "otplib";
+const authenticator = (otplibModule as any).authenticator ?? (otplibModule as any).default?.authenticator;
 import {
   loadLenderSessionFromStore,
   saveLenderSessionToStore,
@@ -8,6 +10,7 @@ import {
 
 const LENDER_EMAIL    = process.env["LENDER_CREDITAPP_EMAIL"]?.trim()    ?? "";
 const LENDER_PASSWORD = process.env["LENDER_CREDITAPP_PASSWORD"]?.trim() ?? "";
+const LENDER_TOTP_SECRET = process.env["LENDER_CREDITAPP_TOTP_SECRET"]?.trim() ?? "";
 const LENDER_2FA_CODE_ENV = process.env["LENDER_CREDITAPP_2FA_CODE"]?.trim() ?? "";
 
 async function getLatestRecoveryCode(): Promise<string> {
@@ -257,15 +260,6 @@ async function getPageText(page: any): Promise<string> {
 }
 
 async function handle2FA(page: any): Promise<void> {
-  const LENDER_2FA_CODE = await getLatestRecoveryCode();
-  if (!LENDER_2FA_CODE) {
-    logger.warn("Lender auth: no recovery code available (env or storage) — attempting dismiss");
-    await sleep(2000);
-    const dismissed = await clickLinkByText(page, ["remind me later", "skip", "not now", "maybe later", "do it later"]);
-    if (dismissed) logger.info({ dismissed }, "Lender auth: 2FA prompt dismissed");
-    return;
-  }
-
   await sleep(2000);
 
   const currentUrl = page.url() as string;
@@ -275,194 +269,85 @@ async function handle2FA(page: any): Promise<void> {
   }
 
   const pageText = await getPageText(page);
-  if (pageText.includes("enter your password") || pageText.includes("wrong password") || pageText.includes("incorrect password")) {
-    logger.info("Lender auth: password page detected — not a 2FA prompt, skipping");
+  if (pageText.includes("enter your password") || pageText.includes("wrong password")) {
+    logger.info("Lender auth: password page detected — skipping 2FA handler");
     return;
   }
 
-  const has2FA = pageText.includes("verification") || pageText.includes("two-factor") ||
-                 pageText.includes("2fa") || pageText.includes("authenticator") ||
-                 pageText.includes("security code") || pageText.includes("enter the code") ||
-                 pageText.includes("recovery code") || pageText.includes("verify your identity") ||
-                 pageText.includes("multi-factor");
+  const has2FA = pageText.includes("verify your identity") || pageText.includes("one-time password") ||
+                 pageText.includes("authenticator") || pageText.includes("enter the code") ||
+                 pageText.includes("verification") || pageText.includes("security code") ||
+                 pageText.includes("multi-factor") || pageText.includes("2fa") ||
+                 currentUrl.includes("mfa-otp-challenge") || currentUrl.includes("mfa-sms-challenge");
 
   if (!has2FA) {
     logger.info("Lender auth: no 2FA prompt detected — skipping");
     return;
   }
 
-  logger.info("Lender auth: 2FA prompt detected — navigating to recovery code input");
-  logger.info({ url: currentUrl, pageTextSnippet: pageText.substring(0, 300) }, "Lender auth: 2FA page state");
+  logger.info({ url: currentUrl, pageTextSnippet: pageText.substring(0, 300) }, "Lender auth: 2FA prompt detected");
 
-  const step1 = await clickLinkByText(page, [
-    "try another method", "try another way", "use another method",
-    "other methods", "i can't use this method", "other options",
-    "choose another method",
-  ]);
-  if (step1) {
-    logger.info({ clicked: step1 }, "Lender auth: step 1 — clicked 'try another method'");
-    await sleep(3000);
-  } else {
-    logger.info("Lender auth: no 'try another method' link found — may already be on method selection");
-  }
+  if (LENDER_TOTP_SECRET) {
+    logger.info("Lender auth: TOTP secret available — generating 6-digit code");
 
-  const step2Text = await getPageText(page);
-  logger.info({ pageTextSnippet: step2Text.substring(0, 300) }, "Lender auth: page state after step 1");
-
-  const step2 = await clickLinkByText(page, [
-    "recovery code", "backup code", "use a recovery code",
-    "use recovery code", "enter a recovery code",
-  ]);
-  if (step2) {
-    logger.info({ clicked: step2 }, "Lender auth: step 2 — clicked 'recovery code' option");
-    await sleep(3000);
-  } else {
-    logger.info("Lender auth: no 'recovery code' link found — may already be on code input");
-  }
-
-  const codeInput = await findSelector(page, [
-    'input[name="code"]',
-    'input[name="recovery-code"]',
-    'input[name="recoveryCode"]',
-    'input[name="backup_code"]',
-    'input[name="recovery_code"]',
-    'input[type="text"]',
-    'input[inputmode="numeric"]',
-  ], 10000);
-
-  if (codeInput) {
-    logger.info("Lender auth: found recovery code input — entering code");
-    try {
-      await humanType(page, codeInput, LENDER_2FA_CODE);
-    } catch (typeErr: any) {
-      logger.warn({ err: typeErr.message }, "Lender auth: humanType failed for 2FA — using JS fallback");
-      await codeInput.evaluate((el: HTMLInputElement, code: string) => {
-        el.focus();
-        el.value = code;
-        el.dispatchEvent(new Event("input", { bubbles: true }));
-        el.dispatchEvent(new Event("change", { bubbles: true }));
-      }, LENDER_2FA_CODE);
-      await sleep(500);
-    }
-
-    await sleep(1000);
-    const submitBtn = await findSelector(page, ['button[type="submit"]', 'button[name="action"]'], 5000);
-    if (submitBtn) {
-      try {
-        await submitBtn.click();
-      } catch (_) {
-        await submitBtn.evaluate((el: HTMLElement) => el.click());
-      }
-      logger.info("Lender auth: 2FA recovery code submitted");
-    }
-    await sleep(3000);
-    try { await page.waitForNavigation({ waitUntil: "domcontentloaded", timeout: 10_000 }); } catch (_) {}
-
-    const postRecoveryUrl = page.url() as string;
-    logger.info({ url: postRecoveryUrl }, "Lender auth: page after recovery code submit");
-
-    let isNewCodePage = false;
-    for (let attempt = 0; attempt < 10; attempt++) {
-      const pageText = await getPageText(page);
-      if (pageText.includes("almost there") || pageText.includes("copy this recovery code") ||
-          pageText.includes("safely recorded") || pageText.includes("keep it somewhere safe") ||
-          pageText.includes("copy code")) {
-        isNewCodePage = true;
-        logger.info("Lender auth: 'Almost There' new recovery code page detected");
-        break;
-      }
-      if (attempt === 0) {
-        logger.info({ pageTextSnippet: pageText.substring(0, 400) }, "Lender auth: page content after recovery submit (polling for Almost There)");
-      }
-      await sleep(2000);
-    }
-
-    if (isNewCodePage) {
-
-        const newCode = await page.evaluate(() => {
-          const inputEl = document.querySelector('input[type="text"][readonly], input[type="text"][disabled], input.code') as HTMLInputElement;
-          if (inputEl?.value && inputEl.value.length >= 10) return inputEl.value.trim();
-          const codeEls = Array.from(document.querySelectorAll("code, pre, .code, strong, b, span, div"));
-          for (const el of codeEls) {
-            const t = (el as HTMLElement).innerText?.trim();
-            if (t && t.length >= 15 && t.length <= 40 && /^[A-Z0-9]+$/i.test(t)) return t;
-          }
-          const allText = document.body?.innerText || "";
-          const match = allText.match(/\b([A-Z0-9]{15,40})\b/);
-          return match ? match[1] : null;
-        });
-
-        if (newCode) {
-          logger.info({ newCodeLength: newCode.length }, "Lender auth: captured new recovery code");
-          try {
-            const fetch = (await import("node-fetch")).default;
-            const OBJ_BASE = "http://127.0.0.1:1106";
-            const bucket = process.env.DEFAULT_OBJECT_STORAGE_BUCKET_ID;
-            const dir = process.env.PRIVATE_OBJECT_DIR || "";
-            const key = `${dir}/lender-recovery-code.json`;
-            await fetch(`${OBJ_BASE}/buckets/${bucket}/objects/${encodeURIComponent(key)}`, {
-              method: "PUT",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ code: newCode, capturedAt: new Date().toISOString() }),
-            });
-            logger.info("Lender auth: new recovery code saved to object storage");
-          } catch (storeErr: any) {
-            logger.error({ err: storeErr.message }, "Lender auth: failed to save new recovery code to storage");
-          }
-        } else {
-          logger.warn("Lender auth: could not extract new recovery code from page");
-          logger.info({ pageTextSnippet: pageText.substring(0, 600) }, "Lender auth: new-code page content for debugging");
-        }
-
-        const checkbox = await findSelector(page, [
-          'input[type="checkbox"]',
-          'label input[type="checkbox"]',
-        ], 5_000);
-        if (checkbox) {
-          const isChecked = await checkbox.evaluate((el: HTMLInputElement) => el.checked);
-          if (!isChecked) {
-            await checkbox.click().catch(async () => {
-              await checkbox.evaluate((el: HTMLInputElement) => {
-                el.checked = true;
-                el.dispatchEvent(new Event("change", { bubbles: true }));
-                el.dispatchEvent(new Event("input", { bubbles: true }));
-              });
-            });
-            await sleep(500);
-          }
-          logger.info("Lender auth: 'I have safely recorded this code' checkbox checked");
-        } else {
-          logger.warn("Lender auth: checkbox not found — trying to click label text");
-          await clickLinkByText(page, ["i have safely recorded", "safely recorded this code", "i have recorded"]);
-          await sleep(500);
-        }
-
-        await sleep(500);
-        const continueBtn = await findSelector(page, [
-          'button[type="submit"]',
-          'button[name="action"]',
-          'button',
-        ], 5_000);
-        if (continueBtn) {
-          const btnText = await continueBtn.evaluate((el: HTMLElement) => el.textContent?.trim());
-          logger.info({ btnText }, "Lender auth: clicking Continue on new-code page");
-          try { await continueBtn.click(); } catch (_) {
-            await continueBtn.evaluate((el: HTMLElement) => el.click());
-          }
-        } else {
-          logger.warn("Lender auth: no Continue button found — pressing Enter");
-          await page.keyboard.press("Enter");
-        }
+    if (currentUrl.includes("mfa-sms-challenge")) {
+      logger.info("Lender auth: on SMS challenge page — switching to OTP method");
+      const switchLink = await clickLinkByText(page, [
+        "try another method", "try another way", "use another method",
+        "other methods", "choose another method",
+      ]);
+      if (switchLink) {
+        logger.info({ clicked: switchLink }, "Lender auth: clicked 'try another method'");
         await sleep(3000);
-        try { await page.waitForNavigation({ waitUntil: "domcontentloaded", timeout: 20_000 }); } catch (_) {}
-        logger.info({ url: page.url() }, "Lender auth: page after new-code Continue");
+        const otpOption = await clickLinkByText(page, [
+          "one-time password", "otp", "authenticator", "google authenticator",
+          "authentication app", "authenticator app",
+        ]);
+        if (otpOption) {
+          logger.info({ clicked: otpOption }, "Lender auth: selected OTP/authenticator method");
+          await sleep(3000);
+        }
+      }
+    }
+
+    const totpCode = authenticator.generate(LENDER_TOTP_SECRET);
+    logger.info({ codeLength: totpCode.length }, "Lender auth: TOTP code generated");
+
+    const otpInput = await findSelector(page, [
+      'input[name="code"]',
+      'input[inputmode="numeric"]',
+      'input[type="text"]',
+      'input[name="otp"]',
+    ], 10_000);
+
+    if (otpInput) {
+      await otpInput.click().catch(() => otpInput.focus());
+      await sleep(300);
+      await otpInput.type(totpCode, { delay: 50 });
+      await sleep(500);
+
+      const typedLen = await otpInput.evaluate((el: HTMLInputElement) => el.value.length);
+      logger.info({ typedLen, expected: 6 }, "Lender auth: TOTP code typed");
+
+      const submitBtn = await findSelector(page, ['button[type="submit"]', 'button[name="action"]'], 5_000);
+      if (submitBtn) {
+        try { await submitBtn.click(); } catch (_) {
+          await submitBtn.evaluate((el: HTMLElement) => el.click());
+        }
+        logger.info("Lender auth: TOTP code submitted");
+      } else {
+        await page.keyboard.press("Enter");
+        logger.info("Lender auth: TOTP code submitted via Enter");
+      }
+
+      await sleep(3000);
+      try { await page.waitForNavigation({ waitUntil: "domcontentloaded", timeout: 15_000 }); } catch (_) {}
+      logger.info({ url: page.url() }, "Lender auth: page after TOTP submit");
     } else {
-      const debugText = await getPageText(page);
-      logger.warn({ pageTextSnippet: debugText.substring(0, 600) }, "Lender auth: 'Almost There' page not found after 20s polling — page content");
+      logger.error("Lender auth: could not find OTP input field");
     }
   } else {
-    const finalText = await getPageText(page);
-    logger.warn({ pageTextSnippet: finalText.substring(0, 400) }, "Lender auth: could not find recovery code input field");
+    logger.warn("Lender auth: no TOTP secret — cannot handle 2FA automatically");
   }
 }
 
