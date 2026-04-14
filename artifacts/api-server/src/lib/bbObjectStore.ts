@@ -120,3 +120,55 @@ export async function saveBbValuesToStore(values: Record<string, BbValueEntry>):
     updatedAt: new Date().toISOString(),
   });
 }
+
+// ---------------------------------------------------------------------------
+// Lender session cookies (CreditApp lender account — separate from BB)
+// ---------------------------------------------------------------------------
+
+export async function loadLenderSessionFromStore(): Promise<BbSessionBlob | null> {
+  return readJson<BbSessionBlob>("lender-session.json");
+}
+
+export async function saveLenderSessionToStore(cookies: any[]): Promise<void> {
+  await writeJson("lender-session.json", {
+    cookies,
+    updatedAt: new Date().toISOString(),
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Lender programs cache (program matrices from CreditApp GraphQL)
+// ---------------------------------------------------------------------------
+
+export interface LenderProgramTier {
+  tierName:          string;
+  maxAdvanceLTV:     number;
+  maxAftermarketLTV: number;
+  maxAllInLTV:       number;
+  creditorFee:       number;
+  dealerReserve:     number;
+  minRate?:          number;
+  maxRate?:          number;
+  minTerm?:          number;
+  maxTerm?:          number;
+}
+
+export interface LenderProgram {
+  lenderCode: string;
+  lenderName: string;
+  tiers:      LenderProgramTier[];
+}
+
+export interface LenderProgramsBlob {
+  programs:   LenderProgram[];
+  updatedAt:  string;
+  sourceApp?: string;
+}
+
+export async function loadLenderProgramsFromStore(): Promise<LenderProgramsBlob | null> {
+  return readJson<LenderProgramsBlob>("lender-programs.json");
+}
+
+export async function saveLenderProgramsToStore(data: LenderProgramsBlob): Promise<void> {
+  await writeJson("lender-programs.json", data);
+}

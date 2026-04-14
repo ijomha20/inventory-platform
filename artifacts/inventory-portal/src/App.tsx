@@ -12,6 +12,7 @@ import Login from "@/pages/login";
 import AccessDenied from "@/pages/denied";
 import Inventory from "@/pages/inventory";
 import Admin from "@/pages/admin";
+import LenderCalculator from "@/pages/lender-calculator";
 
 const queryClient = new QueryClient();
 
@@ -52,6 +53,14 @@ function Router() {
         <RequireAuth>
           <Layout>
             <Admin />
+          </Layout>
+        </RequireAuth>
+      </Route>
+
+      <Route path="/calculator">
+        <RequireAuth>
+          <Layout>
+            <LenderCalculator />
           </Layout>
         </RequireAuth>
       </Route>

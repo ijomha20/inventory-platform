@@ -18,6 +18,8 @@ tags:
     description: Access list management
   - name: audit
     description: Audit log
+  - name: lender
+    description: Lender deal calculator
 paths:
   /healthz:
     get:
@@ -238,6 +240,94 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
 
+  /lender-programs:
+    get:
+      operationId: getLenderPrograms
+      tags: [lender]
+      summary: Get cached lender program matrices (owner only)
+      responses:
+        "200":
+          description: Lender programs
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LenderProgramsResponse"
+        "403":
+          description: Owner only
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /lender-status:
+    get:
+      operationId: getLenderStatus
+      tags: [lender]
+      summary: Get lender sync status (owner only)
+      responses:
+        "200":
+          description: Sync status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LenderStatus"
+        "403":
+          description: Owner only
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /refresh-lender:
+    post:
+      operationId: refreshLender
+      tags: [lender]
+      summary: Trigger manual lender sync (owner only)
+      responses:
+        "200":
+          description: Sync triggered
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessResponse"
+        "403":
+          description: Owner only
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /lender-calculate:
+    post:
+      operationId: lenderCalculate
+      tags: [lender]
+      summary: Calculate inventory affordability by lender/tier (owner only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LenderCalculateRequest"
+      responses:
+        "200":
+          description: Filtered results
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LenderCalculateResponse"
+        "400":
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: Owner only
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
   /audit-log:
     get:
       operationId: getAuditLog
@@ -425,3 +515,183 @@ components:
           type: boolean
       required:
         - ok
+
+    LenderProgramTier:
+      type: object
+      properties:
+        tierName:
+          type: string
+        maxAdvanceLTV:
+          type: number
+        maxAftermarketLTV:
+          type: number
+        maxAllInLTV:
+          type: number
+        creditorFee:
+          type: number
+        dealerReserve:
+          type: number
+        minRate:
+          type: number
+          nullable: true
+        maxRate:
+          type: number
+          nullable: true
+        minTerm:
+          type: number
+          nullable: true
+        maxTerm:
+          type: number
+          nullable: true
+      required:
+        - tierName
+        - maxAdvanceLTV
+        - maxAftermarketLTV
+        - maxAllInLTV
+        - creditorFee
+        - dealerReserve
+
+    LenderProgram:
+      type: object
+      properties:
+        lenderCode:
+          type: string
+        lenderName:
+          type: string
+        tiers:
+          type: array
+          items:
+            $ref: "#/components/schemas/LenderProgramTier"
+      required:
+        - lenderCode
+        - lenderName
+        - tiers
+
+    LenderProgramsResponse:
+      type: object
+      properties:
+        programs:
+          type: array
+          items:
+            $ref: "#/components/schemas/LenderProgram"
+        updatedAt:
+          type: string
+          nullable: true
+        sourceApp:
+          type: string
+          nullable: true
+      required:
+        - programs
+
+    LenderStatus:
+      type: object
+      properties:
+        running:
+          type: boolean
+        startedAt:
+          type: string
+          nullable: true
+        lastRun:
+          type: string
+          nullable: true
+        lenderCount:
+          type: integer
+        error:
+          type: string
+          nullable: true
+        programsAge:
+          type: string
+          nullable: true
+      required:
+        - running
+        - lenderCount
+
+    LenderCalculateRequest:
+      type: object
+      properties:
+        lenderCode:
+          type: string
+        tierName:
+          type: string
+        approvedRate:
+          type: number
+        approvedTerm:
+          type: number
+        maxPayment:
+          type: number
+        downPayment:
+          type: number
+        tradeValue:
+          type: number
+        tradeLien:
+          type: number
+        taxRate:
+          type: number
+        includeAftermarket:
+          type: boolean
+        aftermarketAmount:
+          type: number
+      required:
+        - lenderCode
+        - tierName
+        - approvedRate
+        - approvedTerm
+        - maxPayment
+
+    LenderCalcResultItem:
+      type: object
+      properties:
+        vin:
+          type: string
+        vehicle:
+          type: string
+        location:
+          type: string
+        bbWholesale:
+          type: number
+        maxAdvance:
+          type: number
+        totalFinanced:
+          type: number
+        monthlyPayment:
+          type: number
+        costOfBorrowing:
+          type: number
+        ltv:
+          type: number
+        hasPhotos:
+          type: boolean
+        website:
+          type: string
+      required:
+        - vin
+        - vehicle
+        - location
+        - bbWholesale
+        - maxAdvance
+        - totalFinanced
+        - monthlyPayment
+        - costOfBorrowing
+        - ltv
+
+    LenderCalculateResponse:
+      type: object
+      properties:
+        lender:
+          type: string
+        tier:
+          type: string
+        tierConfig:
+          $ref: "#/components/schemas/LenderProgramTier"
+        resultCount:
+          type: integer
+        results:
+          type: array
+          items:
+            $ref: "#/components/schemas/LenderCalcResultItem"
+      required:
+        - lender
+        - tier
+        - tierConfig
+        - resultCount
+        - results

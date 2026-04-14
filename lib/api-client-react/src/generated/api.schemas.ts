@@ -76,6 +76,76 @@ export interface SuccessResponse {
   ok: boolean;
 }
 
+export interface LenderProgramTier {
+  tierName: string;
+  maxAdvanceLTV: number;
+  maxAftermarketLTV: number;
+  maxAllInLTV: number;
+  creditorFee: number;
+  dealerReserve: number;
+  minRate?: number | null;
+  maxRate?: number | null;
+  minTerm?: number | null;
+  maxTerm?: number | null;
+}
+
+export interface LenderProgram {
+  lenderCode: string;
+  lenderName: string;
+  tiers: LenderProgramTier[];
+}
+
+export interface LenderProgramsResponse {
+  programs: LenderProgram[];
+  updatedAt?: string | null;
+  sourceApp?: string | null;
+}
+
+export interface LenderStatus {
+  running: boolean;
+  startedAt?: string | null;
+  lastRun?: string | null;
+  lenderCount: number;
+  error?: string | null;
+  programsAge?: string | null;
+}
+
+export interface LenderCalculateRequest {
+  lenderCode: string;
+  tierName: string;
+  approvedRate: number;
+  approvedTerm: number;
+  maxPayment: number;
+  downPayment?: number;
+  tradeValue?: number;
+  tradeLien?: number;
+  taxRate?: number;
+  includeAftermarket?: boolean;
+  aftermarketAmount?: number;
+}
+
+export interface LenderCalcResultItem {
+  vin: string;
+  vehicle: string;
+  location: string;
+  bbWholesale: number;
+  maxAdvance: number;
+  totalFinanced: number;
+  monthlyPayment: number;
+  costOfBorrowing: number;
+  ltv: number;
+  hasPhotos?: boolean;
+  website?: string;
+}
+
+export interface LenderCalculateResponse {
+  lender: string;
+  tier: string;
+  tierConfig: LenderProgramTier;
+  resultCount: number;
+  results: LenderCalcResultItem[];
+}
+
 export type GetVehicleImagesParams = {
   vin: string;
 };

@@ -4,6 +4,7 @@ import authRouter      from "./auth.js";
 import inventoryRouter from "./inventory.js";
 import accessRouter    from "./access.js";
 import carfaxRouter    from "./carfax.js";
+import lenderRouter    from "./lender.js";
 
 const router: IRouter = Router();
 
@@ -12,5 +13,6 @@ router.use(authRouter);
 router.use(inventoryRouter);
 router.use(accessRouter);
 router.use(carfaxRouter);
+router.use(lenderRouter);
 
 export default router;

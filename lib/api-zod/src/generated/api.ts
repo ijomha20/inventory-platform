@@ -120,6 +120,103 @@ export const RemoveAccessEntryResponse = zod.object({
 });
 
 /**
+ * @summary Get cached lender program matrices (owner only)
+ */
+export const GetLenderProgramsResponse = zod.object({
+  programs: zod.array(
+    zod.object({
+      lenderCode: zod.string(),
+      lenderName: zod.string(),
+      tiers: zod.array(
+        zod.object({
+          tierName: zod.string(),
+          maxAdvanceLTV: zod.number(),
+          maxAftermarketLTV: zod.number(),
+          maxAllInLTV: zod.number(),
+          creditorFee: zod.number(),
+          dealerReserve: zod.number(),
+          minRate: zod.number().nullish(),
+          maxRate: zod.number().nullish(),
+          minTerm: zod.number().nullish(),
+          maxTerm: zod.number().nullish(),
+        }),
+      ),
+    }),
+  ),
+  updatedAt: zod.string().nullish(),
+  sourceApp: zod.string().nullish(),
+});
+
+/**
+ * @summary Get lender sync status (owner only)
+ */
+export const GetLenderStatusResponse = zod.object({
+  running: zod.boolean(),
+  startedAt: zod.string().nullish(),
+  lastRun: zod.string().nullish(),
+  lenderCount: zod.number(),
+  error: zod.string().nullish(),
+  programsAge: zod.string().nullish(),
+});
+
+/**
+ * @summary Trigger manual lender sync (owner only)
+ */
+export const RefreshLenderResponse = zod.object({
+  ok: zod.boolean(),
+});
+
+/**
+ * @summary Calculate inventory affordability by lender/tier (owner only)
+ */
+export const LenderCalculateBody = zod.object({
+  lenderCode: zod.string(),
+  tierName: zod.string(),
+  approvedRate: zod.number(),
+  approvedTerm: zod.number(),
+  maxPayment: zod.number(),
+  downPayment: zod.number().optional(),
+  tradeValue: zod.number().optional(),
+  tradeLien: zod.number().optional(),
+  taxRate: zod.number().optional(),
+  includeAftermarket: zod.boolean().optional(),
+  aftermarketAmount: zod.number().optional(),
+});
+
+export const LenderCalculateResponse = zod.object({
+  lender: zod.string(),
+  tier: zod.string(),
+  tierConfig: zod.object({
+    tierName: zod.string(),
+    maxAdvanceLTV: zod.number(),
+    maxAftermarketLTV: zod.number(),
+    maxAllInLTV: zod.number(),
+    creditorFee: zod.number(),
+    dealerReserve: zod.number(),
+    minRate: zod.number().nullish(),
+    maxRate: zod.number().nullish(),
+    minTerm: zod.number().nullish(),
+    maxTerm: zod.number().nullish(),
+  }),
+  resultCount: zod.number(),
+  results: zod.array(
+    zod.object({
+      vin: zod.string(),
+      vehicle: zod.string(),
+      location: zod.string(),
+      bbWholesale: zod.number(),
+      maxAdvance: zod.number(),
+      totalFinanced: zod.number(),
+      monthlyPayment: zod.number(),
+      costOfBorrowing: zod.number(),
+      ltv: zod.number(),
+      hasPhotos: zod.boolean().optional(),
+      website: zod.string().optional(),
+    }),
+  ),
+});
+
+/**
  * @summary Get audit log of access changes (owner only)
  */
 export const GetAuditLogResponseItem = zod.object({

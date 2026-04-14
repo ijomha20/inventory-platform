@@ -25,6 +25,10 @@ import type {
   GetVehicleImagesParams,
   HealthStatus,
   InventoryItem,
+  LenderCalculateRequest,
+  LenderCalculateResponse,
+  LenderProgramsResponse,
+  LenderStatus,
   SuccessResponse,
   UpdateAccessRoleRequest,
   User,
@@ -755,6 +759,323 @@ export const useRemoveAccessEntry = <
   TContext
 > => {
   return useMutation(getRemoveAccessEntryMutationOptions(options));
+};
+
+/**
+ * @summary Get cached lender program matrices (owner only)
+ */
+export const getGetLenderProgramsUrl = () => {
+  return `/api/lender-programs`;
+};
+
+export const getLenderPrograms = async (
+  options?: RequestInit,
+): Promise<LenderProgramsResponse> => {
+  return customFetch<LenderProgramsResponse>(getGetLenderProgramsUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetLenderProgramsQueryKey = () => {
+  return [`/api/lender-programs`] as const;
+};
+
+export const getGetLenderProgramsQueryOptions = <
+  TData = Awaited<ReturnType<typeof getLenderPrograms>>,
+  TError = ErrorType<ErrorResponse>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getLenderPrograms>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetLenderProgramsQueryKey();
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getLenderPrograms>>
+  > = ({ signal }) => getLenderPrograms({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getLenderPrograms>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetLenderProgramsQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getLenderPrograms>>
+>;
+export type GetLenderProgramsQueryError = ErrorType<ErrorResponse>;
+
+/**
+ * @summary Get cached lender program matrices (owner only)
+ */
+
+export function useGetLenderPrograms<
+  TData = Awaited<ReturnType<typeof getLenderPrograms>>,
+  TError = ErrorType<ErrorResponse>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getLenderPrograms>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetLenderProgramsQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Get lender sync status (owner only)
+ */
+export const getGetLenderStatusUrl = () => {
+  return `/api/lender-status`;
+};
+
+export const getLenderStatus = async (
+  options?: RequestInit,
+): Promise<LenderStatus> => {
+  return customFetch<LenderStatus>(getGetLenderStatusUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetLenderStatusQueryKey = () => {
+  return [`/api/lender-status`] as const;
+};
+
+export const getGetLenderStatusQueryOptions = <
+  TData = Awaited<ReturnType<typeof getLenderStatus>>,
+  TError = ErrorType<ErrorResponse>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getLenderStatus>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetLenderStatusQueryKey();
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof getLenderStatus>>> = ({
+    signal,
+  }) => getLenderStatus({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getLenderStatus>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetLenderStatusQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getLenderStatus>>
+>;
+export type GetLenderStatusQueryError = ErrorType<ErrorResponse>;
+
+/**
+ * @summary Get lender sync status (owner only)
+ */
+
+export function useGetLenderStatus<
+  TData = Awaited<ReturnType<typeof getLenderStatus>>,
+  TError = ErrorType<ErrorResponse>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getLenderStatus>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetLenderStatusQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Trigger manual lender sync (owner only)
+ */
+export const getRefreshLenderUrl = () => {
+  return `/api/refresh-lender`;
+};
+
+export const refreshLender = async (
+  options?: RequestInit,
+): Promise<SuccessResponse> => {
+  return customFetch<SuccessResponse>(getRefreshLenderUrl(), {
+    ...options,
+    method: "POST",
+  });
+};
+
+export const getRefreshLenderMutationOptions = <
+  TError = ErrorType<ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof refreshLender>>,
+    TError,
+    void,
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof refreshLender>>,
+  TError,
+  void,
+  TContext
+> => {
+  const mutationKey = ["refreshLender"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof refreshLender>>,
+    void
+  > = () => {
+    return refreshLender(requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type RefreshLenderMutationResult = NonNullable<
+  Awaited<ReturnType<typeof refreshLender>>
+>;
+
+export type RefreshLenderMutationError = ErrorType<ErrorResponse>;
+
+/**
+ * @summary Trigger manual lender sync (owner only)
+ */
+export const useRefreshLender = <
+  TError = ErrorType<ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof refreshLender>>,
+    TError,
+    void,
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof refreshLender>>,
+  TError,
+  void,
+  TContext
+> => {
+  return useMutation(getRefreshLenderMutationOptions(options));
+};
+
+/**
+ * @summary Calculate inventory affordability by lender/tier (owner only)
+ */
+export const getLenderCalculateUrl = () => {
+  return `/api/lender-calculate`;
+};
+
+export const lenderCalculate = async (
+  lenderCalculateRequest: LenderCalculateRequest,
+  options?: RequestInit,
+): Promise<LenderCalculateResponse> => {
+  return customFetch<LenderCalculateResponse>(getLenderCalculateUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(lenderCalculateRequest),
+  });
+};
+
+export const getLenderCalculateMutationOptions = <
+  TError = ErrorType<ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof lenderCalculate>>,
+    TError,
+    { data: BodyType<LenderCalculateRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof lenderCalculate>>,
+  TError,
+  { data: BodyType<LenderCalculateRequest> },
+  TContext
+> => {
+  const mutationKey = ["lenderCalculate"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof lenderCalculate>>,
+    { data: BodyType<LenderCalculateRequest> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return lenderCalculate(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type LenderCalculateMutationResult = NonNullable<
+  Awaited<ReturnType<typeof lenderCalculate>>
+>;
+export type LenderCalculateMutationBody = BodyType<LenderCalculateRequest>;
+export type LenderCalculateMutationError = ErrorType<ErrorResponse>;
+
+/**
+ * @summary Calculate inventory affordability by lender/tier (owner only)
+ */
+export const useLenderCalculate = <
+  TError = ErrorType<ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof lenderCalculate>>,
+    TError,
+    { data: BodyType<LenderCalculateRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof lenderCalculate>>,
+  TError,
+  { data: BodyType<LenderCalculateRequest> },
+  TContext
+> => {
+  return useMutation(getLenderCalculateMutationOptions(options));
 };
 
 /**

@@ -53,17 +53,20 @@ Every package extends `tsconfig.base.json` which sets `composite: true`. The roo
 
 Express 5 API server. Routes live in `src/routes/` and use `@workspace/api-zod` for request and response validation and `@workspace/db` for persistence.
 
-- Entry: `src/index.ts` — reads `PORT`, starts Express, schedules Carfax & BB workers (randomized daily within business hours, Mountain Time)
+- Entry: `src/index.ts` — reads `PORT`, starts Express, schedules Carfax, BB, & Lender sync workers (randomized daily within business hours, Mountain Time)
 - App setup: `src/app.ts` — CORS, session, Passport, rate limiting (60 req/min), trust proxy
 - Routes: `src/routes/index.ts` mounts sub-routers
   - `health.ts` — GET /healthz
   - `auth.ts` — OAuth flow, GET /me (returns role), GET/POST auth routes
   - `inventory.ts` — GET /inventory (role-filtered), GET /cache-status, POST /refresh, GET /vehicle-images
   - `access.ts` — GET /access, POST /access, PATCH /access/:email, DELETE /access/:email, GET /audit-log
+  - `lender.ts` — GET /lender-programs, GET /lender-status, POST /refresh-lender, POST /lender-calculate (all owner-only)
 - Lib: `src/lib/inventoryCache.ts` — in-memory cache of Apps Script inventory, auto-refreshes hourly
 - Lib: `src/lib/carfaxWorker.ts` — cloud Carfax lookup bot (puppeteer, randomized daily schedule)
 - Lib: `src/lib/randomScheduler.ts` — shared utility for randomized business-hours scheduling (Mon–Fri 8:30AM–7PM, Sat–Sun 10AM–4PM Mountain Time)
 - Lib: `src/lib/auth.ts` — Passport Google OAuth strategy, isOwner() helper
+- Lib: `src/lib/lenderAuth.ts` — CreditApp lender account auth (separate from BB worker), handles 2FA backup code entry
+- Lib: `src/lib/lenderWorker.ts` — Syncs lender program matrices from CreditApp GraphQL, caches to object storage
 - Depends on: `@workspace/db`, `@workspace/api-zod`, `express-rate-limit`, `puppeteer`
 
 ### `artifacts/inventory-portal` (`@workspace/inventory-portal`)
@@ -74,6 +77,7 @@ Pages:
 - `/login` — Google Sign-In page
 - `/` — Vehicle inventory table (desktop) + card view (mobile), with photo gallery, role-aware pricing
 - `/admin` — Access management (owner only): user list with role selector, audit log tab
+- `/calculator` — Lender Deal Calculator (owner only): select lender/tier, enter approval terms, filter inventory by affordability
 - `/denied` — Access denied page
 
 Features:
@@ -132,6 +136,9 @@ Utility scripts package.
 | `CARFAX_PASSWORD` | Replit Secrets | Carfax Canada password (optional) |
 | `CARFAX_ENABLED` | Replit Secrets | Set to "true" to activate cloud Carfax worker |
 | `APPS_SCRIPT_WEB_APP_URL` | Replit Secrets | Apps Script Web App URL (no query string) |
+| `LENDER_CREDITAPP_EMAIL` | Replit Secrets | CreditApp lender account email |
+| `LENDER_CREDITAPP_PASSWORD` | Replit Secrets | CreditApp lender account password |
+| `LENDER_CREDITAPP_2FA_CODE` | Replit Secrets | CreditApp lender 2FA backup code |
 
 ## Apps Script Setup (InventorySync_v3.2.gs)
 
@@ -163,3 +170,5 @@ One-time setup steps:
 - **NHTSA decode caching**: `decodeVinNhtsa()` results are cached in an in-memory Map for the lifetime of the server process. Same 70 VINs don't need repeated NHTSA API calls on subsequent BB runs.
 - **Session invalidation on revoke**: When an owner removes a user via DELETE /access/:email, their active sessions are purged from the `session` table in Postgres, forcing immediate logout.
 - **SESSION_SECRET enforcement**: Production deployments (REPLIT_DEPLOYMENT=1) throw at startup if SESSION_SECRET is missing. Dev falls back to a hardcoded dev-only secret.
+- **Lender Deal Calculator**: Caches CreditApp lender program matrices (8 lenders: SAN, EPI, ACC, iAF, QLI, CAV, RFC, THF) via GraphQL. Separate auth from BB worker — uses `LENDER_CREDITAPP_EMAIL`, `LENDER_CREDITAPP_PASSWORD`, `LENDER_CREDITAPP_2FA_CODE` secrets. 2FA handled by entering backup code automatically (not dismissing). Programs stored in object storage as `lender-programs.json`. Calculator computes: maxAdvance = bbWholesale × maxAdvanceLTV, adds creditor fees/taxes, computes monthly payment at given rate/term, filters by maxPayment. Retailer ID: `23c5167f-22a0-47a9-b46b-a3a224f73ab7`.
+- **Lender session**: Separate `lender_session` DB table and `lender-session.json` object storage key. Same tiered auth pattern as BB worker (object storage → DB → file → browser login in dev).

@@ -47,6 +47,10 @@ Thumbs.db
 # Session files
 .carfax-session.json
 */.carfax-session.json
+.creditapp-session.json
+*/.creditapp-session.json
+.lender-session.json
+*/.lender-session.json
 
 # Replit
 .cache/
