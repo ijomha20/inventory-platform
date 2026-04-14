@@ -522,15 +522,30 @@ async function handle2FA(page: any): Promise<void> {
         logger.info({ retryLen }, "Lender auth: TOTP code set (nativeSet fallback)");
       }
 
-      const submitBtn = await findSelector(page, ['button[type="submit"]', 'button[name="action"]'], 5_000);
-      if (submitBtn) {
-        try { await submitBtn.click(); } catch (_) {
-          await submitBtn.evaluate((el: HTMLElement) => el.click());
+      const submitted = await otpInput.evaluate((el: HTMLInputElement) => {
+        const form = el.closest("form");
+        if (form) {
+          const btn = form.querySelector('button[type="submit"], button[name="action"]') as HTMLButtonElement | null;
+          if (btn) { btn.click(); return "form-button"; }
+          form.submit();
+          return "form-submit";
         }
-        logger.info("Lender auth: TOTP code submitted");
+        return null;
+      });
+
+      if (submitted) {
+        logger.info({ method: submitted }, "Lender auth: TOTP code submitted via same-form method");
       } else {
-        await page.keyboard.press("Enter");
-        logger.info("Lender auth: TOTP code submitted via Enter");
+        const submitBtn = await findSelector(page, ['button[type="submit"]', 'button[name="action"]'], 5_000);
+        if (submitBtn) {
+          try { await submitBtn.click(); } catch (_) {
+            await submitBtn.evaluate((el: HTMLElement) => el.click());
+          }
+          logger.info("Lender auth: TOTP code submitted via global button");
+        } else {
+          await page.keyboard.press("Enter");
+          logger.info("Lender auth: TOTP code submitted via Enter");
+        }
       }
 
       await sleep(3000);
