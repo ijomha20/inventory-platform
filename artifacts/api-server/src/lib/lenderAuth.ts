@@ -287,6 +287,65 @@ async function getPageText(page: any): Promise<string> {
   return page.evaluate(() => (document.body?.textContent ?? "").toLowerCase());
 }
 
+async function navigateToOtpPage(page: any, startUrl: string): Promise<void> {
+  const OTP_METHODS = [
+    "one-time password", "otp", "authenticator", "google authenticator",
+    "authentication app", "authenticator app", "one time password",
+  ];
+  const SWITCH_LINKS = [
+    "try another method", "try another way", "use another method",
+    "other methods", "choose another method",
+  ];
+
+  let url = startUrl;
+
+  if (url.includes("mfa-otp-challenge")) {
+    logger.info("Lender auth: already on OTP challenge page");
+    return;
+  }
+
+  if (url.includes("mfa-sms-enrollment") || url.includes("mfa-sms-challenge")) {
+    logger.info("Lender auth: on SMS page — clicking 'try another method'");
+    const switched = await clickLinkByText(page, SWITCH_LINKS);
+    if (switched) {
+      logger.info({ clicked: switched }, "Lender auth: clicked switch link");
+      await sleep(3000);
+      url = page.url() as string;
+    }
+  }
+
+  if (url.includes("mfa-enroll-options") || url.includes("mfa-login-options")) {
+    logger.info("Lender auth: on method selection page — selecting OTP/authenticator");
+    const pageText = await getPageText(page);
+    logger.info({ pageTextSnippet: pageText.substring(0, 400) }, "Lender auth: method options page content");
+
+    const otpClicked = await clickLinkByText(page, OTP_METHODS);
+    if (otpClicked) {
+      logger.info({ clicked: otpClicked }, "Lender auth: selected OTP method");
+      await sleep(3000);
+      try { await page.waitForNavigation({ waitUntil: "domcontentloaded", timeout: 10_000 }); } catch (_) {}
+    } else {
+      const allLinks = await page.evaluate(() => {
+        return Array.from(document.querySelectorAll("a, button, [role='button'], li, div[class*='option']"))
+          .map((el: Element) => ({
+            tag: el.tagName, text: (el as HTMLElement).innerText?.trim().substring(0, 80),
+            href: (el as HTMLAnchorElement).href || "",
+          }))
+          .filter((l: any) => l.text && l.text.length > 0);
+      });
+      logger.info({ links: allLinks.slice(0, 15) }, "Lender auth: clickable elements on options page");
+    }
+    url = page.url() as string;
+    logger.info({ url }, "Lender auth: page after selecting OTP method");
+  }
+
+  if (url.includes("mfa-otp-enrollment")) {
+    logger.info("Lender auth: on OTP enrollment page — looking for code input");
+    const enrollText = await getPageText(page);
+    logger.info({ pageTextSnippet: enrollText.substring(0, 400) }, "Lender auth: OTP enrollment page content");
+  }
+}
+
 async function handle2FA(page: any): Promise<void> {
   await sleep(2000);
 
@@ -317,58 +376,9 @@ async function handle2FA(page: any): Promise<void> {
 
   logger.info({ url: currentUrl, pageTextSnippet: pageText.substring(0, 300) }, "Lender auth: 2FA prompt detected");
 
-  if (currentUrl.includes("enrollment")) {
-    logger.info("Lender auth: MFA enrollment page detected — attempting to skip");
-    const skipped = await clickLinkByText(page, [
-      "skip", "not now", "maybe later", "do it later", "remind me later",
-      "i'll do it later", "skip for now",
-    ]);
-    if (skipped) {
-      logger.info({ clicked: skipped }, "Lender auth: skipped MFA enrollment");
-      await sleep(3000);
-      try { await page.waitForNavigation({ waitUntil: "domcontentloaded", timeout: 10_000 }); } catch (_) {}
-      const afterSkipUrl = page.url() as string;
-      logger.info({ url: afterSkipUrl }, "Lender auth: page after enrollment skip");
-      if (!afterSkipUrl.includes("enrollment")) return;
-    }
-
-    const switchLink = await clickLinkByText(page, [
-      "try another method", "try another way", "use another method",
-      "other methods", "choose another method",
-    ]);
-    if (switchLink) {
-      logger.info({ clicked: switchLink }, "Lender auth: clicked 'try another method' on enrollment page");
-      await sleep(3000);
-    }
-    const newUrl = page.url() as string;
-    const newText = await getPageText(page);
-    logger.info({ url: newUrl, pageTextSnippet: newText.substring(0, 300) }, "Lender auth: page state after enrollment handling");
-  }
+  await navigateToOtpPage(page, currentUrl);
 
   if (LENDER_TOTP_SECRET) {
-    logger.info("Lender auth: TOTP secret available — generating 6-digit code");
-
-    const curUrl = page.url() as string;
-    if (curUrl.includes("mfa-sms-challenge") || curUrl.includes("mfa-sms-enrollment")) {
-      logger.info("Lender auth: on SMS page — switching to OTP/authenticator method");
-      const switchLink = await clickLinkByText(page, [
-        "try another method", "try another way", "use another method",
-        "other methods", "choose another method",
-      ]);
-      if (switchLink) {
-        logger.info({ clicked: switchLink }, "Lender auth: clicked 'try another method'");
-        await sleep(3000);
-        const otpOption = await clickLinkByText(page, [
-          "one-time password", "otp", "authenticator", "google authenticator",
-          "authentication app", "authenticator app",
-        ]);
-        if (otpOption) {
-          logger.info({ clicked: otpOption }, "Lender auth: selected OTP/authenticator method");
-          await sleep(3000);
-        }
-      }
-    }
-
     const totpCode = generateTOTP(LENDER_TOTP_SECRET);
     logger.info({ codeLength: totpCode.length }, "Lender auth: TOTP code generated");
 
@@ -617,13 +627,25 @@ export async function getLenderAuthCookies(): Promise<{ appSession: string; csrf
     const loggedIn = await loginWithAuth0(page);
     if (!loggedIn) throw new Error("Login to CreditApp (lender account) failed");
 
-    const currentUrl = page.url();
-    const cookies = await page.cookies();
+    let currentUrl = page.url();
+    logger.info({ currentUrl }, "Lender auth: URL after login flow");
+
+    if (currentUrl.includes("auth.admin.creditapp.ca") || !currentUrl.includes("admin.creditapp.ca")) {
+      logger.info("Lender auth: navigating to admin.creditapp.ca to collect app cookies");
+      await page.goto("https://admin.creditapp.ca", { waitUntil: "domcontentloaded", timeout: 30_000 });
+      await sleep(3000);
+      currentUrl = page.url();
+      logger.info({ currentUrl }, "Lender auth: URL after navigating to CreditApp app domain");
+    }
+
+    const cookies = await page.cookies("https://admin.creditapp.ca");
     const cookieNames = cookies.map((c: any) => c.name);
     logger.info({ currentUrl, cookieCount: cookies.length, cookieNames }, "Lender auth: cookies after login");
     const auth = extractAuthCookies(cookies);
     if (!auth) {
-      logger.error({ cookieNames }, "Lender auth: missing appSession or CA_CSRF_TOKEN");
+      const authDomainCookies = await page.cookies("https://auth.admin.creditapp.ca");
+      const authCookieNames = authDomainCookies.map((c: any) => c.name);
+      logger.error({ cookieNames, authCookieNames, currentUrl }, "Lender auth: missing appSession or CA_CSRF_TOKEN");
       throw new Error("Required auth cookies not found after lender login");
     }
 
