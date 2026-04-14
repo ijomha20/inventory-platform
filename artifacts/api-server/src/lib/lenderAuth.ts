@@ -188,9 +188,15 @@ export async function callGraphQL(
     signal: AbortSignal.timeout(30_000),
   });
 
-  if (!resp.ok) throw new Error(`GraphQL HTTP ${resp.status}`);
+  if (!resp.ok) {
+    let bodyText = "";
+    try { bodyText = await resp.text(); } catch (_) {}
+    logger.error({ status: resp.status, bodySnippet: bodyText.substring(0, 500), operationName }, "GraphQL HTTP error");
+    throw new Error(`GraphQL HTTP ${resp.status}`);
+  }
   const body = await resp.json();
   if (body.errors?.length) {
+    logger.error({ errors: body.errors, operationName }, "GraphQL response errors");
     throw new Error(`GraphQL errors: ${JSON.stringify(body.errors)}`);
   }
   return body.data;
