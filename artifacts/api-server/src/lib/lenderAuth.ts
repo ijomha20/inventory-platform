@@ -343,58 +343,57 @@ async function navigateToOtpPage(page: any, startUrl: string): Promise<void> {
 
   if (url.includes("mfa-otp-enrollment")) {
     logger.info("Lender auth: on OTP enrollment page — extracting secret from QR/page");
-    const enrollText = await getPageText(page);
-    logger.info({ pageTextSnippet: enrollText.substring(0, 400) }, "Lender auth: OTP enrollment page content");
 
     let extractedSecret: string | null = null;
 
-    const cantScan = await clickLinkByText(page, [
-      "can't scan", "trouble scanning", "enter key manually",
-      "manual entry", "enter code manually", "having trouble",
-      "can not scan", "setup key", "enter this code",
-    ]);
-    if (cantScan) {
-      logger.info({ clicked: cantScan }, "Lender auth: clicked 'can't scan' link");
-      await sleep(2000);
-    }
-
     extractedSecret = await page.evaluate(() => {
-      const allText = document.body?.innerText || "";
-      const base32Match = allText.match(/[A-Z2-7]{16,}/);
-      if (base32Match) return base32Match[0];
-
-      const codeElements = document.querySelectorAll("code, pre, .secret, [data-secret], kbd, samp, tt");
-      for (const el of codeElements) {
-        const txt = (el as HTMLElement).innerText?.trim();
-        if (txt && /^[A-Z2-7]{16,}$/.test(txt)) return txt;
-      }
-
-      const imgEl = document.querySelector('img[src*="otpauth"]') as HTMLImageElement | null;
-      if (imgEl) {
-        const src = imgEl.src;
-        const secretParam = new URL(src).searchParams.get("secret") ||
-                            src.match(/secret=([A-Z2-7]+)/i)?.[1];
-        if (secretParam) return secretParam.toUpperCase();
-      }
-
-      const qrImg = document.querySelector('img[src*="chart.googleapis"], img[src*="qr"]') as HTMLImageElement | null;
-      if (qrImg && qrImg.src.includes("otpauth")) {
-        try {
-          const decoded = decodeURIComponent(qrImg.src);
+      const imgs = document.querySelectorAll("img");
+      for (const img of imgs) {
+        const src = (img as HTMLImageElement).src || "";
+        if (src.includes("otpauth") || src.includes("secret=")) {
+          const decoded = decodeURIComponent(src);
           const m = decoded.match(/secret=([A-Z2-7]+)/i);
           if (m) return m[1].toUpperCase();
-        } catch (_) {}
+        }
       }
-
       return null;
     });
 
     if (extractedSecret) {
-      logger.info({ secretLen: extractedSecret.length }, "Lender auth: extracted TOTP secret from enrollment page");
+      logger.info({ secretLen: extractedSecret.length, method: "qr-img-src" }, "Lender auth: extracted TOTP secret");
       enrolledTotpSecret = extractedSecret;
     } else {
-      const pageHtml = await page.evaluate(() => document.body?.innerHTML?.substring(0, 2000) || "");
-      logger.warn({ pageHtmlSnippet: pageHtml.substring(0, 800) }, "Lender auth: could not extract TOTP secret from enrollment page");
+      logger.info("Lender auth: QR src extraction failed — trying 'trouble scanning?' link");
+      const cantScan = await clickLinkByText(page, [
+        "can't scan", "trouble scanning", "enter key manually",
+        "manual entry", "enter code manually", "having trouble",
+        "can not scan", "setup key", "enter this code",
+      ]);
+      if (cantScan) {
+        logger.info({ clicked: cantScan }, "Lender auth: clicked 'trouble scanning' link");
+        await sleep(2000);
+      }
+
+      extractedSecret = await page.evaluate(() => {
+        const allText = document.body?.innerText || "";
+        const base32Match = allText.match(/[A-Z2-7]{16,}/);
+        if (base32Match) return base32Match[0];
+
+        const codeElements = document.querySelectorAll("code, pre, .secret, [data-secret], kbd, samp, tt");
+        for (const el of codeElements) {
+          const txt = (el as HTMLElement).innerText?.trim();
+          if (txt && /^[A-Z2-7]{16,}$/.test(txt)) return txt;
+        }
+        return null;
+      });
+
+      if (extractedSecret) {
+        logger.info({ secretLen: extractedSecret.length, method: "trouble-scanning" }, "Lender auth: extracted TOTP secret");
+        enrolledTotpSecret = extractedSecret;
+      } else {
+        const pageHtml = await page.evaluate(() => document.body?.innerHTML?.substring(0, 2000) || "");
+        logger.warn({ pageHtmlSnippet: pageHtml.substring(0, 800) }, "Lender auth: could not extract TOTP secret");
+      }
     }
   }
 }
@@ -445,13 +444,33 @@ async function handle2FA(page: any): Promise<void> {
     ], 10_000);
 
     if (otpInput) {
-      await otpInput.click().catch(() => otpInput.focus());
+      await otpInput.click({ clickCount: 3 }).catch(() => otpInput.focus());
       await sleep(300);
-      await otpInput.type(totpCode, { delay: 50 });
+      await page.keyboard.press("Backspace");
+      await sleep(200);
+
+      for (const ch of totpCode) {
+        await page.keyboard.press(ch);
+        await sleep(rand(40, 80));
+      }
       await sleep(500);
 
       const typedLen = await otpInput.evaluate((el: HTMLInputElement) => el.value.length);
       logger.info({ typedLen, expected: 6 }, "Lender auth: TOTP code typed");
+
+      if (typedLen === 0) {
+        logger.warn("Lender auth: keyboard.press failed for OTP — falling back to element.type");
+        await otpInput.evaluate((el: HTMLInputElement) => {
+          const nativeSet = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+          nativeSet.call(el, "");
+          el.dispatchEvent(new Event("input", { bubbles: true }));
+        });
+        await sleep(200);
+        await otpInput.type(totpCode, { delay: 50 });
+        await sleep(500);
+        const retryLen = await otpInput.evaluate((el: HTMLInputElement) => el.value.length);
+        logger.info({ retryLen }, "Lender auth: TOTP code typed (fallback)");
+      }
 
       const submitBtn = await findSelector(page, ['button[type="submit"]', 'button[name="action"]'], 5_000);
       if (submitBtn) {
