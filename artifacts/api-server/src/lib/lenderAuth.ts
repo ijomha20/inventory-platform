@@ -396,18 +396,12 @@ async function loginWithAuth0(page: any): Promise<boolean> {
   logger.info({ passAttrs }, "Lender auth: password input found");
 
   await passInput.click().catch(() => passInput.focus());
-  await sleep(200);
-  await passInput.evaluate((el: HTMLInputElement) => { el.value = ""; });
-  await page.keyboard.type(LENDER_PASSWORD, { delay: 50 });
+  await sleep(300);
+  await passInput.type(LENDER_PASSWORD, { delay: 40 });
   await sleep(500);
 
   const typedLen = await passInput.evaluate((el: HTMLInputElement) => el.value.length);
   logger.info({ typedLen, expected: LENDER_PASSWORD.length }, "Lender auth: password typed");
-
-  if (typedLen === 0) {
-    logger.warn("Lender auth: page.keyboard.type did not fill field — trying element.type()");
-    await humanType(page, passInput, LENDER_PASSWORD);
-  }
 
   await sleep(300);
 
@@ -448,12 +442,12 @@ async function loginWithAuth0(page: any): Promise<boolean> {
     });
     logger.error({ errorText }, "Lender auth: still on password page — checking for error messages");
 
-    logger.info("Lender auth: retrying with triple-click select-all, then type");
+    logger.info("Lender auth: retrying password — select all + retype");
     const passRetry = await findSelector(page, AUTH0_PASS_SELECTORS, 5_000);
     if (passRetry) {
-      await passRetry.click({ clickCount: 3 }).catch(() => {});
-      await sleep(200);
-      await page.keyboard.type(LENDER_PASSWORD, { delay: 30 });
+      await passRetry.click({ clickCount: 3 }).catch(() => passRetry.focus());
+      await sleep(300);
+      await passRetry.type(LENDER_PASSWORD, { delay: 40 });
       await sleep(500);
       await page.keyboard.press("Enter");
       await sleep(5000);
