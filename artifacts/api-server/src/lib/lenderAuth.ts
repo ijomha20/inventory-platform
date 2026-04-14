@@ -564,13 +564,46 @@ async function handle2FA(page: any): Promise<void> {
       if (postTotpUrl.includes("recovery-code") || postTotpUrl.includes("new-code")) {
         const recoveryText = await getPageText(page);
         logger.info({ pageTextSnippet: recoveryText.substring(0, 300) }, "Lender auth: recovery code page detected");
-        const continueBtn = await clickLinkByText(page, ["continue", "done", "next", "i have saved it", "i've saved"]);
-        if (continueBtn) {
-          logger.info({ clicked: continueBtn }, "Lender auth: clicked continue on recovery code page");
+
+        const checkbox = await page.$('input[type="checkbox"]');
+        if (checkbox) {
+          await checkbox.click();
+          logger.info("Lender auth: checked recovery code confirmation checkbox");
+          await sleep(1000);
+        }
+
+        const formSubmitted = await page.evaluate(() => {
+          const forms = document.querySelectorAll("form");
+          for (const form of forms) {
+            const btn = form.querySelector('button[type="submit"], button[name="action"]') as HTMLButtonElement | null;
+            if (btn && !btn.disabled) { btn.click(); return btn.textContent?.trim() || "submit"; }
+          }
+          return null;
+        });
+        if (formSubmitted) {
+          logger.info({ clicked: formSubmitted }, "Lender auth: submitted recovery code form");
+        } else {
+          const continueBtn = await clickLinkByText(page, ["continue", "done", "next", "i have saved it", "i've saved"]);
+          if (continueBtn) logger.info({ clicked: continueBtn }, "Lender auth: clicked continue on recovery code page");
+        }
+        await sleep(3000);
+        try { await page.waitForNavigation({ waitUntil: "domcontentloaded", timeout: 10_000 }); } catch (_) {}
+
+        const afterRecoveryUrl = page.url() as string;
+        logger.info({ url: afterRecoveryUrl }, "Lender auth: page after recovery code");
+
+        if (afterRecoveryUrl.includes("recovery-code")) {
+          logger.info("Lender auth: still on recovery code page — trying all buttons");
+          await page.evaluate(() => {
+            const btns = document.querySelectorAll("button");
+            for (const btn of btns) {
+              if (!btn.disabled && btn.offsetParent !== null) { btn.click(); break; }
+            }
+          });
           await sleep(3000);
           try { await page.waitForNavigation({ waitUntil: "domcontentloaded", timeout: 10_000 }); } catch (_) {}
+          logger.info({ url: page.url() }, "Lender auth: page after recovery code retry");
         }
-        logger.info({ url: page.url() }, "Lender auth: page after recovery code");
       }
 
       const afterUrl = page.url() as string;
@@ -731,6 +764,25 @@ async function loginWithAuth0(page: any): Promise<boolean> {
     await sleep(3000);
     const redirectedUrl = page.url() as string;
     logger.info({ url: redirectedUrl }, "Lender auth: URL after navigating to CreditApp home");
+
+    if (redirectedUrl.includes("mfa-otp-challenge") || redirectedUrl.includes("mfa-sms-challenge") ||
+        redirectedUrl.includes("mfa-otp-enrollment") || redirectedUrl.includes("mfa-sms-enrollment")) {
+      logger.info("Lender auth: redirected to MFA page after nav — handling second 2FA round");
+      await handle2FA(page);
+      await sleep(3000);
+
+      const post2ndUrl = page.url() as string;
+      logger.info({ url: post2ndUrl }, "Lender auth: URL after second 2FA round");
+
+      if (post2ndUrl.includes("auth.admin.creditapp.ca")) {
+        logger.info("Lender auth: still on auth domain after second 2FA — navigating to CreditApp home again");
+        try {
+          await page.goto(CREDITAPP_HOME, { waitUntil: "domcontentloaded", timeout: 30_000 });
+        } catch (_) {}
+        await sleep(3000);
+        logger.info({ url: page.url() }, "Lender auth: URL after second CreditApp nav");
+      }
+    }
   }
 
   const ok = await isLoggedIn(page);
