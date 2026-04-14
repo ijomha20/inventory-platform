@@ -287,6 +287,8 @@ async function getPageText(page: any): Promise<string> {
   return page.evaluate(() => (document.body?.textContent ?? "").toLowerCase());
 }
 
+let enrolledTotpSecret: string | null = null;
+
 async function navigateToOtpPage(page: any, startUrl: string): Promise<void> {
   const OTP_METHODS = [
     "one-time password", "otp", "authenticator", "google authenticator",
@@ -340,9 +342,60 @@ async function navigateToOtpPage(page: any, startUrl: string): Promise<void> {
   }
 
   if (url.includes("mfa-otp-enrollment")) {
-    logger.info("Lender auth: on OTP enrollment page — looking for code input");
+    logger.info("Lender auth: on OTP enrollment page — extracting secret from QR/page");
     const enrollText = await getPageText(page);
     logger.info({ pageTextSnippet: enrollText.substring(0, 400) }, "Lender auth: OTP enrollment page content");
+
+    let extractedSecret: string | null = null;
+
+    const cantScan = await clickLinkByText(page, [
+      "can't scan", "trouble scanning", "enter key manually",
+      "manual entry", "enter code manually", "having trouble",
+      "can not scan", "setup key", "enter this code",
+    ]);
+    if (cantScan) {
+      logger.info({ clicked: cantScan }, "Lender auth: clicked 'can't scan' link");
+      await sleep(2000);
+    }
+
+    extractedSecret = await page.evaluate(() => {
+      const allText = document.body?.innerText || "";
+      const base32Match = allText.match(/[A-Z2-7]{16,}/);
+      if (base32Match) return base32Match[0];
+
+      const codeElements = document.querySelectorAll("code, pre, .secret, [data-secret], kbd, samp, tt");
+      for (const el of codeElements) {
+        const txt = (el as HTMLElement).innerText?.trim();
+        if (txt && /^[A-Z2-7]{16,}$/.test(txt)) return txt;
+      }
+
+      const imgEl = document.querySelector('img[src*="otpauth"]') as HTMLImageElement | null;
+      if (imgEl) {
+        const src = imgEl.src;
+        const secretParam = new URL(src).searchParams.get("secret") ||
+                            src.match(/secret=([A-Z2-7]+)/i)?.[1];
+        if (secretParam) return secretParam.toUpperCase();
+      }
+
+      const qrImg = document.querySelector('img[src*="chart.googleapis"], img[src*="qr"]') as HTMLImageElement | null;
+      if (qrImg && qrImg.src.includes("otpauth")) {
+        try {
+          const decoded = decodeURIComponent(qrImg.src);
+          const m = decoded.match(/secret=([A-Z2-7]+)/i);
+          if (m) return m[1].toUpperCase();
+        } catch (_) {}
+      }
+
+      return null;
+    });
+
+    if (extractedSecret) {
+      logger.info({ secretLen: extractedSecret.length }, "Lender auth: extracted TOTP secret from enrollment page");
+      enrolledTotpSecret = extractedSecret;
+    } else {
+      const pageHtml = await page.evaluate(() => document.body?.innerHTML?.substring(0, 2000) || "");
+      logger.warn({ pageHtmlSnippet: pageHtml.substring(0, 800) }, "Lender auth: could not extract TOTP secret from enrollment page");
+    }
   }
 }
 
@@ -378,9 +431,11 @@ async function handle2FA(page: any): Promise<void> {
 
   await navigateToOtpPage(page, currentUrl);
 
-  if (LENDER_TOTP_SECRET) {
-    const totpCode = generateTOTP(LENDER_TOTP_SECRET);
-    logger.info({ codeLength: totpCode.length }, "Lender auth: TOTP code generated");
+  const activeSecret = enrolledTotpSecret || LENDER_TOTP_SECRET;
+  if (activeSecret) {
+    const secretSource = enrolledTotpSecret ? "enrollment-extracted" : "env-var";
+    const totpCode = generateTOTP(activeSecret);
+    logger.info({ codeLength: totpCode.length, secretSource }, "Lender auth: TOTP code generated");
 
     const otpInput = await findSelector(page, [
       'input[name="code"]',
@@ -411,7 +466,42 @@ async function handle2FA(page: any): Promise<void> {
 
       await sleep(3000);
       try { await page.waitForNavigation({ waitUntil: "domcontentloaded", timeout: 15_000 }); } catch (_) {}
-      logger.info({ url: page.url() }, "Lender auth: page after TOTP submit");
+      const postTotpUrl = page.url() as string;
+      logger.info({ url: postTotpUrl }, "Lender auth: page after TOTP submit");
+
+      if (postTotpUrl.includes("mfa-otp-enrollment")) {
+        const errText = await page.evaluate(() => {
+          const errs = document.querySelectorAll('[class*="error"], [class*="alert"], [role="alert"]');
+          return Array.from(errs).map((e: Element) => (e as HTMLElement).textContent?.trim()).filter(Boolean);
+        });
+        logger.warn({ errText }, "Lender auth: still on OTP enrollment — code may have been rejected");
+      }
+
+      if (postTotpUrl.includes("recovery-code") || postTotpUrl.includes("new-code")) {
+        const recoveryText = await getPageText(page);
+        logger.info({ pageTextSnippet: recoveryText.substring(0, 300) }, "Lender auth: recovery code page detected");
+        const continueBtn = await clickLinkByText(page, ["continue", "done", "next", "i have saved it", "i've saved"]);
+        if (continueBtn) {
+          logger.info({ clicked: continueBtn }, "Lender auth: clicked continue on recovery code page");
+          await sleep(3000);
+          try { await page.waitForNavigation({ waitUntil: "domcontentloaded", timeout: 10_000 }); } catch (_) {}
+        }
+        logger.info({ url: page.url() }, "Lender auth: page after recovery code");
+      }
+
+      const afterUrl = page.url() as string;
+      if (afterUrl.includes("mfa-sms-enrollment")) {
+        logger.info("Lender auth: redirected to SMS enrollment after OTP — attempting to skip");
+        const skipBtn = await clickLinkByText(page, [
+          "skip", "not now", "maybe later", "do it later", "remind me later",
+        ]);
+        if (skipBtn) {
+          logger.info({ clicked: skipBtn }, "Lender auth: skipped SMS enrollment");
+          await sleep(3000);
+          try { await page.waitForNavigation({ waitUntil: "domcontentloaded", timeout: 10_000 }); } catch (_) {}
+        }
+        logger.info({ url: page.url() }, "Lender auth: page after SMS enrollment skip attempt");
+      }
     } else {
       logger.error("Lender auth: could not find OTP input field");
     }
