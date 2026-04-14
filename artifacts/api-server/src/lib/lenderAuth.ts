@@ -342,7 +342,42 @@ async function handle2FA(page: any): Promise<void> {
     logger.info({ url: postRecoveryUrl }, "Lender auth: page after recovery code submit");
 
     if (postRecoveryUrl.includes("recovery-code-challenge-new-code") || postRecoveryUrl.includes("new-code")) {
-      logger.info("Lender auth: Auth0 showing new recovery code page — clicking continue");
+      logger.info("Lender auth: Auth0 showing new recovery code page — capturing new code");
+
+      const newCode = await page.evaluate(() => {
+        const allText = document.body?.innerText || "";
+        const codeMatch = allText.match(/([A-Za-z0-9_-]{10,})/g);
+        const els = Array.from(document.querySelectorAll("code, pre, .code, [data-testid*='code'], strong, b, span"));
+        for (const el of els) {
+          const t = (el as HTMLElement).innerText?.trim();
+          if (t && t.length >= 8 && /^[A-Za-z0-9_-]+$/.test(t)) return t;
+        }
+        return codeMatch ? codeMatch[0] : null;
+      });
+
+      if (newCode) {
+        logger.info({ newCodeLength: newCode.length }, "Lender auth: captured new recovery code — saving to object storage");
+        try {
+          const fetch = (await import("node-fetch")).default;
+          const OBJ_BASE = "http://127.0.0.1:1106";
+          const bucket = process.env.DEFAULT_OBJECT_STORAGE_BUCKET_ID;
+          const dir = process.env.PRIVATE_OBJECT_DIR || "";
+          const key = `${dir}/lender-new-recovery-code.json`;
+          await fetch(`${OBJ_BASE}/buckets/${bucket}/objects/${encodeURIComponent(key)}`, {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ code: newCode, capturedAt: new Date().toISOString() }),
+          });
+          logger.info("Lender auth: new recovery code saved to object storage");
+        } catch (storeErr: any) {
+          logger.error({ err: storeErr.message }, "Lender auth: failed to save new recovery code");
+        }
+      } else {
+        logger.warn("Lender auth: could not extract new recovery code from page");
+        const pageContent = await getPageText(page);
+        logger.info({ pageTextSnippet: pageContent.substring(0, 500) }, "Lender auth: new-code page content");
+      }
+
       const continueBtn = await findSelector(page, [
         'button[type="submit"]',
         'button[name="action"]',
