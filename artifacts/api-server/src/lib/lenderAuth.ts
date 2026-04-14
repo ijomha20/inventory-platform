@@ -356,19 +356,28 @@ async function handle2FA(page: any): Promise<void> {
       logger.info("Lender auth: 2FA recovery code submitted");
     }
     await sleep(3000);
-    try { await page.waitForNavigation({ waitUntil: "domcontentloaded", timeout: 20_000 }); } catch (_) {}
+    try { await page.waitForNavigation({ waitUntil: "domcontentloaded", timeout: 10_000 }); } catch (_) {}
 
     const postRecoveryUrl = page.url() as string;
     logger.info({ url: postRecoveryUrl }, "Lender auth: page after recovery code submit");
 
-    if (postRecoveryUrl.includes("recovery-code") || postRecoveryUrl.includes("new-code") || postRecoveryUrl.includes("almost")) {
+    let isNewCodePage = false;
+    for (let attempt = 0; attempt < 10; attempt++) {
       const pageText = await getPageText(page);
-      const isNewCodePage = pageText.includes("almost there") || pageText.includes("copy this recovery code") ||
-                            pageText.includes("safely recorded") || pageText.includes("keep it somewhere safe") ||
-                            postRecoveryUrl.includes("new-code");
-
-      if (isNewCodePage) {
+      if (pageText.includes("almost there") || pageText.includes("copy this recovery code") ||
+          pageText.includes("safely recorded") || pageText.includes("keep it somewhere safe") ||
+          pageText.includes("copy code")) {
+        isNewCodePage = true;
         logger.info("Lender auth: 'Almost There' new recovery code page detected");
+        break;
+      }
+      if (attempt === 0) {
+        logger.info({ pageTextSnippet: pageText.substring(0, 400) }, "Lender auth: page content after recovery submit (polling for Almost There)");
+      }
+      await sleep(2000);
+    }
+
+    if (isNewCodePage) {
 
         const newCode = await page.evaluate(() => {
           const inputEl = document.querySelector('input[type="text"][readonly], input[type="text"][disabled], input.code') as HTMLInputElement;
@@ -447,7 +456,9 @@ async function handle2FA(page: any): Promise<void> {
         await sleep(3000);
         try { await page.waitForNavigation({ waitUntil: "domcontentloaded", timeout: 20_000 }); } catch (_) {}
         logger.info({ url: page.url() }, "Lender auth: page after new-code Continue");
-      }
+    } else {
+      const debugText = await getPageText(page);
+      logger.warn({ pageTextSnippet: debugText.substring(0, 600) }, "Lender auth: 'Almost There' page not found after 20s polling — page content");
     }
   } else {
     const finalText = await getPageText(page);
