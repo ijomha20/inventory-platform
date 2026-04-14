@@ -436,14 +436,65 @@ async function handle2FA(page: any): Promise<void> {
     const totpCode = generateTOTP(activeSecret);
     logger.info({ codeLength: totpCode.length, secretSource }, "Lender auth: TOTP code generated");
 
-    const otpInput = await findSelector(page, [
-      'input[name="code"]',
-      'input[inputmode="numeric"]',
-      'input[type="text"]',
-      'input[name="otp"]',
-    ], 10_000);
+    const allInputs = await page.evaluate(() => {
+      return Array.from(document.querySelectorAll("input")).map((el: HTMLInputElement) => ({
+        name: el.name, type: el.type, id: el.id, placeholder: el.placeholder,
+        inputMode: el.inputMode, readOnly: el.readOnly, disabled: el.disabled,
+        valueLen: el.value.length, visible: el.offsetParent !== null,
+        classes: el.className.substring(0, 60),
+      }));
+    });
+    logger.info({ allInputs }, "Lender auth: all inputs on page before OTP entry");
+
+    let otpInput = await page.evaluate(() => {
+      const inputs = Array.from(document.querySelectorAll("input"));
+      for (const el of inputs) {
+        if (el.name === "code" && !el.readOnly && !el.disabled && el.offsetParent !== null) return true;
+      }
+      return false;
+    }) ? await page.$('input[name="code"]') : null;
+
+    if (!otpInput) {
+      otpInput = await page.evaluate(() => {
+        const inputs = Array.from(document.querySelectorAll("input"));
+        for (const el of inputs) {
+          if (el.inputMode === "numeric" && !el.readOnly && !el.disabled && el.offsetParent !== null && el.value.length === 0) return true;
+        }
+        return false;
+      }) ? await page.$('input[inputmode="numeric"]') : null;
+    }
+
+    if (!otpInput) {
+      otpInput = await page.evaluate(() => {
+        const inputs = Array.from(document.querySelectorAll("input"));
+        const textInputs = inputs.filter(el =>
+          (el.type === "text" || el.type === "tel" || el.type === "number") &&
+          !el.readOnly && !el.disabled && el.offsetParent !== null && el.value.length === 0
+        );
+        return textInputs.length > 0;
+      }) ? await page.evaluateHandle(() => {
+        const inputs = Array.from(document.querySelectorAll("input"));
+        return inputs.find(el =>
+          (el.type === "text" || el.type === "tel" || el.type === "number") &&
+          !el.readOnly && !el.disabled && el.offsetParent !== null && el.value.length === 0
+        );
+      }) : null;
+    }
+
+    if (!otpInput) {
+      otpInput = await findSelector(page, [
+        'input[name="code"]',
+        'input[inputmode="numeric"]',
+      ], 10_000);
+    }
 
     if (otpInput) {
+      const inputAttrs = await otpInput.evaluate((el: HTMLInputElement) => ({
+        name: el.name, type: el.type, id: el.id, valueLen: el.value.length,
+        placeholder: el.placeholder, inputMode: el.inputMode,
+      }));
+      logger.info({ inputAttrs }, "Lender auth: selected OTP input element");
+
       await otpInput.click({ clickCount: 3 }).catch(() => otpInput.focus());
       await sleep(300);
       await page.keyboard.press("Backspace");
@@ -458,18 +509,17 @@ async function handle2FA(page: any): Promise<void> {
       const typedLen = await otpInput.evaluate((el: HTMLInputElement) => el.value.length);
       logger.info({ typedLen, expected: 6 }, "Lender auth: TOTP code typed");
 
-      if (typedLen === 0) {
-        logger.warn("Lender auth: keyboard.press failed for OTP — falling back to element.type");
-        await otpInput.evaluate((el: HTMLInputElement) => {
+      if (typedLen !== 6) {
+        logger.warn("Lender auth: keyboard.press result unexpected — using nativeSet + dispatchEvent");
+        await otpInput.evaluate((el: HTMLInputElement, code: string) => {
           const nativeSet = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
-          nativeSet.call(el, "");
+          nativeSet.call(el, code);
           el.dispatchEvent(new Event("input", { bubbles: true }));
-        });
-        await sleep(200);
-        await otpInput.type(totpCode, { delay: 50 });
+          el.dispatchEvent(new Event("change", { bubbles: true }));
+        }, totpCode);
         await sleep(500);
         const retryLen = await otpInput.evaluate((el: HTMLInputElement) => el.value.length);
-        logger.info({ retryLen }, "Lender auth: TOTP code typed (fallback)");
+        logger.info({ retryLen }, "Lender auth: TOTP code set (nativeSet fallback)");
       }
 
       const submitBtn = await findSelector(page, ['button[type="submit"]', 'button[name="action"]'], 5_000);
