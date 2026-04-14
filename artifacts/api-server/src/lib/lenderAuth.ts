@@ -8,7 +8,26 @@ import {
 
 const LENDER_EMAIL    = process.env["LENDER_CREDITAPP_EMAIL"]?.trim()    ?? "";
 const LENDER_PASSWORD = process.env["LENDER_CREDITAPP_PASSWORD"]?.trim() ?? "";
-const LENDER_2FA_CODE = process.env["LENDER_CREDITAPP_2FA_CODE"]?.trim() ?? "";
+const LENDER_2FA_CODE_ENV = process.env["LENDER_CREDITAPP_2FA_CODE"]?.trim() ?? "";
+
+async function getLatestRecoveryCode(): Promise<string> {
+  try {
+    const fetch = (await import("node-fetch")).default;
+    const OBJ_BASE = "http://127.0.0.1:1106";
+    const bucket = process.env.DEFAULT_OBJECT_STORAGE_BUCKET_ID;
+    const dir = process.env.PRIVATE_OBJECT_DIR || "";
+    const key = `${dir}/lender-recovery-code.json`;
+    const res = await fetch(`${OBJ_BASE}/buckets/${bucket}/objects/${encodeURIComponent(key)}`);
+    if (res.ok) {
+      const data = (await res.json()) as { code?: string };
+      if (data.code) {
+        logger.info({ capturedCodeLen: data.code.length }, "Lender auth: using stored recovery code from object storage");
+        return data.code;
+      }
+    }
+  } catch (_) {}
+  return LENDER_2FA_CODE_ENV;
+}
 export const LENDER_ENABLED = !!(LENDER_EMAIL && LENDER_PASSWORD);
 
 const CREDITAPP_HOME = "https://admin.creditapp.ca";
@@ -238,8 +257,9 @@ async function getPageText(page: any): Promise<string> {
 }
 
 async function handle2FA(page: any): Promise<void> {
+  const LENDER_2FA_CODE = await getLatestRecoveryCode();
   if (!LENDER_2FA_CODE) {
-    logger.warn("Lender auth: LENDER_CREDITAPP_2FA_CODE not set — attempting dismiss");
+    logger.warn("Lender auth: no recovery code available (env or storage) — attempting dismiss");
     await sleep(2000);
     const dismissed = await clickLinkByText(page, ["remind me later", "skip", "not now", "maybe later", "do it later"]);
     if (dismissed) logger.info({ dismissed }, "Lender auth: 2FA prompt dismissed");
@@ -341,63 +361,92 @@ async function handle2FA(page: any): Promise<void> {
     const postRecoveryUrl = page.url() as string;
     logger.info({ url: postRecoveryUrl }, "Lender auth: page after recovery code submit");
 
-    if (postRecoveryUrl.includes("recovery-code-challenge-new-code") || postRecoveryUrl.includes("new-code")) {
-      logger.info("Lender auth: Auth0 showing new recovery code page — capturing new code");
+    if (postRecoveryUrl.includes("recovery-code") || postRecoveryUrl.includes("new-code") || postRecoveryUrl.includes("almost")) {
+      const pageText = await getPageText(page);
+      const isNewCodePage = pageText.includes("almost there") || pageText.includes("copy this recovery code") ||
+                            pageText.includes("safely recorded") || pageText.includes("keep it somewhere safe") ||
+                            postRecoveryUrl.includes("new-code");
 
-      const newCode = await page.evaluate(() => {
-        const allText = document.body?.innerText || "";
-        const codeMatch = allText.match(/([A-Za-z0-9_-]{10,})/g);
-        const els = Array.from(document.querySelectorAll("code, pre, .code, [data-testid*='code'], strong, b, span"));
-        for (const el of els) {
-          const t = (el as HTMLElement).innerText?.trim();
-          if (t && t.length >= 8 && /^[A-Za-z0-9_-]+$/.test(t)) return t;
+      if (isNewCodePage) {
+        logger.info("Lender auth: 'Almost There' new recovery code page detected");
+
+        const newCode = await page.evaluate(() => {
+          const inputEl = document.querySelector('input[type="text"][readonly], input[type="text"][disabled], input.code') as HTMLInputElement;
+          if (inputEl?.value && inputEl.value.length >= 10) return inputEl.value.trim();
+          const codeEls = Array.from(document.querySelectorAll("code, pre, .code, strong, b, span, div"));
+          for (const el of codeEls) {
+            const t = (el as HTMLElement).innerText?.trim();
+            if (t && t.length >= 15 && t.length <= 40 && /^[A-Z0-9]+$/i.test(t)) return t;
+          }
+          const allText = document.body?.innerText || "";
+          const match = allText.match(/\b([A-Z0-9]{15,40})\b/);
+          return match ? match[1] : null;
+        });
+
+        if (newCode) {
+          logger.info({ newCodeLength: newCode.length }, "Lender auth: captured new recovery code");
+          try {
+            const fetch = (await import("node-fetch")).default;
+            const OBJ_BASE = "http://127.0.0.1:1106";
+            const bucket = process.env.DEFAULT_OBJECT_STORAGE_BUCKET_ID;
+            const dir = process.env.PRIVATE_OBJECT_DIR || "";
+            const key = `${dir}/lender-recovery-code.json`;
+            await fetch(`${OBJ_BASE}/buckets/${bucket}/objects/${encodeURIComponent(key)}`, {
+              method: "PUT",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ code: newCode, capturedAt: new Date().toISOString() }),
+            });
+            logger.info("Lender auth: new recovery code saved to object storage");
+          } catch (storeErr: any) {
+            logger.error({ err: storeErr.message }, "Lender auth: failed to save new recovery code to storage");
+          }
+        } else {
+          logger.warn("Lender auth: could not extract new recovery code from page");
+          logger.info({ pageTextSnippet: pageText.substring(0, 600) }, "Lender auth: new-code page content for debugging");
         }
-        return codeMatch ? codeMatch[0] : null;
-      });
 
-      if (newCode) {
-        logger.info({ newCodeLength: newCode.length }, "Lender auth: captured new recovery code — saving to object storage");
-        try {
-          const fetch = (await import("node-fetch")).default;
-          const OBJ_BASE = "http://127.0.0.1:1106";
-          const bucket = process.env.DEFAULT_OBJECT_STORAGE_BUCKET_ID;
-          const dir = process.env.PRIVATE_OBJECT_DIR || "";
-          const key = `${dir}/lender-new-recovery-code.json`;
-          await fetch(`${OBJ_BASE}/buckets/${bucket}/objects/${encodeURIComponent(key)}`, {
-            method: "PUT",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ code: newCode, capturedAt: new Date().toISOString() }),
-          });
-          logger.info("Lender auth: new recovery code saved to object storage");
-        } catch (storeErr: any) {
-          logger.error({ err: storeErr.message }, "Lender auth: failed to save new recovery code");
+        const checkbox = await findSelector(page, [
+          'input[type="checkbox"]',
+          'label input[type="checkbox"]',
+        ], 5_000);
+        if (checkbox) {
+          const isChecked = await checkbox.evaluate((el: HTMLInputElement) => el.checked);
+          if (!isChecked) {
+            await checkbox.click().catch(async () => {
+              await checkbox.evaluate((el: HTMLInputElement) => {
+                el.checked = true;
+                el.dispatchEvent(new Event("change", { bubbles: true }));
+                el.dispatchEvent(new Event("input", { bubbles: true }));
+              });
+            });
+            await sleep(500);
+          }
+          logger.info("Lender auth: 'I have safely recorded this code' checkbox checked");
+        } else {
+          logger.warn("Lender auth: checkbox not found — trying to click label text");
+          await clickLinkByText(page, ["i have safely recorded", "safely recorded this code", "i have recorded"]);
+          await sleep(500);
         }
-      } else {
-        logger.warn("Lender auth: could not extract new recovery code from page");
-        const pageContent = await getPageText(page);
-        logger.info({ pageTextSnippet: pageContent.substring(0, 500) }, "Lender auth: new-code page content");
-      }
 
-      const continueBtn = await findSelector(page, [
-        'button[type="submit"]',
-        'button[name="action"]',
-        'a[class*="button"]',
-        'button',
-      ], 5_000);
-      if (continueBtn) {
-        const btnText = await continueBtn.evaluate((el: HTMLElement) => el.textContent?.trim());
-        logger.info({ btnText }, "Lender auth: clicking button on new-code page");
-        try { await continueBtn.click(); } catch (_) {
-          await continueBtn.evaluate((el: HTMLElement) => el.click());
+        await sleep(500);
+        const continueBtn = await findSelector(page, [
+          'button[type="submit"]',
+          'button[name="action"]',
+          'button',
+        ], 5_000);
+        if (continueBtn) {
+          const btnText = await continueBtn.evaluate((el: HTMLElement) => el.textContent?.trim());
+          logger.info({ btnText }, "Lender auth: clicking Continue on new-code page");
+          try { await continueBtn.click(); } catch (_) {
+            await continueBtn.evaluate((el: HTMLElement) => el.click());
+          }
+        } else {
+          logger.warn("Lender auth: no Continue button found — pressing Enter");
+          await page.keyboard.press("Enter");
         }
         await sleep(3000);
         try { await page.waitForNavigation({ waitUntil: "domcontentloaded", timeout: 20_000 }); } catch (_) {}
-        logger.info({ url: page.url() }, "Lender auth: page after new-code continue");
-      } else {
-        logger.warn("Lender auth: no button found on new-code page — trying Enter");
-        await page.keyboard.press("Enter");
-        await sleep(3000);
-        try { await page.waitForNavigation({ waitUntil: "domcontentloaded", timeout: 15_000 }); } catch (_) {}
+        logger.info({ url: page.url() }, "Lender auth: page after new-code Continue");
       }
     }
   } else {
@@ -534,12 +583,15 @@ async function loginWithAuth0(page: any): Promise<boolean> {
   const postContent = (await page.content() as string).substring(0, 500);
   logger.info({ url: postUrl, contentSnippet: postContent.substring(0, 200) }, "Lender auth: page state after 2FA");
 
-  if (postUrl.includes("auth0.com") || postUrl.includes("/login")) {
-    logger.info("Lender auth: still on auth page after 2FA — waiting for redirect");
-    try { await page.waitForNavigation({ waitUntil: "domcontentloaded", timeout: 20_000 }); } catch (_) {}
+  const onAuthDomain = postUrl.includes("auth0.com") || postUrl.includes("auth.admin.creditapp.ca") || postUrl.includes("/login");
+  if (onAuthDomain) {
+    logger.info("Lender auth: still on auth page after 2FA — navigating to CreditApp home");
+    try {
+      await page.goto(CREDITAPP_HOME, { waitUntil: "domcontentloaded", timeout: 30_000 });
+    } catch (_) {}
     await sleep(3000);
     const redirectedUrl = page.url() as string;
-    logger.info({ url: redirectedUrl }, "Lender auth: URL after waiting for redirect");
+    logger.info({ url: redirectedUrl }, "Lender auth: URL after navigating to CreditApp home");
   }
 
   const ok = await isLoggedIn(page);
@@ -610,9 +662,15 @@ export async function getLenderAuthCookies(): Promise<{ appSession: string; csrf
     const loggedIn = await loginWithAuth0(page);
     if (!loggedIn) throw new Error("Login to CreditApp (lender account) failed");
 
+    const currentUrl = page.url();
     const cookies = await page.cookies();
+    const cookieNames = cookies.map((c: any) => c.name);
+    logger.info({ currentUrl, cookieCount: cookies.length, cookieNames }, "Lender auth: cookies after login");
     const auth = extractAuthCookies(cookies);
-    if (!auth) throw new Error("Required auth cookies not found after lender login");
+    if (!auth) {
+      logger.error({ cookieNames }, "Lender auth: missing appSession or CA_CSRF_TOKEN");
+      throw new Error("Required auth cookies not found after lender login");
+    }
 
     await saveLenderSessionToStore(cookies);
     await saveCookiesToDb(cookies);
