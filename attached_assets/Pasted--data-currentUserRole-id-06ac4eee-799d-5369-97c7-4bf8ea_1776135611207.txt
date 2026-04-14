@@ -1,0 +1,65 @@
+{
+    "data": {
+        "currentUserRole": {
+            "id": "06ac4eee-799d-5369-97c7-4bf8ea3a828f",
+            "retailer": {
+                "id": "23c5167f-22a0-47a9-b46b-a3a224f73ab7",
+                "enabledOrRequestedIntegrations": [
+                    {
+                        "id": "4ccc29d4-3c91-454a-bc91-395fb5e15017",
+                        "name": "Cargurus",
+                        "capabilities": {
+                            "applicationSource": {
+                                "logoUrl": "https://admin.creditapp.ca/images/partners/cargurus.svg",
+                                "__typename": "RetailerIntegrationApplicationSourceCapabilityConfig"
+                            },
+                            "__typename": "RetailerIntegrationCapabilitiesConfig"
+                        },
+                        "__typename": "EnabledRetailerIntegration"
+                    }
+                ],
+                "__typename": "Retailer"
+            },
+            "retailerGroup": null,
+            "__typename": "UserRole"
+        },
+        "integrations": [
+            {
+                "id": "4ccc29d4-3c91-454a-bc91-395fb5e15017",
+                "name": "Cargurus",
+                "capabilities": {
+                    "applicationSource": {
+                        "logoUrl": "https://admin.creditapp.ca/images/partners/cargurus.svg",
+                        "__typename": "IntegrationApplicationSourceCapabilityConfig"
+                    },
+                    "__typename": "IntegrationCapabilitiesConfig"
+                },
+                "__typename": "IntegrationV2"
+            },
+            {
+                "id": "977fbb5b-933f-4c03-b8b2-b224192fceaa",
+                "name": "Tekion",
+                "capabilities": {
+                    "applicationSource": {
+                        "logoUrl": "/images/partners/tekionSmallIcon.png",
+                        "__typename": "IntegrationApplicationSourceCapabilityConfig"
+                    },
+                    "__typename": "IntegrationCapabilitiesConfig"
+                },
+                "__typename": "IntegrationV2"
+            },
+            {
+                "id": "41e174df-4e3d-407a-977f-158a05af100d",
+                "name": "Canada Drives",
+                "capabilities": {
+                    "applicationSource": {
+                        "logoUrl": "/images/partners/cd-favicon.ico",
+                        "__typename": "IntegrationApplicationSourceCapabilityConfig"
+                    },
+                    "__typename": "IntegrationCapabilitiesConfig"
+                },
+                "__typename": "IntegrationV2"
+            }
+        ]
+    }
+}

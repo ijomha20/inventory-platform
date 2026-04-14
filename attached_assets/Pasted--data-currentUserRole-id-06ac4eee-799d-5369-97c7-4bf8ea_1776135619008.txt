@@ -1,0 +1,66 @@
+{
+    "data": {
+        "currentUserRole": {
+            "id": "06ac4eee-799d-5369-97c7-4bf8ea3a828f",
+            "userId": "421f11f5-3d1e-46a9-b51f-23c79b881621",
+            "retailer": {
+                "id": "23c5167f-22a0-47a9-b46b-a3a224f73ab7",
+                "users": [
+                    {
+                        "id": "46c29c4d-61ac-43f2-b91d-6b1b40bbd84e",
+                        "firstName": "Yahya",
+                        "lastName": "Arsali",
+                        "email": "matrixmotorsyeg@gmail.com",
+                        "__typename": "RetailerUser"
+                    },
+                    {
+                        "id": "2d3bba96-086f-40d1-85ef-434c59706e7d",
+                        "firstName": "andrew",
+                        "lastName": "olsen",
+                        "email": "olsenjeandrew@gmail.com",
+                        "__typename": "RetailerUser"
+                    },
+                    {
+                        "id": "6006d449-610a-448e-badd-8301c539562a",
+                        "firstName": "Sandra",
+                        "lastName": "Romero",
+                        "email": "poi@driveurdream.ca",
+                        "__typename": "RetailerUser"
+                    },
+                    {
+                        "id": "5ea98f12-c6d4-4f0c-8b6e-5fe8722e3f02",
+                        "firstName": "JORDAN",
+                        "lastName": "ELVIN",
+                        "email": "jordanfinance365@gmail.com",
+                        "__typename": "RetailerUser"
+                    },
+                    {
+                        "id": "421f11f5-3d1e-46a9-b51f-23c79b881621",
+                        "firstName": "Ismail",
+                        "lastName": "Jomha",
+                        "email": "ijomha20@gmail.com",
+                        "__typename": "RetailerUser"
+                    },
+                    {
+                        "id": "f085390a-87d6-4502-8baf-9b20258e7f1c",
+                        "firstName": "Jamal",
+                        "lastName": "Kemaldean",
+                        "email": "jamal@bettercalljamal.co",
+                        "__typename": "RetailerUser"
+                    },
+                    {
+                        "id": "f19f3beb-3a82-4823-86dd-416b7116e1b4",
+                        "firstName": "Mohamed",
+                        "lastName": "Abdel-Ghafour",
+                        "email": "mohammed.abdel@hotmail.com",
+                        "__typename": "RetailerUser"
+                    }
+                ],
+                "usersFromGroup": null,
+                "__typename": "Retailer"
+            },
+            "retailerGroup": null,
+            "__typename": "UserRole"
+        }
+    }
+}

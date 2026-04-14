@@ -1,0 +1,1860 @@
+{
+    "data": {
+        "application": {
+            "id": "d87cc3d0-e90b-41d5-a513-a4c57331ad10",
+            "status": "SUBMITTED",
+            "source": null,
+            "retailer": {
+                "id": "23c5167f-22a0-47a9-b46b-a3a224f73ab7",
+                "name": "Matrix Motors Yeg Ltd",
+                "iconUrl": "https://customer-assets.creditapp.ca/2ecc2477-4321-4ce2-bb1d-8dfd0f1ae59d/Icon 64.png",
+                "mappedCreditors": [
+                    {
+                        "id": "1d3168ae-b4ef-45da-9ff1-5fbdd3241bde",
+                        "creditor": {
+                            "id": "1d3168ae-b4ef-45da-9ff1-5fbdd3241bde",
+                            "displayName": "Quantifi",
+                            "__typename": "Creditor"
+                        },
+                        "__typename": "MappedCreditor"
+                    },
+                    {
+                        "id": "fe339a23-66b6-470a-9059-11ad4b28267f",
+                        "creditor": {
+                            "id": "fe339a23-66b6-470a-9059-11ad4b28267f",
+                            "displayName": "Cavalcade",
+                            "__typename": "Creditor"
+                        },
+                        "__typename": "MappedCreditor"
+                    },
+                    {
+                        "id": "030cceb2-b27b-42f5-a485-88f5821bb0aa",
+                        "creditor": {
+                            "id": "030cceb2-b27b-42f5-a485-88f5821bb0aa",
+                            "displayName": "Santander",
+                            "__typename": "Creditor"
+                        },
+                        "__typename": "MappedCreditor"
+                    },
+                    {
+                        "id": "4adecff2-04ea-4d00-80ff-3c3cfb919b6d",
+                        "creditor": {
+                            "id": "4adecff2-04ea-4d00-80ff-3c3cfb919b6d",
+                            "displayName": "Eden Park",
+                            "__typename": "Creditor"
+                        },
+                        "__typename": "MappedCreditor"
+                    },
+                    {
+                        "id": "ea4a429a-c0bd-48da-9b22-140a06a30091",
+                        "creditor": {
+                            "id": "ea4a429a-c0bd-48da-9b22-140a06a30091",
+                            "displayName": "iA Auto Finance",
+                            "__typename": "Creditor"
+                        },
+                        "__typename": "MappedCreditor"
+                    },
+                    {
+                        "id": "5ee2c97b-46c0-4d65-a9ee-da3c46921501",
+                        "creditor": {
+                            "id": "5ee2c97b-46c0-4d65-a9ee-da3c46921501",
+                            "displayName": "Rifco",
+                            "__typename": "Creditor"
+                        },
+                        "__typename": "MappedCreditor"
+                    },
+                    {
+                        "id": "4fca12a8-494f-4db6-9236-19859fc5d087",
+                        "creditor": {
+                            "id": "4fca12a8-494f-4db6-9236-19859fc5d087",
+                            "displayName": "ACC",
+                            "__typename": "Creditor"
+                        },
+                        "__typename": "MappedCreditor"
+                    },
+                    {
+                        "id": "1a29dc05-adcc-43b2-8e0d-a0eca93d0701",
+                        "creditor": {
+                            "id": "1a29dc05-adcc-43b2-8e0d-a0eca93d0701",
+                            "displayName": "The House Finance Corp",
+                            "__typename": "Creditor"
+                        },
+                        "__typename": "MappedCreditor"
+                    }
+                ],
+                "__typename": "Retailer",
+                "exportApplicationIntegrations": []
+            },
+            "primaryApplicant": {
+                "id": "06414959-bf76-46a8-8934-c97446803f9d",
+                "firstName": "Laura",
+                "lastName": "Prytulka",
+                "__typename": "PrimaryApplicant"
+            },
+            "coApplicant": null,
+            "assignedRetailerUser": {
+                "id": "f085390a-87d6-4502-8baf-9b20258e7f1c",
+                "firstName": "Jamal",
+                "lastName": "Kemaldean",
+                "retailer": {
+                    "id": "23c5167f-22a0-47a9-b46b-a3a224f73ab7",
+                    "__typename": "Retailer"
+                },
+                "__typename": "RetailerUser"
+            },
+            "creditorDecisions": [
+                {
+                    "id": "e21f9cb5-0495-56e9-b7f5-12795fd451ba",
+                    "status": "BOOKED",
+                    "timestamp": "2026-04-13T23:44:11.598Z",
+                    "conditions": "- $663.25 max payment\n**21.49**",
+                    "generatedConditions": null,
+                    "firstPaymentDate": "2026-04-24",
+                    "frequency": "BI_WEEKLY",
+                    "interestRate": 21.49,
+                    "term": null,
+                    "approvalTerm": null,
+                    "hasSubmittedWorksheet": true,
+                    "withdrawnStatus": null,
+                    "approvedPayment": {
+                        "amount": 308.29,
+                        "currency": "CAD",
+                        "__typename": "Money"
+                    },
+                    "maxPayment": {
+                        "amount": 663.25,
+                        "currency": "CAD",
+                        "__typename": "Money"
+                    },
+                    "maxPaymentFrequency": "MONTHLY",
+                    "maxTotalAmountToFinance": null,
+                    "rateReduction": null,
+                    "termStretch": null,
+                    "incomeStatus": "SUBMITTED",
+                    "retailerReportedWrongIncomeStatus": false,
+                    "creditorReportedWrongIncomeStatus": false,
+                    "waitingForDecision": false,
+                    "creditorApplicationConnection": {
+                        "creditor": {
+                            "id": "4adecff2-04ea-4d00-80ff-3c3cfb919b6d",
+                            "displayName": "Eden Park",
+                            "shortName": "EPI",
+                            "los": "INOVATEC",
+                            "name": "EDEN_PARK",
+                            "iconUrl": "https://cdn.creditapp.ca/administrative-portal/images/creditors/EdenPark-Icon.svg",
+                            "__typename": "Creditor"
+                        },
+                        "application": {
+                            "id": "d87cc3d0-e90b-41d5-a513-a4c57331ad10",
+                            "__typename": "Application"
+                        },
+                        "assignedCreditorUser": null,
+                        "externalId": "CD2604071516",
+                        "incomeWorkflowStatus": null,
+                        "primaryApplicant": {
+                            "id": "2e33dc0a-5b26-47d4-bfa5-f94e4d80d30c",
+                            "applicantId": "06414959-bf76-46a8-8934-c97446803f9d",
+                            "firstName": "Laura",
+                            "middleName": null,
+                            "lastName": "Prytulka",
+                            "email": "ld.prytulka@gmail.com",
+                            "phoneNumber": "7809092119",
+                            "hasBankAccount": true,
+                            "dateOfBirth": "1979-05-01",
+                            "sin": "648496313",
+                            "hasIncomeDocument": true,
+                            "incomeAdjudicationStatus": "WAITING_FOR_REVIEW",
+                            "totalRequests": 19,
+                            "outstandingRequests": 0,
+                            "languagePreference": "EN",
+                            "__typename": "CreditorApplicant"
+                        },
+                        "coApplicant": null,
+                        "conversation": {
+                            "id": "e21f9cb5-0495-56e9-b7f5-12795fd451ba",
+                            "hasUnreadMessages": true,
+                            "numberOfUnreadMessages": 1,
+                            "__typename": "ApplicationConversation"
+                        },
+                        "autoWorksheet": {
+                            "id": "4adecff2-04ea-4d00-80ff-3c3cfb919b6d_d87cc3d0-e90b-41d5-a513-a4c57331ad10",
+                            "status": "SUBMITTED",
+                            "isLocked": false,
+                            "updatedAt": "2026-04-13T23:44:11.598Z",
+                            "lastSaved": "2026-04-13T22:33:17.105Z",
+                            "lastSubmitted": "2026-04-08T22:18:08.251Z",
+                            "hasUnseenChanges": true,
+                            "tierId": "18dd9654-b824-54fd-92e5-5827e84ef55b",
+                            "vehicle": {
+                                "id": null,
+                                "vin": "5NMS3CAD5LH210617",
+                                "odometer": {
+                                    "amount": 130712,
+                                    "unit": "KILOMETERS",
+                                    "__typename": "Distance"
+                                },
+                                "status": "USED",
+                                "msrp": {
+                                    "amount": 37399,
+                                    "currency": "CAD",
+                                    "__typename": "Money"
+                                },
+                                "adjustedMsrp": null,
+                                "uvc": "2020380395",
+                                "year": 2020,
+                                "make": "Hyundai",
+                                "model": "Santa Fe",
+                                "trim": "Preferred w/S&L 4D Utility AWD",
+                                "series": "Preferred w/S&L",
+                                "style": "4D Utility AWD",
+                                "isZeroEmissionVehicle": false,
+                                "addOnOptions": [],
+                                "addOns": [],
+                                "deductOptions": [],
+                                "deducts": [],
+                                "colour": null,
+                                "carfaxClaims": null,
+                                "extraCleanWholesaleValue": {
+                                    "amount": 21060,
+                                    "currency": "CAD",
+                                    "__typename": "Money"
+                                },
+                                "cleanWholesaleValue": {
+                                    "amount": 19500,
+                                    "currency": "CAD",
+                                    "__typename": "Money"
+                                },
+                                "averageWholesaleValue": {
+                                    "amount": 17368,
+                                    "currency": "CAD",
+                                    "__typename": "Money"
+                                },
+                                "roughWholesaleValue": {
+                                    "amount": 15288,
+                                    "currency": "CAD",
+                                    "__typename": "Money"
+                                },
+                                "residuals": [],
+                                "drivingDistancePerYear": {
+                                    "amount": 0,
+                                    "unit": "KILOMETERS",
+                                    "__typename": "Distance"
+                                },
+                                "__typename": "CreditorVehicle"
+                            },
+                            "taxExempt": true,
+                            "gstPercent": 0,
+                            "pstHstPercent": 0,
+                            "gst": {
+                                "amount": 0,
+                                "currency": "CAD",
+                                "__typename": "Money"
+                            },
+                            "gstAdjusted": false,
+                            "pstHst": {
+                                "amount": 0,
+                                "currency": "CAD",
+                                "__typename": "Money"
+                            },
+                            "pstHstAdjusted": false,
+                            "salePrice": {
+                                "amount": 22999,
+                                "currency": "CAD",
+                                "__typename": "Money"
+                            },
+                            "cashDown": {
+                                "amount": 0,
+                                "currency": "CAD",
+                                "__typename": "Money"
+                            },
+                            "rebate": {
+                                "amount": 0,
+                                "currency": "CAD",
+                                "__typename": "Money"
+                            },
+                            "tradeIn": null,
+                            "dealerAdminFee": {
+                                "amount": 699,
+                                "currency": "CAD",
+                                "__typename": "Money"
+                            },
+                            "registrationFee": {
+                                "amount": 99,
+                                "currency": "CAD",
+                                "__typename": "Money"
+                            },
+                            "creditorFee": {
+                                "amount": 675,
+                                "currency": "CAD",
+                                "__typename": "Money"
+                            },
+                            "gpsFee": {
+                                "amount": 0,
+                                "currency": "CAD",
+                                "__typename": "Money"
+                            },
+                            "licenseFee": {
+                                "amount": 0,
+                                "currency": "CAD",
+                                "__typename": "Money"
+                            },
+                            "installationDeliveryFee": {
+                                "amount": 0,
+                                "currency": "CAD",
+                                "__typename": "Money"
+                            },
+                            "ahInsuranceFee": {
+                                "amount": 0,
+                                "currency": "CAD",
+                                "__typename": "Money"
+                            },
+                            "lifeInsuranceFee": {
+                                "amount": 0,
+                                "currency": "CAD",
+                                "__typename": "Money"
+                            },
+                            "wholesaleValueBasedOnProgram": {
+                                "amount": 17368,
+                                "currency": "CAD",
+                                "__typename": "Money"
+                            },
+                            "residualValue": null,
+                            "gapInsurance": {
+                                "amount": 0,
+                                "currency": "CAD",
+                                "__typename": "Money"
+                            },
+                            "extServiceContract": {
+                                "amount": 2499,
+                                "currency": "CAD",
+                                "__typename": "Money"
+                            },
+                            "pstNotApplicableOnWarranty": true,
+                            "pstNotApplicableOnAhInsurance": true,
+                            "pstNotApplicableOnLifeInsurance": true,
+                            "pstNotApplicableOnGapInsurance": true,
+                            "totalFinancedAmount": {
+                                "amount": 26971,
+                                "currency": "CAD",
+                                "__typename": "Money"
+                            },
+                            "firstPaymentDate": "2026-04-24",
+                            "deliveryDate": "2026-04-08",
+                            "interestRate": 21.49,
+                            "term": 72,
+                            "frequency": "BI_WEEKLY",
+                            "worksheetPayment": {
+                                "amount": 308.29,
+                                "currency": "CAD",
+                                "__typename": "Money"
+                            },
+                            "reserveOverride": null,
+                            "movedFields": [],
+                            "otherNonTaxable": null,
+                            "otherNonTaxableDescription": null,
+                            "otherTaxable": {
+                                "amount": 0,
+                                "currency": "CAD",
+                                "__typename": "Money"
+                            },
+                            "otherTaxableDescription": null,
+                            "taxProvince": "AB",
+                            "__typename": "CreditorAutoWorksheet"
+                        },
+                        "contractsPrinted": true,
+                        "incomeAdjudicationStatus": "PENDING_INCOME",
+                        "failedToSubmit": false,
+                        "__typename": "CreditorApplicationConnection"
+                    },
+                    "__typename": "CreditorDecision"
+                },
+                {
+                    "id": "10c480be-2793-56a6-b982-ff03de1cf63e",
+                    "status": "CONDITIONALLY_APPROVED",
+                    "timestamp": "2026-04-08T22:48:26.222Z",
+                    "conditions": "Tier 4 | 24.49% Fixed Rate Approval | 165% LTV | $550 Dealer Reserve + Up to $900 Additional LTV Bonus Reserve\nMain App - Proof of residence dated within 45 days required.\n****** STANDARD STIPULATIONS ******\nApprovals are valid 30 days and may be rescinded if derogatory info is received.  Approval is void if another lender finances/leases a vehicle for this customer without prior disclosure. Santander does not refinance existing auto loans.\nPOI required unless otherwise noted. Send to https://app.creditapp.ca/en/06414959-bf76-46a8-8934-c97446803f9d/start. Taxed: YTD paystub within 45 days or last 3 months bank statements | Self Emp: Last 4 months bank statements + NOA | Pension/Disability: Last 3 months bank statements | Seasonal: YTD paystubs within 45 days or prior T4/T4E + employment letter with season length.\nFormer police, courier, delivery, rideshare, written off, rebuilt, salvage, altered, or commercial-use vehicles are not eligible. \nSantander uses Canadian Black Book for wholesale values; if portal differs, Santanders value applies.\nRefer to the Dealer Document Checklist for standard stipulations. Customer Identification Disclosure Form required for funding.\nIncome verification is required. Max payment is\r\n$750/month. Documents to https://app.creditapp.ca/en/06414959-bf76-46a8-8934-c97446803f9d/start or\r\nhave customer complete our instant bank verification.\r\nwww.santanderconsumer.ca/easyincome or request in\r\nportal notes and we can send directly to the customers\r\nphone/email address.\r\n",
+                    "generatedConditions": null,
+                    "firstPaymentDate": "2026-05-08",
+                    "frequency": "BI_WEEKLY",
+                    "interestRate": 24.49,
+                    "term": null,
+                    "approvalTerm": null,
+                    "hasSubmittedWorksheet": true,
+                    "withdrawnStatus": null,
+                    "approvedPayment": {
+                        "amount": 346.14,
+                        "currency": "CAD",
+                        "__typename": "Money"
+                    },
+                    "maxPayment": {
+                        "amount": 750,
+                        "currency": "CAD",
+                        "__typename": "Money"
+                    },
+                    "maxPaymentFrequency": "MONTHLY",
+                    "maxTotalAmountToFinance": null,
+                    "rateReduction": null,
+                    "termStretch": null,
+                    "incomeStatus": "AVAILABLE",
+                    "retailerReportedWrongIncomeStatus": false,
+                    "creditorReportedWrongIncomeStatus": false,
+                    "waitingForDecision": false,
+                    "creditorApplicationConnection": {
+                        "creditor": {
+                            "id": "030cceb2-b27b-42f5-a485-88f5821bb0aa",
+                            "displayName": "Santander",
+                            "shortName": "SAN",
+                            "los": "INOVATEC",
+                            "name": "SANTANDER",
+                            "iconUrl": "https://cdn.creditapp.ca/administrative-portal/images/creditors/Santander-Icon.svg",
+                            "__typename": "Creditor"
+                        },
+                        "application": {
+                            "id": "d87cc3d0-e90b-41d5-a513-a4c57331ad10",
+                            "__typename": "Application"
+                        },
+                        "assignedCreditorUser": null,
+                        "externalId": "CD2604071519",
+                        "incomeWorkflowStatus": null,
+                        "primaryApplicant": {
+                            "id": "748051b8-579d-4925-9b71-af545fd41d1c",
+                            "applicantId": "06414959-bf76-46a8-8934-c97446803f9d",
+                            "firstName": "Laura",
+                            "middleName": null,
+                            "lastName": "Prytulka",
+                            "email": "ld.prytulka@gmail.com",
+                            "phoneNumber": "7809092119",
+                            "hasBankAccount": true,
+                            "dateOfBirth": "1979-05-01",
+                            "sin": "648496313",
+                            "hasIncomeDocument": true,
+                            "incomeAdjudicationStatus": "WAITING_FOR_REVIEW",
+                            "totalRequests": 19,
+                            "outstandingRequests": 0,
+                            "languagePreference": "EN",
+                            "__typename": "CreditorApplicant"
+                        },
+                        "coApplicant": null,
+                        "conversation": {
+                            "id": "10c480be-2793-56a6-b982-ff03de1cf63e",
+                            "hasUnreadMessages": true,
+                            "numberOfUnreadMessages": 1,
+                            "__typename": "ApplicationConversation"
+                        },
+                        "autoWorksheet": {
+                            "id": "030cceb2-b27b-42f5-a485-88f5821bb0aa_d87cc3d0-e90b-41d5-a513-a4c57331ad10",
+                            "status": "SUBMITTED",
+                            "isLocked": false,
+                            "updatedAt": "2026-04-08T22:48:26.222Z",
+                            "lastSaved": "2026-04-08T22:48:26.220Z",
+                            "lastSubmitted": "2026-04-08T22:45:29.779Z",
+                            "hasUnseenChanges": true,
+                            "tierId": "eec47845-46a7-456e-9e73-130933e02798",
+                            "vehicle": {
+                                "id": null,
+                                "vin": "5NMS3CAD5LH210617",
+                                "odometer": {
+                                    "amount": 130712,
+                                    "unit": "KILOMETERS",
+                                    "__typename": "Distance"
+                                },
+                                "status": "USED",
+                                "msrp": {
+                                    "amount": 37399,
+                                    "currency": "CAD",
+                                    "__typename": "Money"
+                                },
+                                "adjustedMsrp": null,
+                                "uvc": "2020380395",
+                                "year": 2020,
+                                "make": "Hyundai",
+                                "model": "Santa Fe",
+                                "trim": "Preferred w/S&L 4D Utility AWD",
+                                "series": "Preferred w/S&L",
+                                "style": "4D Utility AWD",
+                                "isZeroEmissionVehicle": false,
+                                "addOnOptions": [],
+                                "addOns": [],
+                                "deductOptions": [],
+                                "deducts": [],
+                                "colour": null,
+                                "carfaxClaims": null,
+                                "extraCleanWholesaleValue": {
+                                    "amount": 20250,
+                                    "currency": "CAD",
+                                    "__typename": "Money"
+                                },
+                                "cleanWholesaleValue": {
+                                    "amount": 18750,
+                                    "currency": "CAD",
+                                    "__typename": "Money"
+                                },
+                                "averageWholesaleValue": {
+                                    "amount": 16700,
+                                    "currency": "CAD",
+                                    "__typename": "Money"
+                                },
+                                "roughWholesaleValue": {
+                                    "amount": 14700,
+                                    "currency": "CAD",
+                                    "__typename": "Money"
+                                },
+                                "residuals": [],
+                                "drivingDistancePerYear": {
+                                    "amount": 0,
+                                    "unit": "KILOMETERS",
+                                    "__typename": "Distance"
+                                },
+                                "__typename": "CreditorVehicle"
+                            },
+                            "taxExempt": true,
+                            "gstPercent": 0,
+                            "pstHstPercent": 0,
+                            "gst": {
+                                "amount": 0,
+                                "currency": "CAD",
+                                "__typename": "Money"
+                            },
+                            "gstAdjusted": false,
+                            "pstHst": {
+                                "amount": 0,
+                                "currency": "CAD",
+                                "__typename": "Money"
+                            },
+                            "pstHstAdjusted": false,
+                            "salePrice": {
+                                "amount": 22999,
+                                "currency": "CAD",
+                                "__typename": "Money"
+                            },
+                            "cashDown": {
+                                "amount": 0,
+                                "currency": "CAD",
+                                "__typename": "Money"
+                            },
+                            "rebate": {
+                                "amount": 0,
+                                "currency": "CAD",
+                                "__typename": "Money"
+                            },
+                            "tradeIn": null,
+                            "dealerAdminFee": {
+                                "amount": 699,
+                                "currency": "CAD",
+                                "__typename": "Money"
+                            },
+                            "registrationFee": {
+                                "amount": 38.25,
+                                "currency": "CAD",
+                                "__typename": "Money"
+                            },
+                            "creditorFee": {
+                                "amount": 699,
+                                "currency": "CAD",
+                                "__typename": "Money"
+                            },
+                            "gpsFee": {
+                                "amount": 0,
+                                "currency": "CAD",
+                                "__typename": "Money"
+                            },
+                            "licenseFee": {
+                                "amount": 0,
+                                "currency": "CAD",
+                                "__typename": "Money"
+                            },
+                            "installationDeliveryFee": {
+                                "amount": 0,
+                                "currency": "CAD",
+                                "__typename": "Money"
+                            },
+                            "ahInsuranceFee": {
+                                "amount": 0,
+                                "currency": "CAD",
+                                "__typename": "Money"
+                            },
+                            "lifeInsuranceFee": {
+                                "amount": 0,
+                                "currency": "CAD",
+                                "__typename": "Money"
+                            },
+                            "wholesaleValueBasedOnProgram": {
+                                "amount": 18750,
+                                "currency": "CAD",
+                                "__typename": "Money"
+                            },
+                            "residualValue": null,
+                            "gapInsurance": null,
+                            "extServiceContract": {
+                                "amount": 3499,
+                                "currency": "CAD",
+                                "__typename": "Money"
+                            },
+                            "pstNotApplicableOnWarranty": true,
+                            "pstNotApplicableOnAhInsurance": true,
+                            "pstNotApplicableOnLifeInsurance": true,
+                            "pstNotApplicableOnGapInsurance": true,
+                            "totalFinancedAmount": {
+                                "amount": 27934.25,
+                                "currency": "CAD",
+                                "__typename": "Money"
+                            },
+                            "firstPaymentDate": "2026-05-08",
+                            "deliveryDate": "2026-04-08",
+                            "interestRate": 24.49,
+                            "term": 72,
+                            "frequency": "BI_WEEKLY",
+                            "worksheetPayment": {
+                                "amount": 346.12,
+                                "currency": "CAD",
+                                "__typename": "Money"
+                            },
+                            "reserveOverride": {
+                                "amount": 550,
+                                "currency": "CAD",
+                                "__typename": "Money"
+                            },
+                            "movedFields": [],
+                            "otherNonTaxable": {
+                                "amount": 0,
+                                "currency": "CAD",
+                                "__typename": "Money"
+                            },
+                            "otherNonTaxableDescription": null,
+                            "otherTaxable": {
+                                "amount": 0,
+                                "currency": "CAD",
+                                "__typename": "Money"
+                            },
+                            "otherTaxableDescription": null,
+                            "taxProvince": "AB",
+                            "__typename": "CreditorAutoWorksheet"
+                        },
+                        "contractsPrinted": null,
+                        "incomeAdjudicationStatus": "PENDING_INCOME",
+                        "failedToSubmit": false,
+                        "__typename": "CreditorApplicationConnection"
+                    },
+                    "__typename": "CreditorDecision"
+                },
+                {
+                    "id": "e4ce4ac9-efb2-5fee-ad53-1a8f43abddaf",
+                    "status": "CONDITIONALLY_APPROVED",
+                    "timestamp": "2026-04-09T16:32:41.898Z",
+                    "conditions": "***Approved: Tier 3 approval, pmt $572.75, max advance New 120% Used 135%, rate for this approval is 20.95%, rate may fluctuate +/- 2%, term 36-84mths. *GPS device required\n**Advisory on Proof of Income: Please have all applicants use the Credit App link to quickly verify income.\n**Approval is valid until 5/7/2026.  Decision is subject to change after 5/7/2026.\n**FUNDING and PROGRAM REQUIREMENTS: https://www.rifco.net/programs-and-checklists/\n.\nEmployer service area to be confirmed at funding, Credit decision subject to change.\nID Verification is required for this application. Please add this as a requested item on the CreditApp customer portal prior to funding.\nPRO TIP - Upload the applicants credit bureau into Credit App, and know before you submit if you have a deal to work.? Save time, energy, improve your experience and the customers!? If you have any questions, please reach out to Dealer Services at 1-855-478-2439 ext 1 to find out how.\nRifco reserves final approval subject to credit history, vehicle structure, civic address or legal land description and income submitted.\nVerification of Civic Address or legal land description is required when PO BOX submitted. Decision subject to change.",
+                    "generatedConditions": null,
+                    "firstPaymentDate": "2026-04-15",
+                    "frequency": "MONTHLY",
+                    "interestRate": 20.95,
+                    "term": null,
+                    "approvalTerm": null,
+                    "hasSubmittedWorksheet": false,
+                    "withdrawnStatus": null,
+                    "approvedPayment": {
+                        "amount": 572.75,
+                        "currency": "CAD",
+                        "__typename": "Money"
+                    },
+                    "maxPayment": {
+                        "amount": 572.75,
+                        "currency": "CAD",
+                        "__typename": "Money"
+                    },
+                    "maxPaymentFrequency": "MONTHLY",
+                    "maxTotalAmountToFinance": null,
+                    "rateReduction": null,
+                    "termStretch": null,
+                    "incomeStatus": "VERIFIED",
+                    "retailerReportedWrongIncomeStatus": false,
+                    "creditorReportedWrongIncomeStatus": false,
+                    "waitingForDecision": false,
+                    "creditorApplicationConnection": {
+                        "creditor": {
+                            "id": "5ee2c97b-46c0-4d65-a9ee-da3c46921501",
+                            "displayName": "Rifco",
+                            "shortName": "RFC",
+                            "los": "DEFI",
+                            "name": "RIFCO",
+                            "iconUrl": "https://customer-assets.creditapp.ca/44c4ec3a-68b4-453e-8e07-6f70209aefed/RifcoIcon.svg",
+                            "__typename": "Creditor"
+                        },
+                        "application": {
+                            "id": "d87cc3d0-e90b-41d5-a513-a4c57331ad10",
+                            "__typename": "Application"
+                        },
+                        "assignedCreditorUser": null,
+                        "externalId": "1035054",
+                        "incomeWorkflowStatus": null,
+                        "primaryApplicant": {
+                            "id": "6676474b-7ba5-49c5-934a-a8eb40e246ac",
+                            "applicantId": "06414959-bf76-46a8-8934-c97446803f9d",
+                            "firstName": "Laura",
+                            "middleName": null,
+                            "lastName": "Prytulka",
+                            "email": "ld.prytulka@gmail.com",
+                            "phoneNumber": "7809092119",
+                            "hasBankAccount": true,
+                            "dateOfBirth": "1979-05-01",
+                            "sin": "648496313",
+                            "hasIncomeDocument": true,
+                            "incomeAdjudicationStatus": "WAITING_FOR_REVIEW",
+                            "totalRequests": 19,
+                            "outstandingRequests": 0,
+                            "languagePreference": "EN",
+                            "__typename": "CreditorApplicant"
+                        },
+                        "coApplicant": null,
+                        "conversation": {
+                            "id": "e4ce4ac9-efb2-5fee-ad53-1a8f43abddaf",
+                            "hasUnreadMessages": true,
+                            "numberOfUnreadMessages": 4,
+                            "__typename": "ApplicationConversation"
+                        },
+                        "autoWorksheet": {
+                            "id": "5ee2c97b-46c0-4d65-a9ee-da3c46921501_d87cc3d0-e90b-41d5-a513-a4c57331ad10",
+                            "status": "NOT_STARTED",
+                            "isLocked": false,
+                            "updatedAt": "2026-04-09T16:32:41.898Z",
+                            "lastSaved": "2026-04-09T16:32:41.897Z",
+                            "lastSubmitted": null,
+                            "hasUnseenChanges": true,
+                            "tierId": "e3bd8e72-668a-5ee1-94c8-00dc75534cd4",
+                            "vehicle": null,
+                            "taxExempt": null,
+                            "gstPercent": null,
+                            "pstHstPercent": null,
+                            "gst": {
+                                "amount": 0,
+                                "currency": "CAD",
+                                "__typename": "Money"
+                            },
+                            "gstAdjusted": null,
+                            "pstHst": {
+                                "amount": 0,
+                                "currency": "CAD",
+                                "__typename": "Money"
+                            },
+                            "pstHstAdjusted": null,
+                            "salePrice": null,
+                            "cashDown": null,
+                            "rebate": null,
+                            "tradeIn": null,
+                            "dealerAdminFee": null,
+                            "registrationFee": null,
+                            "creditorFee": {
+                                "amount": 395,
+                                "currency": "CAD",
+                                "__typename": "Money"
+                            },
+                            "gpsFee": {
+                                "amount": 595,
+                                "currency": "CAD",
+                                "__typename": "Money"
+                            },
+                            "licenseFee": null,
+                            "installationDeliveryFee": null,
+                            "ahInsuranceFee": null,
+                            "lifeInsuranceFee": null,
+                            "wholesaleValueBasedOnProgram": null,
+                            "residualValue": null,
+                            "gapInsurance": null,
+                            "extServiceContract": null,
+                            "pstNotApplicableOnWarranty": null,
+                            "pstNotApplicableOnAhInsurance": null,
+                            "pstNotApplicableOnLifeInsurance": null,
+                            "pstNotApplicableOnGapInsurance": null,
+                            "totalFinancedAmount": {
+                                "amount": 990,
+                                "currency": "CAD",
+                                "__typename": "Money"
+                            },
+                            "firstPaymentDate": "2026-04-15",
+                            "deliveryDate": null,
+                            "interestRate": 20.95,
+                            "term": null,
+                            "frequency": "MONTHLY",
+                            "worksheetPayment": null,
+                            "reserveOverride": null,
+                            "movedFields": [],
+                            "otherNonTaxable": null,
+                            "otherNonTaxableDescription": null,
+                            "otherTaxable": null,
+                            "otherTaxableDescription": null,
+                            "taxProvince": "AB",
+                            "__typename": "CreditorAutoWorksheet"
+                        },
+                        "contractsPrinted": null,
+                        "incomeAdjudicationStatus": "PENDING_INCOME",
+                        "failedToSubmit": false,
+                        "__typename": "CreditorApplicationConnection"
+                    },
+                    "__typename": "CreditorDecision"
+                },
+                {
+                    "id": "92803f74-6e11-5997-b46f-6946b54976a7",
+                    "status": "DECLINED",
+                    "timestamp": "2026-04-07T21:19:26.406Z",
+                    "conditions": "Decline reasons:\nApplication does not meet banking requirements.\nThank you for submitting to Quantifi Lending Inc., we appreciate your business!",
+                    "generatedConditions": null,
+                    "firstPaymentDate": null,
+                    "frequency": null,
+                    "interestRate": null,
+                    "term": null,
+                    "approvalTerm": null,
+                    "hasSubmittedWorksheet": false,
+                    "withdrawnStatus": null,
+                    "approvedPayment": null,
+                    "maxPayment": null,
+                    "maxPaymentFrequency": null,
+                    "maxTotalAmountToFinance": null,
+                    "rateReduction": null,
+                    "termStretch": null,
+                    "incomeStatus": "SUBMITTED",
+                    "retailerReportedWrongIncomeStatus": false,
+                    "creditorReportedWrongIncomeStatus": false,
+                    "waitingForDecision": false,
+                    "creditorApplicationConnection": {
+                        "creditor": {
+                            "id": "1d3168ae-b4ef-45da-9ff1-5fbdd3241bde",
+                            "displayName": "Quantifi",
+                            "shortName": "QLI",
+                            "los": "LOS",
+                            "name": "QUANTIFI",
+                            "iconUrl": "https://cdn.creditapp.ca/administrative-portal/images/creditors/Quantifi-Icon.svg",
+                            "__typename": "Creditor"
+                        },
+                        "application": {
+                            "id": "d87cc3d0-e90b-41d5-a513-a4c57331ad10",
+                            "__typename": "Application"
+                        },
+                        "assignedCreditorUser": null,
+                        "externalId": "241067",
+                        "incomeWorkflowStatus": null,
+                        "primaryApplicant": {
+                            "id": "d3945f5f-60d3-4f62-b663-0996a53fff35",
+                            "applicantId": "06414959-bf76-46a8-8934-c97446803f9d",
+                            "firstName": "Laura",
+                            "middleName": null,
+                            "lastName": "Prytulka",
+                            "email": "ld.prytulka@gmail.com",
+                            "phoneNumber": "7809092119",
+                            "hasBankAccount": true,
+                            "dateOfBirth": "1979-05-01",
+                            "sin": "648496313",
+                            "hasIncomeDocument": true,
+                            "incomeAdjudicationStatus": "WAITING_FOR_REVIEW",
+                            "totalRequests": 19,
+                            "outstandingRequests": 0,
+                            "languagePreference": "EN",
+                            "__typename": "CreditorApplicant"
+                        },
+                        "coApplicant": null,
+                        "conversation": {
+                            "id": "92803f74-6e11-5997-b46f-6946b54976a7",
+                            "hasUnreadMessages": false,
+                            "numberOfUnreadMessages": 0,
+                            "__typename": "ApplicationConversation"
+                        },
+                        "autoWorksheet": {
+                            "id": "1d3168ae-b4ef-45da-9ff1-5fbdd3241bde_d87cc3d0-e90b-41d5-a513-a4c57331ad10",
+                            "status": "NOT_STARTED",
+                            "isLocked": false,
+                            "updatedAt": "2026-04-07T21:19:26.406Z",
+                            "lastSaved": null,
+                            "lastSubmitted": null,
+                            "hasUnseenChanges": false,
+                            "tierId": null,
+                            "vehicle": null,
+                            "taxExempt": null,
+                            "gstPercent": null,
+                            "pstHstPercent": null,
+                            "gst": null,
+                            "gstAdjusted": null,
+                            "pstHst": null,
+                            "pstHstAdjusted": null,
+                            "salePrice": null,
+                            "cashDown": null,
+                            "rebate": null,
+                            "tradeIn": null,
+                            "dealerAdminFee": null,
+                            "registrationFee": null,
+                            "creditorFee": null,
+                            "gpsFee": null,
+                            "licenseFee": null,
+                            "installationDeliveryFee": null,
+                            "ahInsuranceFee": null,
+                            "lifeInsuranceFee": null,
+                            "wholesaleValueBasedOnProgram": null,
+                            "residualValue": null,
+                            "gapInsurance": null,
+                            "extServiceContract": null,
+                            "pstNotApplicableOnWarranty": null,
+                            "pstNotApplicableOnAhInsurance": null,
+                            "pstNotApplicableOnLifeInsurance": null,
+                            "pstNotApplicableOnGapInsurance": null,
+                            "totalFinancedAmount": null,
+                            "firstPaymentDate": null,
+                            "deliveryDate": null,
+                            "interestRate": null,
+                            "term": null,
+                            "frequency": null,
+                            "worksheetPayment": null,
+                            "reserveOverride": null,
+                            "movedFields": null,
+                            "otherNonTaxable": null,
+                            "otherNonTaxableDescription": null,
+                            "otherTaxable": null,
+                            "otherTaxableDescription": null,
+                            "taxProvince": null,
+                            "__typename": "CreditorAutoWorksheet"
+                        },
+                        "contractsPrinted": null,
+                        "incomeAdjudicationStatus": "PENDING_INCOME",
+                        "failedToSubmit": false,
+                        "__typename": "CreditorApplicationConnection"
+                    },
+                    "__typename": "CreditorDecision"
+                },
+                {
+                    "id": "70c34cf5-fe49-576f-a991-9f9caf530671",
+                    "status": "DECLINED",
+                    "timestamp": "2026-04-07T20:37:35.823Z",
+                    "conditions": "Credit quality not acceptable to consider for our program",
+                    "generatedConditions": null,
+                    "firstPaymentDate": null,
+                    "frequency": null,
+                    "interestRate": null,
+                    "term": null,
+                    "approvalTerm": null,
+                    "hasSubmittedWorksheet": false,
+                    "withdrawnStatus": null,
+                    "approvedPayment": null,
+                    "maxPayment": null,
+                    "maxPaymentFrequency": null,
+                    "maxTotalAmountToFinance": null,
+                    "rateReduction": null,
+                    "termStretch": null,
+                    "incomeStatus": null,
+                    "retailerReportedWrongIncomeStatus": false,
+                    "creditorReportedWrongIncomeStatus": false,
+                    "waitingForDecision": false,
+                    "creditorApplicationConnection": {
+                        "creditor": {
+                            "id": "4fca12a8-494f-4db6-9236-19859fc5d087",
+                            "displayName": "ACC",
+                            "shortName": "ACC",
+                            "los": "INOVATEC",
+                            "name": "ACC",
+                            "iconUrl": "https://cdn.creditapp.ca/administrative-portal/images/creditors/ACC-Icon.svg",
+                            "__typename": "Creditor"
+                        },
+                        "application": {
+                            "id": "d87cc3d0-e90b-41d5-a513-a4c57331ad10",
+                            "__typename": "Application"
+                        },
+                        "assignedCreditorUser": null,
+                        "externalId": "CD2604071518",
+                        "incomeWorkflowStatus": null,
+                        "primaryApplicant": {
+                            "id": "338e6051-0244-48d2-ac31-5b1aa659631a",
+                            "applicantId": "06414959-bf76-46a8-8934-c97446803f9d",
+                            "firstName": "Laura",
+                            "middleName": null,
+                            "lastName": "Prytulka",
+                            "email": "ld.prytulka@gmail.com",
+                            "phoneNumber": "7809092119",
+                            "hasBankAccount": true,
+                            "dateOfBirth": "1979-05-01",
+                            "sin": "648496313",
+                            "hasIncomeDocument": true,
+                            "incomeAdjudicationStatus": "PENDING_INCOME",
+                            "totalRequests": 19,
+                            "outstandingRequests": 0,
+                            "languagePreference": "EN",
+                            "__typename": "CreditorApplicant"
+                        },
+                        "coApplicant": null,
+                        "conversation": {
+                            "id": "70c34cf5-fe49-576f-a991-9f9caf530671",
+                            "hasUnreadMessages": false,
+                            "numberOfUnreadMessages": 0,
+                            "__typename": "ApplicationConversation"
+                        },
+                        "autoWorksheet": {
+                            "id": "4fca12a8-494f-4db6-9236-19859fc5d087_d87cc3d0-e90b-41d5-a513-a4c57331ad10",
+                            "status": "NOT_STARTED",
+                            "isLocked": false,
+                            "updatedAt": "2026-04-07T20:37:35.823Z",
+                            "lastSaved": null,
+                            "lastSubmitted": null,
+                            "hasUnseenChanges": false,
+                            "tierId": null,
+                            "vehicle": null,
+                            "taxExempt": null,
+                            "gstPercent": null,
+                            "pstHstPercent": null,
+                            "gst": null,
+                            "gstAdjusted": null,
+                            "pstHst": null,
+                            "pstHstAdjusted": null,
+                            "salePrice": null,
+                            "cashDown": null,
+                            "rebate": null,
+                            "tradeIn": null,
+                            "dealerAdminFee": null,
+                            "registrationFee": null,
+                            "creditorFee": null,
+                            "gpsFee": null,
+                            "licenseFee": null,
+                            "installationDeliveryFee": null,
+                            "ahInsuranceFee": null,
+                            "lifeInsuranceFee": null,
+                            "wholesaleValueBasedOnProgram": null,
+                            "residualValue": null,
+                            "gapInsurance": null,
+                            "extServiceContract": null,
+                            "pstNotApplicableOnWarranty": null,
+                            "pstNotApplicableOnAhInsurance": null,
+                            "pstNotApplicableOnLifeInsurance": null,
+                            "pstNotApplicableOnGapInsurance": null,
+                            "totalFinancedAmount": null,
+                            "firstPaymentDate": null,
+                            "deliveryDate": null,
+                            "interestRate": null,
+                            "term": null,
+                            "frequency": null,
+                            "worksheetPayment": null,
+                            "reserveOverride": null,
+                            "movedFields": null,
+                            "otherNonTaxable": null,
+                            "otherNonTaxableDescription": null,
+                            "otherTaxable": null,
+                            "otherTaxableDescription": null,
+                            "taxProvince": null,
+                            "__typename": "CreditorAutoWorksheet"
+                        },
+                        "contractsPrinted": null,
+                        "incomeAdjudicationStatus": "PENDING_INCOME",
+                        "failedToSubmit": false,
+                        "__typename": "CreditorApplicationConnection"
+                    },
+                    "__typename": "CreditorDecision"
+                },
+                {
+                    "id": "2d57c623-755c-52aa-bb54-57ae92c5d491",
+                    "status": "DECLINED",
+                    "timestamp": "2026-04-07T21:07:42.035Z",
+                    "conditions": "Multiple write offs and collections, overall credit profile too weak to consider",
+                    "generatedConditions": null,
+                    "firstPaymentDate": null,
+                    "frequency": null,
+                    "interestRate": null,
+                    "term": null,
+                    "approvalTerm": null,
+                    "hasSubmittedWorksheet": false,
+                    "withdrawnStatus": null,
+                    "approvedPayment": null,
+                    "maxPayment": null,
+                    "maxPaymentFrequency": null,
+                    "maxTotalAmountToFinance": null,
+                    "rateReduction": null,
+                    "termStretch": null,
+                    "incomeStatus": null,
+                    "retailerReportedWrongIncomeStatus": false,
+                    "creditorReportedWrongIncomeStatus": false,
+                    "waitingForDecision": false,
+                    "creditorApplicationConnection": {
+                        "creditor": {
+                            "id": "ea4a429a-c0bd-48da-9b22-140a06a30091",
+                            "displayName": "iA Auto Finance",
+                            "shortName": "iAF",
+                            "los": "INOVATEC",
+                            "name": "IAF",
+                            "iconUrl": "https://customer-assets.creditapp.ca/9749e0dc-9563-4fa5-a8fd-25e07248503c/IAFinancialGroupIcon.svg",
+                            "__typename": "Creditor"
+                        },
+                        "application": {
+                            "id": "d87cc3d0-e90b-41d5-a513-a4c57331ad10",
+                            "__typename": "Application"
+                        },
+                        "assignedCreditorUser": null,
+                        "externalId": "CD2604071517",
+                        "incomeWorkflowStatus": null,
+                        "primaryApplicant": {
+                            "id": "94ecc7df-0cc3-4bbc-a3ce-a42c1d983db1",
+                            "applicantId": "06414959-bf76-46a8-8934-c97446803f9d",
+                            "firstName": "Laura",
+                            "middleName": null,
+                            "lastName": "Prytulka",
+                            "email": "ld.prytulka@gmail.com",
+                            "phoneNumber": "7809092119",
+                            "hasBankAccount": true,
+                            "dateOfBirth": "1979-05-01",
+                            "sin": "648496313",
+                            "hasIncomeDocument": true,
+                            "incomeAdjudicationStatus": "PENDING_INCOME",
+                            "totalRequests": 19,
+                            "outstandingRequests": 0,
+                            "languagePreference": "EN",
+                            "__typename": "CreditorApplicant"
+                        },
+                        "coApplicant": null,
+                        "conversation": {
+                            "id": "2d57c623-755c-52aa-bb54-57ae92c5d491",
+                            "hasUnreadMessages": false,
+                            "numberOfUnreadMessages": 0,
+                            "__typename": "ApplicationConversation"
+                        },
+                        "autoWorksheet": {
+                            "id": "ea4a429a-c0bd-48da-9b22-140a06a30091_d87cc3d0-e90b-41d5-a513-a4c57331ad10",
+                            "status": "NOT_STARTED",
+                            "isLocked": false,
+                            "updatedAt": "2026-04-07T21:07:42.035Z",
+                            "lastSaved": null,
+                            "lastSubmitted": null,
+                            "hasUnseenChanges": false,
+                            "tierId": null,
+                            "vehicle": null,
+                            "taxExempt": null,
+                            "gstPercent": null,
+                            "pstHstPercent": null,
+                            "gst": null,
+                            "gstAdjusted": null,
+                            "pstHst": null,
+                            "pstHstAdjusted": null,
+                            "salePrice": null,
+                            "cashDown": null,
+                            "rebate": null,
+                            "tradeIn": null,
+                            "dealerAdminFee": null,
+                            "registrationFee": null,
+                            "creditorFee": null,
+                            "gpsFee": null,
+                            "licenseFee": null,
+                            "installationDeliveryFee": null,
+                            "ahInsuranceFee": null,
+                            "lifeInsuranceFee": null,
+                            "wholesaleValueBasedOnProgram": null,
+                            "residualValue": null,
+                            "gapInsurance": null,
+                            "extServiceContract": null,
+                            "pstNotApplicableOnWarranty": null,
+                            "pstNotApplicableOnAhInsurance": null,
+                            "pstNotApplicableOnLifeInsurance": null,
+                            "pstNotApplicableOnGapInsurance": null,
+                            "totalFinancedAmount": null,
+                            "firstPaymentDate": null,
+                            "deliveryDate": null,
+                            "interestRate": null,
+                            "term": null,
+                            "frequency": null,
+                            "worksheetPayment": null,
+                            "reserveOverride": null,
+                            "movedFields": null,
+                            "otherNonTaxable": null,
+                            "otherNonTaxableDescription": null,
+                            "otherTaxable": null,
+                            "otherTaxableDescription": null,
+                            "taxProvince": null,
+                            "__typename": "CreditorAutoWorksheet"
+                        },
+                        "contractsPrinted": null,
+                        "incomeAdjudicationStatus": "PENDING_INCOME",
+                        "failedToSubmit": false,
+                        "__typename": "CreditorApplicationConnection"
+                    },
+                    "__typename": "CreditorDecision"
+                },
+                {
+                    "id": "c21eae0e-d6a5-543e-bcce-2ec45bc823d5",
+                    "status": "AWAITING_DECISION",
+                    "timestamp": "2026-04-07T20:36:47.023Z",
+                    "conditions": "\n\nSTANDARD CONDITIONS:\n\n\n\n*****PLEASE UPLOAD YOUR CREDIT BUREAU INTO THE DOCUMENT/INCOME SECTION WHEN YOU ARE ENTERING THE APPLICATION.  WE NEED YOUR CREDIT BUREAU TO PROCEED. THANK YOU******\n\n***ALL APPROVALS BASED ON  AFFORDABILITY OF CUSTOMER'S MONTHLY INSURANCE PAYMENT  WE REQUIRE COPY OF INSURANCE QUOTE PLEASE***\n\n***ALL units require a secondary inspection done by Cavalcade Auto as per our funders and AMVIC requirements***  WE DO NOT FUND  3/4 OR 1 TON OR ANY DIESEL TRUCKS ALSO WE AREN'T ABLE TO FUND EV VEHICLES AT THIS TIME. \n\n*****CAVALCADE DOES NOT FUND CLIENTS OR VEHICLES REQUIRING ALCOHOL SENSING IGNITION INTERLOCK DEVICES (AKA BLOW BOXES), CONDITIONAL APPROVALS WILL BE RESCINDED****\n\n***OUR LENDING AREA IS ALL OF ALBERTA SOUTH OF MANNING and BITUMOUNT ALBERTA\n\n*****We require any and all hail damage to be disclosed valuations may be affected or deal withdrawn***** \n\n**We require all Dealers and their employees we deal with to be AMVIC licensed** \n\n**We consider our  Dealers we work with as partners and as such we require them to be responsible for any customer issues on their vehicle within the 1st  30 days of delivery, especially if we are using their Mechanical Safety Inspection and not one done at a licensed Cavalcade Auto/Wood Automotive Group shop*** \n\n***No manipulation of wholesale values when entering units will be tolerated. Any such behaviour will result in automatic withdrawal of approvals***\n\n-Vehicle info including Carfax to be uploaded into the worksheet section\n\n-Once deal is approved and customer is happy with terms, a  Cavalcade Rep will contact the customer and dealer to make a welcome call to make arrangement time and dates to close the lease for you. \n\n-ALL CASH DOWN PAYMENTS REQUIRED AS PART OF APPROVAL WILL NEED TO BE COLLECTED BEFORE OR AT SIGNING BEFORE VEHICLE IS DELIVERED AND PROPER PROOF OF CASH DOWN (ETRANSFER OR SIGNED CREDIT CARD RECEIPTS IS REQUIRED).  NO FALSE CASH DOWNS OR PAYMENT PLANS ON CASH DOWN WILL BE TOLERATED.  APPROVALS WILL BE  CONSIDERED VOID IN THESE CASES. \n\n*PLEASE NOTE ALL CAVALCADE CUSTOMERS REQUIRE A VALID ALTA. DRIVERS LICENSE TO QUALIFY FOR A LEASE AND MUST BE PRODUCED BEFORE FINAL DELIVERY AS WELL AS PROPER INSURANCE & AFFORDABLE PREMIUM. APPROVALS VALID FOR 30 DAYS **all cash down from customer needs to be actual cash down from the customer, no side loans, etc. Any false down payments will result in approvals/deals being reversed***\nWE REQUIRE PROVEABLE RECEIPTABLE FUNDS IE. E-TRANSFER, DEBIT, CREDIT CARD, BANK DRAFT/MONEY ORDER AS PROOF OF DEPOSIT-NO CASH/NO CHEQUES\n\n\n\n1.     Proof of income is always required (last 2 current paystubs, and a job letter is always preferred)  T4G and T4E slips or a customer's most recent Notice of Assessment (NOA) if they are seasonal - Self-employed applicants and/or applicants that pay business taxes are required to submit their most recent NOA or their last four months of bank statements - Child support documents with proof and two recent months of bank statements indicating deposit \n \n2. Vehicles that have sustained cumulative damages in excess of $5,000, or where the cumulative damage is under $5,000 but exceeds 50% of the vehicles black book value will be reviewed and value of unit may be affected. \n\n3. Registration must be in the applicant/co-applicant's personal name(s) and endorsed with Cavalcade Auto Acceptance. A copy of their registration is required\n \n4. Auto insurance required with provincial liability coverage, comprehensive and collision ($500 min each, 3rd party Liability min $1000000)  and Cavalcade Auto Acceptance Corp as lessor\n\n5. Cavalcade Auto does not finance rebuilt or salvaged units \n\n6. Cavalcade Auto does not finance Cash Back's on our contracts\n  \n7. Proof of residence (anything that comes in the mail with the clients name and address)\n \n8. Void Cheque or PAP form from the bank\n \n9. Install GPS and call and confirm that the device works\n \n10. Access letter needed if the client lives on reserve\n \n11. Copy of the MFA, and Repair Orders\n \n12. 5 references, 3 family members minimal\n\n13. Final LTV is subject to Cavalcade's discretion\n\nWe appreciate your business! :)",
+                    "generatedConditions": null,
+                    "firstPaymentDate": null,
+                    "frequency": null,
+                    "interestRate": null,
+                    "term": null,
+                    "approvalTerm": null,
+                    "hasSubmittedWorksheet": false,
+                    "withdrawnStatus": null,
+                    "approvedPayment": null,
+                    "maxPayment": null,
+                    "maxPaymentFrequency": null,
+                    "maxTotalAmountToFinance": null,
+                    "rateReduction": null,
+                    "termStretch": null,
+                    "incomeStatus": null,
+                    "retailerReportedWrongIncomeStatus": false,
+                    "creditorReportedWrongIncomeStatus": false,
+                    "waitingForDecision": false,
+                    "creditorApplicationConnection": {
+                        "creditor": {
+                            "id": "fe339a23-66b6-470a-9059-11ad4b28267f",
+                            "displayName": "Cavalcade",
+                            "shortName": "CAV",
+                            "los": "IN_HOUSE",
+                            "name": "IN_HOUSE",
+                            "iconUrl": "https://customer-assets.creditapp.ca/dcfcde02-97ec-4289-8dca-d0bafc487f45/CavalcadeIcon.svg",
+                            "__typename": "Creditor"
+                        },
+                        "application": {
+                            "id": "d87cc3d0-e90b-41d5-a513-a4c57331ad10",
+                            "__typename": "Application"
+                        },
+                        "assignedCreditorUser": null,
+                        "externalId": "GRUOYX",
+                        "incomeWorkflowStatus": null,
+                        "primaryApplicant": {
+                            "id": "c96bb50b-8b7e-483a-be94-8194f2291bd7",
+                            "applicantId": "06414959-bf76-46a8-8934-c97446803f9d",
+                            "firstName": "Laura",
+                            "middleName": null,
+                            "lastName": "Prytulka",
+                            "email": "ld.prytulka@gmail.com",
+                            "phoneNumber": "7809092119",
+                            "hasBankAccount": true,
+                            "dateOfBirth": "1979-05-01",
+                            "sin": "648496313",
+                            "hasIncomeDocument": true,
+                            "incomeAdjudicationStatus": "PENDING_INCOME",
+                            "totalRequests": 19,
+                            "outstandingRequests": 0,
+                            "languagePreference": "EN",
+                            "__typename": "CreditorApplicant"
+                        },
+                        "coApplicant": null,
+                        "conversation": {
+                            "id": "c21eae0e-d6a5-543e-bcce-2ec45bc823d5",
+                            "hasUnreadMessages": true,
+                            "numberOfUnreadMessages": 1,
+                            "__typename": "ApplicationConversation"
+                        },
+                        "autoWorksheet": {
+                            "id": "fe339a23-66b6-470a-9059-11ad4b28267f_d87cc3d0-e90b-41d5-a513-a4c57331ad10",
+                            "status": "NOT_STARTED",
+                            "isLocked": true,
+                            "updatedAt": null,
+                            "lastSaved": null,
+                            "lastSubmitted": null,
+                            "hasUnseenChanges": false,
+                            "tierId": null,
+                            "vehicle": null,
+                            "taxExempt": null,
+                            "gstPercent": null,
+                            "pstHstPercent": null,
+                            "gst": null,
+                            "gstAdjusted": null,
+                            "pstHst": null,
+                            "pstHstAdjusted": null,
+                            "salePrice": null,
+                            "cashDown": null,
+                            "rebate": null,
+                            "tradeIn": null,
+                            "dealerAdminFee": null,
+                            "registrationFee": null,
+                            "creditorFee": null,
+                            "gpsFee": null,
+                            "licenseFee": null,
+                            "installationDeliveryFee": null,
+                            "ahInsuranceFee": null,
+                            "lifeInsuranceFee": null,
+                            "wholesaleValueBasedOnProgram": null,
+                            "residualValue": null,
+                            "gapInsurance": null,
+                            "extServiceContract": null,
+                            "pstNotApplicableOnWarranty": null,
+                            "pstNotApplicableOnAhInsurance": null,
+                            "pstNotApplicableOnLifeInsurance": null,
+                            "pstNotApplicableOnGapInsurance": null,
+                            "totalFinancedAmount": null,
+                            "firstPaymentDate": null,
+                            "deliveryDate": null,
+                            "interestRate": null,
+                            "term": null,
+                            "frequency": null,
+                            "worksheetPayment": null,
+                            "reserveOverride": null,
+                            "movedFields": null,
+                            "otherNonTaxable": null,
+                            "otherNonTaxableDescription": null,
+                            "otherTaxable": null,
+                            "otherTaxableDescription": null,
+                            "taxProvince": null,
+                            "__typename": "CreditorAutoWorksheet"
+                        },
+                        "contractsPrinted": null,
+                        "incomeAdjudicationStatus": "PENDING_INCOME",
+                        "failedToSubmit": false,
+                        "__typename": "CreditorApplicationConnection"
+                    },
+                    "__typename": "CreditorDecision"
+                },
+                {
+                    "id": "38284ee5-d91c-581a-bc6b-ce9d8e7f1bdf",
+                    "status": "DRAFT",
+                    "timestamp": "2026-04-07T20:35:50.029Z",
+                    "conditions": null,
+                    "generatedConditions": null,
+                    "firstPaymentDate": null,
+                    "frequency": null,
+                    "interestRate": null,
+                    "term": null,
+                    "approvalTerm": null,
+                    "hasSubmittedWorksheet": null,
+                    "withdrawnStatus": null,
+                    "approvedPayment": null,
+                    "maxPayment": null,
+                    "maxPaymentFrequency": null,
+                    "maxTotalAmountToFinance": null,
+                    "rateReduction": null,
+                    "termStretch": null,
+                    "incomeStatus": null,
+                    "retailerReportedWrongIncomeStatus": false,
+                    "creditorReportedWrongIncomeStatus": false,
+                    "waitingForDecision": null,
+                    "creditorApplicationConnection": {
+                        "creditor": {
+                            "id": "1a29dc05-adcc-43b2-8e0d-a0eca93d0701",
+                            "displayName": "The House Finance Corp",
+                            "shortName": "THF",
+                            "los": "IN_HOUSE",
+                            "name": "IN_HOUSE",
+                            "iconUrl": "https://customer-assets.creditapp.ca/e27410bf-3f4d-4bf6-b279-a91a4258123b/the_house_financeicon.svg",
+                            "__typename": "Creditor"
+                        },
+                        "application": {
+                            "id": "d87cc3d0-e90b-41d5-a513-a4c57331ad10",
+                            "__typename": "Application"
+                        },
+                        "assignedCreditorUser": null,
+                        "externalId": null,
+                        "incomeWorkflowStatus": null,
+                        "primaryApplicant": null,
+                        "coApplicant": null,
+                        "conversation": null,
+                        "autoWorksheet": null,
+                        "contractsPrinted": null,
+                        "incomeAdjudicationStatus": null,
+                        "failedToSubmit": null,
+                        "__typename": "CreditorApplicationConnection"
+                    },
+                    "__typename": "CreditorDecision"
+                }
+            ],
+            "creditorFilterResults": [
+                {
+                    "id": "10c480be-2793-56a6-b982-ff03de1cf63e",
+                    "creditor": {
+                        "id": "030cceb2-b27b-42f5-a485-88f5821bb0aa",
+                        "displayName": "Santander",
+                        "__typename": "Creditor"
+                    },
+                    "status": "SUCCEEDED",
+                    "advancedStatus": "SUCCEEDED",
+                    "failureReasons": [],
+                    "advancedFailureReasons": [],
+                    "excludedPrograms": [
+                        "6d9e98ec-6f5e-4cb6-af59-2b03e35e31d9",
+                        "810ce785-9a0c-4f55-9602-dd5be6cdcf5a"
+                    ],
+                    "passingFilters": 16,
+                    "totalFilters": 16,
+                    "__typename": "ApplicationCreditorFilterResult"
+                },
+                {
+                    "id": "38284ee5-d91c-581a-bc6b-ce9d8e7f1bdf",
+                    "creditor": {
+                        "id": "1a29dc05-adcc-43b2-8e0d-a0eca93d0701",
+                        "displayName": "The House Finance Corp",
+                        "__typename": "Creditor"
+                    },
+                    "status": "SUCCEEDED",
+                    "advancedStatus": "FAILED",
+                    "failureReasons": [],
+                    "advancedFailureReasons": [
+                        "Applicant has significant unpaid collections",
+                        "Credit Score is too low"
+                    ],
+                    "excludedPrograms": [],
+                    "passingFilters": 4,
+                    "totalFilters": 6,
+                    "__typename": "ApplicationCreditorFilterResult"
+                },
+                {
+                    "id": "92803f74-6e11-5997-b46f-6946b54976a7",
+                    "creditor": {
+                        "id": "1d3168ae-b4ef-45da-9ff1-5fbdd3241bde",
+                        "displayName": "Quantifi",
+                        "__typename": "Creditor"
+                    },
+                    "status": "SUCCEEDED",
+                    "advancedStatus": "SUCCEEDED",
+                    "failureReasons": [],
+                    "advancedFailureReasons": [],
+                    "excludedPrograms": [],
+                    "passingFilters": 12,
+                    "totalFilters": 12,
+                    "__typename": "ApplicationCreditorFilterResult"
+                },
+                {
+                    "id": "e21f9cb5-0495-56e9-b7f5-12795fd451ba",
+                    "creditor": {
+                        "id": "4adecff2-04ea-4d00-80ff-3c3cfb919b6d",
+                        "displayName": "Eden Park",
+                        "__typename": "Creditor"
+                    },
+                    "status": "SUCCEEDED",
+                    "advancedStatus": "SUCCEEDED",
+                    "failureReasons": [],
+                    "advancedFailureReasons": [],
+                    "excludedPrograms": [],
+                    "passingFilters": 17,
+                    "totalFilters": 17,
+                    "__typename": "ApplicationCreditorFilterResult"
+                },
+                {
+                    "id": "70c34cf5-fe49-576f-a991-9f9caf530671",
+                    "creditor": {
+                        "id": "4fca12a8-494f-4db6-9236-19859fc5d087",
+                        "displayName": "ACC",
+                        "__typename": "Creditor"
+                    },
+                    "status": "SUCCEEDED",
+                    "advancedStatus": "SUCCEEDED",
+                    "failureReasons": [],
+                    "advancedFailureReasons": [],
+                    "excludedPrograms": [],
+                    "passingFilters": 14,
+                    "totalFilters": 14,
+                    "__typename": "ApplicationCreditorFilterResult"
+                },
+                {
+                    "id": "e4ce4ac9-efb2-5fee-ad53-1a8f43abddaf",
+                    "creditor": {
+                        "id": "5ee2c97b-46c0-4d65-a9ee-da3c46921501",
+                        "displayName": "Rifco",
+                        "__typename": "Creditor"
+                    },
+                    "status": "SUCCEEDED",
+                    "advancedStatus": "SUCCEEDED",
+                    "failureReasons": [],
+                    "advancedFailureReasons": [],
+                    "excludedPrograms": [],
+                    "passingFilters": 20,
+                    "totalFilters": 20,
+                    "__typename": "ApplicationCreditorFilterResult"
+                },
+                {
+                    "id": "2d57c623-755c-52aa-bb54-57ae92c5d491",
+                    "creditor": {
+                        "id": "ea4a429a-c0bd-48da-9b22-140a06a30091",
+                        "displayName": "iA Auto Finance",
+                        "__typename": "Creditor"
+                    },
+                    "status": "SUCCEEDED",
+                    "advancedStatus": "NOT_RUN",
+                    "failureReasons": [],
+                    "advancedFailureReasons": [],
+                    "excludedPrograms": [],
+                    "passingFilters": 2,
+                    "totalFilters": 2,
+                    "__typename": "ApplicationCreditorFilterResult"
+                },
+                {
+                    "id": "c21eae0e-d6a5-543e-bcce-2ec45bc823d5",
+                    "creditor": {
+                        "id": "fe339a23-66b6-470a-9059-11ad4b28267f",
+                        "displayName": "Cavalcade",
+                        "__typename": "Creditor"
+                    },
+                    "status": "SUCCEEDED",
+                    "advancedStatus": "SUCCEEDED",
+                    "failureReasons": [],
+                    "advancedFailureReasons": [],
+                    "excludedPrograms": [],
+                    "passingFilters": 4,
+                    "totalFilters": 4,
+                    "__typename": "ApplicationCreditorFilterResult"
+                }
+            ],
+            "creditorConnection": {
+                "application": {
+                    "id": "d87cc3d0-e90b-41d5-a513-a4c57331ad10",
+                    "__typename": "Application"
+                },
+                "creditor": {
+                    "id": "030cceb2-b27b-42f5-a485-88f5821bb0aa",
+                    "__typename": "Creditor",
+                    "displayName": "Santander",
+                    "los": "INOVATEC",
+                    "iconUrl": "https://cdn.creditapp.ca/administrative-portal/images/creditors/Santander-Icon.svg",
+                    "fixedApplicantsPreference": null,
+                    "marketingFlags": [],
+                    "contactInformation": {
+                        "id": "030cceb2-b27b-42f5-a485-88f5821bb0aa",
+                        "email": "funding@santanderconsumer.ca",
+                        "tollfree": "8884864356",
+                        "__typename": "CreditorContactInformation"
+                    }
+                },
+                "primaryApplicant": {
+                    "id": "748051b8-579d-4925-9b71-af545fd41d1c",
+                    "firstName": "Laura",
+                    "lastName": "Prytulka",
+                    "__typename": "CreditorApplicant",
+                    "applicantId": "06414959-bf76-46a8-8934-c97446803f9d",
+                    "sin": "648496313",
+                    "sinSubmitted": true,
+                    "isPrimaryApplicant": true
+                },
+                "__typename": "CreditorApplicationConnection",
+                "externalId": "CD2604071519",
+                "decision": {
+                    "id": "10c480be-2793-56a6-b982-ff03de1cf63e",
+                    "status": "CONDITIONALLY_APPROVED",
+                    "timestamp": "2026-04-08T22:48:26.222Z",
+                    "conditions": "Tier 4 | 24.49% Fixed Rate Approval | 165% LTV | $550 Dealer Reserve + Up to $900 Additional LTV Bonus Reserve\nMain App - Proof of residence dated within 45 days required.\n****** STANDARD STIPULATIONS ******\nApprovals are valid 30 days and may be rescinded if derogatory info is received.  Approval is void if another lender finances/leases a vehicle for this customer without prior disclosure. Santander does not refinance existing auto loans.\nPOI required unless otherwise noted. Send to https://app.creditapp.ca/en/06414959-bf76-46a8-8934-c97446803f9d/start. Taxed: YTD paystub within 45 days or last 3 months bank statements | Self Emp: Last 4 months bank statements + NOA | Pension/Disability: Last 3 months bank statements | Seasonal: YTD paystubs within 45 days or prior T4/T4E + employment letter with season length.\nFormer police, courier, delivery, rideshare, written off, rebuilt, salvage, altered, or commercial-use vehicles are not eligible. \nSantander uses Canadian Black Book for wholesale values; if portal differs, Santanders value applies.\nRefer to the Dealer Document Checklist for standard stipulations. Customer Identification Disclosure Form required for funding.\nIncome verification is required. Max payment is\r\n$750/month. Documents to https://app.creditapp.ca/en/06414959-bf76-46a8-8934-c97446803f9d/start or\r\nhave customer complete our instant bank verification.\r\nwww.santanderconsumer.ca/easyincome or request in\r\nportal notes and we can send directly to the customers\r\nphone/email address.\r\n",
+                    "generatedConditions": null,
+                    "firstPaymentDate": "2026-05-08",
+                    "frequency": "BI_WEEKLY",
+                    "interestRate": 24.49,
+                    "term": null,
+                    "approvalTerm": null,
+                    "hasSubmittedWorksheet": true,
+                    "withdrawnStatus": null,
+                    "approvedPayment": {
+                        "amount": 346.14,
+                        "currency": "CAD",
+                        "__typename": "Money"
+                    },
+                    "maxPayment": {
+                        "amount": 750,
+                        "currency": "CAD",
+                        "__typename": "Money"
+                    },
+                    "maxPaymentFrequency": "MONTHLY",
+                    "maxTotalAmountToFinance": null,
+                    "rateReduction": null,
+                    "termStretch": null,
+                    "incomeStatus": "AVAILABLE",
+                    "retailerReportedWrongIncomeStatus": false,
+                    "creditorReportedWrongIncomeStatus": false,
+                    "waitingForDecision": false,
+                    "creditorApplicationConnection": {
+                        "creditor": {
+                            "id": "030cceb2-b27b-42f5-a485-88f5821bb0aa",
+                            "displayName": "Santander",
+                            "shortName": "SAN",
+                            "los": "INOVATEC",
+                            "name": "SANTANDER",
+                            "iconUrl": "https://cdn.creditapp.ca/administrative-portal/images/creditors/Santander-Icon.svg",
+                            "__typename": "Creditor"
+                        },
+                        "application": {
+                            "id": "d87cc3d0-e90b-41d5-a513-a4c57331ad10",
+                            "__typename": "Application"
+                        },
+                        "assignedCreditorUser": null,
+                        "externalId": "CD2604071519",
+                        "incomeWorkflowStatus": null,
+                        "primaryApplicant": {
+                            "id": "748051b8-579d-4925-9b71-af545fd41d1c",
+                            "applicantId": "06414959-bf76-46a8-8934-c97446803f9d",
+                            "firstName": "Laura",
+                            "middleName": null,
+                            "lastName": "Prytulka",
+                            "email": "ld.prytulka@gmail.com",
+                            "phoneNumber": "7809092119",
+                            "hasBankAccount": true,
+                            "dateOfBirth": "1979-05-01",
+                            "sin": "648496313",
+                            "hasIncomeDocument": true,
+                            "incomeAdjudicationStatus": "WAITING_FOR_REVIEW",
+                            "totalRequests": 19,
+                            "outstandingRequests": 0,
+                            "languagePreference": "EN",
+                            "__typename": "CreditorApplicant"
+                        },
+                        "coApplicant": null,
+                        "conversation": {
+                            "id": "10c480be-2793-56a6-b982-ff03de1cf63e",
+                            "hasUnreadMessages": true,
+                            "numberOfUnreadMessages": 1,
+                            "__typename": "ApplicationConversation"
+                        },
+                        "autoWorksheet": {
+                            "id": "030cceb2-b27b-42f5-a485-88f5821bb0aa_d87cc3d0-e90b-41d5-a513-a4c57331ad10",
+                            "status": "SUBMITTED",
+                            "isLocked": false,
+                            "updatedAt": "2026-04-08T22:48:26.222Z",
+                            "lastSaved": "2026-04-08T22:48:26.220Z",
+                            "lastSubmitted": "2026-04-08T22:45:29.779Z",
+                            "hasUnseenChanges": true,
+                            "tierId": "eec47845-46a7-456e-9e73-130933e02798",
+                            "vehicle": {
+                                "id": null,
+                                "vin": "5NMS3CAD5LH210617",
+                                "odometer": {
+                                    "amount": 130712,
+                                    "unit": "KILOMETERS",
+                                    "__typename": "Distance"
+                                },
+                                "status": "USED",
+                                "msrp": {
+                                    "amount": 37399,
+                                    "currency": "CAD",
+                                    "__typename": "Money"
+                                },
+                                "adjustedMsrp": null,
+                                "uvc": "2020380395",
+                                "year": 2020,
+                                "make": "Hyundai",
+                                "model": "Santa Fe",
+                                "trim": "Preferred w/S&L 4D Utility AWD",
+                                "series": "Preferred w/S&L",
+                                "style": "4D Utility AWD",
+                                "isZeroEmissionVehicle": false,
+                                "addOnOptions": [],
+                                "addOns": [],
+                                "deductOptions": [],
+                                "deducts": [],
+                                "colour": null,
+                                "carfaxClaims": null,
+                                "extraCleanWholesaleValue": {
+                                    "amount": 20250,
+                                    "currency": "CAD",
+                                    "__typename": "Money"
+                                },
+                                "cleanWholesaleValue": {
+                                    "amount": 18750,
+                                    "currency": "CAD",
+                                    "__typename": "Money"
+                                },
+                                "averageWholesaleValue": {
+                                    "amount": 16700,
+                                    "currency": "CAD",
+                                    "__typename": "Money"
+                                },
+                                "roughWholesaleValue": {
+                                    "amount": 14700,
+                                    "currency": "CAD",
+                                    "__typename": "Money"
+                                },
+                                "residuals": [],
+                                "drivingDistancePerYear": {
+                                    "amount": 0,
+                                    "unit": "KILOMETERS",
+                                    "__typename": "Distance"
+                                },
+                                "__typename": "CreditorVehicle"
+                            },
+                            "taxExempt": true,
+                            "gstPercent": 0,
+                            "pstHstPercent": 0,
+                            "gst": {
+                                "amount": 0,
+                                "currency": "CAD",
+                                "__typename": "Money"
+                            },
+                            "gstAdjusted": false,
+                            "pstHst": {
+                                "amount": 0,
+                                "currency": "CAD",
+                                "__typename": "Money"
+                            },
+                            "pstHstAdjusted": false,
+                            "salePrice": {
+                                "amount": 22999,
+                                "currency": "CAD",
+                                "__typename": "Money"
+                            },
+                            "cashDown": {
+                                "amount": 0,
+                                "currency": "CAD",
+                                "__typename": "Money"
+                            },
+                            "rebate": {
+                                "amount": 0,
+                                "currency": "CAD",
+                                "__typename": "Money"
+                            },
+                            "tradeIn": null,
+                            "dealerAdminFee": {
+                                "amount": 699,
+                                "currency": "CAD",
+                                "__typename": "Money"
+                            },
+                            "registrationFee": {
+                                "amount": 38.25,
+                                "currency": "CAD",
+                                "__typename": "Money"
+                            },
+                            "creditorFee": {
+                                "amount": 699,
+                                "currency": "CAD",
+                                "__typename": "Money"
+                            },
+                            "gpsFee": {
+                                "amount": 0,
+                                "currency": "CAD",
+                                "__typename": "Money"
+                            },
+                            "licenseFee": {
+                                "amount": 0,
+                                "currency": "CAD",
+                                "__typename": "Money"
+                            },
+                            "installationDeliveryFee": {
+                                "amount": 0,
+                                "currency": "CAD",
+                                "__typename": "Money"
+                            },
+                            "ahInsuranceFee": {
+                                "amount": 0,
+                                "currency": "CAD",
+                                "__typename": "Money"
+                            },
+                            "lifeInsuranceFee": {
+                                "amount": 0,
+                                "currency": "CAD",
+                                "__typename": "Money"
+                            },
+                            "wholesaleValueBasedOnProgram": {
+                                "amount": 18750,
+                                "currency": "CAD",
+                                "__typename": "Money"
+                            },
+                            "residualValue": null,
+                            "gapInsurance": null,
+                            "extServiceContract": {
+                                "amount": 3499,
+                                "currency": "CAD",
+                                "__typename": "Money"
+                            },
+                            "pstNotApplicableOnWarranty": true,
+                            "pstNotApplicableOnAhInsurance": true,
+                            "pstNotApplicableOnLifeInsurance": true,
+                            "pstNotApplicableOnGapInsurance": true,
+                            "totalFinancedAmount": {
+                                "amount": 27934.25,
+                                "currency": "CAD",
+                                "__typename": "Money"
+                            },
+                            "firstPaymentDate": "2026-05-08",
+                            "deliveryDate": "2026-04-08",
+                            "interestRate": 24.49,
+                            "term": 72,
+                            "frequency": "BI_WEEKLY",
+                            "worksheetPayment": {
+                                "amount": 346.12,
+                                "currency": "CAD",
+                                "__typename": "Money"
+                            },
+                            "reserveOverride": {
+                                "amount": 550,
+                                "currency": "CAD",
+                                "__typename": "Money"
+                            },
+                            "movedFields": [],
+                            "otherNonTaxable": {
+                                "amount": 0,
+                                "currency": "CAD",
+                                "__typename": "Money"
+                            },
+                            "otherNonTaxableDescription": null,
+                            "otherTaxable": {
+                                "amount": 0,
+                                "currency": "CAD",
+                                "__typename": "Money"
+                            },
+                            "otherTaxableDescription": null,
+                            "taxProvince": "AB",
+                            "__typename": "CreditorAutoWorksheet"
+                        },
+                        "contractsPrinted": null,
+                        "incomeAdjudicationStatus": "PENDING_INCOME",
+                        "failedToSubmit": false,
+                        "__typename": "CreditorApplicationConnection"
+                    },
+                    "__typename": "CreditorDecision",
+                    "program": {
+                        "id": "92ef7d66-0898-41b1-85b7-c982a05cb391",
+                        "title": "Tiers",
+                        "guideDocument": {
+                            "id": "c865d4ba-3bc4-41e3-aac4-13813d2d9e9c",
+                            "url": {
+                                "downloadUrl": "https://creditapp-production-documents.s3.ca-central-1.amazonaws.com/5ce42e9d-919f-4fa5-9b18-443d65325419/1775009570402_1775009570120_Tier%20Rate%20Sheet%20EN%20April%201%202026.pdf?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Content-Sha256=UNSIGNED-PAYLOAD&X-Amz-Credential=ASIA5F5URY7G6PXPOY4R%2F20260414%2Fca-central-1%2Fs3%2Faws4_request&X-Amz-Date=20260414T030143Z&X-Amz-Expires=21600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjELn%2F%2F%2F%2F%2F%2F%2F%2F%2F%2FwEaDGNhLWNlbnRyYWwtMSJGMEQCIEuSmQlsT02B0H%2F5Zu4Gd3QBN8983eXzUVrHYZOcJLJZAiB2qe0CLXZa0sV4pM0j6iiMbyS4tSOZz6v1SbB%2FzLqp%2FiqZBQiC%2F%2F%2F%2F%2F%2F%2F%2F%2F%2F8BEAAaDDkwNjA3OTg4MTE2NSIMEHkpoT1uqxBLudW0Ku0E%2FFFp13qEal6HoJkStm%2FKkwExVnJTInWg0rJQqX1SdWq64Y%2FqGfTn%2F6dspJS4lD7jcFNzeWanJAoENjvqiTTw0w0h6HzpWsI6ayL5bc1EPV4N8hom93VgDp7be32HJ75LLTZWTHohsTeC05apCVAy6WT45OtLoj%2FA1%2BfRJVreZM9GK2YTaxQVr1ypcF7vRgxItXu6TE66sx0tvOHmPQlo2ELidkq%2FAtqdhirETYVfNaKd1Fayq69%2BN0GpOXjMLonfMzx%2B4pWNtrGIB4SKj8AX5ezLDAfyji6pgvoiTFeQfhnzr%2Fgzd5tn7Ff%2FTVLLV7srLdqqYPFg96eGaAb1n2a3JtRd3Xf8AB3dxlTSGNYvRmELpoJfv90lHmRs0ze%2BvAdsVqfPFJuabbVXSF6OansHXIYexhmtx%2BNlcUMpJ2hv2C5mfJBqc39cK1XHmLewkWIimAILUFNkdgiwOdp2eoGvY8qsj%2BpoRoq0%2FJus%2B7GdwYeGXHCH%2F8dQwQO0gSjm4TvrKdK1KKSWGR%2FCB53PaTeH66kSFyVComPptUt1xKVu5xNNd95Q2d8UK5bzYBZW5FERiXVH3jiONf2NUJxY6XjnSF4f9H%2FopJiodFMXFzNNelPU80v4XhcwdbOwPvUVwocOOukxiCXdXiJcvxWOjFiudfNcTIT%2B%2Bea00Rhf4S8%2FAuH2RvvBQZymxBUfC47%2FGtU2Lc75Qp7LlvuNYm2d1s2Zt%2FNaW3v6lXoW5RlxC%2FO%2Bc0xiwEKmYXI04DYmHtQNTApd5Pj%2FyQaUMBdyA9%2FMYJ0X84GWGHDo6dSXp19JqyB%2BYkpKhmeD6t6A05f5I4BSMKCo9s4GOpkBUDG1uN4CIpz3Ed%2FAnuZOslfTdUUTU%2BsdNKrOWg8uKLTqa8rzfGJ6sRmuKlDQcN7Fq0J%2BUE8DYPsN0z4Ipr%2BN7%2FCeZtp9aVpAf%2FuyTUe6Yxx8yhPX15gmND3zBOk8t76DXQqWC%2B0qiy1cUrcJc%2Bn6vVdVXvssfsRHqMynZdVHF9ft%2BV08mtCwlM14me%2FoDHmv9MJ9kR4o5LOK&X-Amz-Signature=0e0feab9e1478454442d468f8fe489c3953f68f04dd9ff6527baa3ebefa1f6a1&X-Amz-SignedHeaders=host&response-content-disposition=attachment&response-content-type=application%2Foctet-stream&x-amz-checksum-mode=ENABLED&x-id=GetObject",
+                                "viewUrl": "https://creditapp-production-documents.s3.ca-central-1.amazonaws.com/5ce42e9d-919f-4fa5-9b18-443d65325419/1775009570402_1775009570120_Tier%20Rate%20Sheet%20EN%20April%201%202026.pdf?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Content-Sha256=UNSIGNED-PAYLOAD&X-Amz-Credential=ASIA5F5URY7G6PXPOY4R%2F20260414%2Fca-central-1%2Fs3%2Faws4_request&X-Amz-Date=20260414T030143Z&X-Amz-Expires=21600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjELn%2F%2F%2F%2F%2F%2F%2F%2F%2F%2FwEaDGNhLWNlbnRyYWwtMSJGMEQCIEuSmQlsT02B0H%2F5Zu4Gd3QBN8983eXzUVrHYZOcJLJZAiB2qe0CLXZa0sV4pM0j6iiMbyS4tSOZz6v1SbB%2FzLqp%2FiqZBQiC%2F%2F%2F%2F%2F%2F%2F%2F%2F%2F8BEAAaDDkwNjA3OTg4MTE2NSIMEHkpoT1uqxBLudW0Ku0E%2FFFp13qEal6HoJkStm%2FKkwExVnJTInWg0rJQqX1SdWq64Y%2FqGfTn%2F6dspJS4lD7jcFNzeWanJAoENjvqiTTw0w0h6HzpWsI6ayL5bc1EPV4N8hom93VgDp7be32HJ75LLTZWTHohsTeC05apCVAy6WT45OtLoj%2FA1%2BfRJVreZM9GK2YTaxQVr1ypcF7vRgxItXu6TE66sx0tvOHmPQlo2ELidkq%2FAtqdhirETYVfNaKd1Fayq69%2BN0GpOXjMLonfMzx%2B4pWNtrGIB4SKj8AX5ezLDAfyji6pgvoiTFeQfhnzr%2Fgzd5tn7Ff%2FTVLLV7srLdqqYPFg96eGaAb1n2a3JtRd3Xf8AB3dxlTSGNYvRmELpoJfv90lHmRs0ze%2BvAdsVqfPFJuabbVXSF6OansHXIYexhmtx%2BNlcUMpJ2hv2C5mfJBqc39cK1XHmLewkWIimAILUFNkdgiwOdp2eoGvY8qsj%2BpoRoq0%2FJus%2B7GdwYeGXHCH%2F8dQwQO0gSjm4TvrKdK1KKSWGR%2FCB53PaTeH66kSFyVComPptUt1xKVu5xNNd95Q2d8UK5bzYBZW5FERiXVH3jiONf2NUJxY6XjnSF4f9H%2FopJiodFMXFzNNelPU80v4XhcwdbOwPvUVwocOOukxiCXdXiJcvxWOjFiudfNcTIT%2B%2Bea00Rhf4S8%2FAuH2RvvBQZymxBUfC47%2FGtU2Lc75Qp7LlvuNYm2d1s2Zt%2FNaW3v6lXoW5RlxC%2FO%2Bc0xiwEKmYXI04DYmHtQNTApd5Pj%2FyQaUMBdyA9%2FMYJ0X84GWGHDo6dSXp19JqyB%2BYkpKhmeD6t6A05f5I4BSMKCo9s4GOpkBUDG1uN4CIpz3Ed%2FAnuZOslfTdUUTU%2BsdNKrOWg8uKLTqa8rzfGJ6sRmuKlDQcN7Fq0J%2BUE8DYPsN0z4Ipr%2BN7%2FCeZtp9aVpAf%2FuyTUe6Yxx8yhPX15gmND3zBOk8t76DXQqWC%2B0qiy1cUrcJc%2Bn6vVdVXvssfsRHqMynZdVHF9ft%2BV08mtCwlM14me%2FoDHmv9MJ9kR4o5LOK&X-Amz-Signature=ab18fef796584d477ed184fd494fbb91b02d546fe11d7f52e75249a1c922e6a0&X-Amz-SignedHeaders=host&response-content-disposition=inline&response-content-type=application%2Fpdf&x-amz-checksum-mode=ENABLED&x-id=GetObject",
+                                "__typename": "FileUrl"
+                            },
+                            "__typename": "ProgramGuideDocument"
+                        },
+                        "__typename": "ProgramGuide"
+                    }
+                },
+                "conversation": {
+                    "id": "10c480be-2793-56a6-b982-ff03de1cf63e",
+                    "hasUnreadMessages": true,
+                    "numberOfUnreadMessages": 1,
+                    "__typename": "ApplicationConversation"
+                },
+                "contractsPrinted": null,
+                "contractsForcePrinted": null,
+                "failedToSubmit": false,
+                "draft": {
+                    "id": "030cceb2-b27b-42f5-a485-88f5821bb0aa_d87cc3d0-e90b-41d5-a513-a4c57331ad10_23c5167f-22a0-47a9-b46b-a3a224f73ab7",
+                    "updatedAt": "2026-04-08T23:44:41.196Z",
+                    "updatedBy": {
+                        "id": "421f11f5-3d1e-46a9-b51f-23c79b881621",
+                        "firstName": "Ismail",
+                        "lastName": "Jomha",
+                        "__typename": "RetailerUser"
+                    },
+                    "updatedFields": [
+                        "autoWorksheet"
+                    ],
+                    "primaryApplicantIsValid": null,
+                    "primaryApplicantInvalidMessage": null,
+                    "coApplicantIsValid": null,
+                    "coApplicantInvalidMessage": null,
+                    "decisionIsValid": null,
+                    "decisionInvalidMessage": null,
+                    "autoWorksheetIsValid": true,
+                    "autoWorksheetInvalidMessage": "",
+                    "draftRequiresResubmission": true,
+                    "__typename": "CreditorApplicationDraft",
+                    "primaryApplicant": null,
+                    "coApplicant": null
+                },
+                "autoWorksheet": {
+                    "id": "030cceb2-b27b-42f5-a485-88f5821bb0aa_d87cc3d0-e90b-41d5-a513-a4c57331ad10",
+                    "requiresRetailerAcknowledgement": false,
+                    "hasWarnings": true,
+                    "__typename": "CreditorAutoWorksheet"
+                },
+                "coApplicant": null,
+                "history": {
+                    "totalCount": 18,
+                    "__typename": "CreditorApplicationHistoryConnection"
+                },
+                "submissionHistory": {
+                    "edges": [
+                        {
+                            "node": {
+                                "id": "5e25fbb1-29e1-4fce-b136-c621c669bf5d",
+                                "timestamp": "2026-04-08T22:48:31.726Z",
+                                "type": "CREDITOR_DECISION",
+                                "submittedBy": null,
+                                "__typename": "CreditorApplicationHistoryEntry"
+                            },
+                            "__typename": "CreditorApplicationHistoryEdge"
+                        }
+                    ],
+                    "__typename": "CreditorApplicationHistoryConnection"
+                }
+            },
+            "__typename": "Application"
+        }
+    }
+}
