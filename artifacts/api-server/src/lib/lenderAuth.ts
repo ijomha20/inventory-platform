@@ -1,8 +1,36 @@
 import { logger } from "./logger.js";
 import * as fs from "fs";
 import * as path from "path";
-import * as otplibModule from "otplib";
-const authenticator = (otplibModule as any).authenticator ?? (otplibModule as any).default?.authenticator;
+import * as crypto from "crypto";
+
+function base32Decode(encoded: string): Buffer {
+  const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
+  const cleaned = encoded.replace(/[\s=-]/g, "").toUpperCase();
+  let bits = "";
+  for (const ch of cleaned) {
+    const idx = alphabet.indexOf(ch);
+    if (idx < 0) continue;
+    bits += idx.toString(2).padStart(5, "0");
+  }
+  const bytes: number[] = [];
+  for (let i = 0; i + 8 <= bits.length; i += 8) {
+    bytes.push(parseInt(bits.substring(i, i + 8), 2));
+  }
+  return Buffer.from(bytes);
+}
+
+function generateTOTP(secret: string, period = 30, digits = 6): string {
+  const key = base32Decode(secret);
+  const epoch = Math.floor(Date.now() / 1000);
+  const counter = Math.floor(epoch / period);
+  const buf = Buffer.alloc(8);
+  buf.writeUInt32BE(Math.floor(counter / 0x100000000), 0);
+  buf.writeUInt32BE(counter & 0xffffffff, 4);
+  const hmac = crypto.createHmac("sha1", key).update(buf).digest();
+  const offset = hmac[hmac.length - 1] & 0x0f;
+  const code = ((hmac[offset] & 0x7f) << 24 | hmac[offset + 1] << 16 | hmac[offset + 2] << 8 | hmac[offset + 3]) % (10 ** digits);
+  return code.toString().padStart(digits, "0");
+}
 import {
   loadLenderSessionFromStore,
   saveLenderSessionToStore,
@@ -278,7 +306,9 @@ async function handle2FA(page: any): Promise<void> {
                  pageText.includes("authenticator") || pageText.includes("enter the code") ||
                  pageText.includes("verification") || pageText.includes("security code") ||
                  pageText.includes("multi-factor") || pageText.includes("2fa") ||
-                 currentUrl.includes("mfa-otp-challenge") || currentUrl.includes("mfa-sms-challenge");
+                 pageText.includes("secure your account") ||
+                 currentUrl.includes("mfa-otp-challenge") || currentUrl.includes("mfa-sms-challenge") ||
+                 currentUrl.includes("mfa-sms-enrollment") || currentUrl.includes("mfa-otp-enrollment");
 
   if (!has2FA) {
     logger.info("Lender auth: no 2FA prompt detected — skipping");
@@ -287,11 +317,40 @@ async function handle2FA(page: any): Promise<void> {
 
   logger.info({ url: currentUrl, pageTextSnippet: pageText.substring(0, 300) }, "Lender auth: 2FA prompt detected");
 
+  if (currentUrl.includes("enrollment")) {
+    logger.info("Lender auth: MFA enrollment page detected — attempting to skip");
+    const skipped = await clickLinkByText(page, [
+      "skip", "not now", "maybe later", "do it later", "remind me later",
+      "i'll do it later", "skip for now",
+    ]);
+    if (skipped) {
+      logger.info({ clicked: skipped }, "Lender auth: skipped MFA enrollment");
+      await sleep(3000);
+      try { await page.waitForNavigation({ waitUntil: "domcontentloaded", timeout: 10_000 }); } catch (_) {}
+      const afterSkipUrl = page.url() as string;
+      logger.info({ url: afterSkipUrl }, "Lender auth: page after enrollment skip");
+      if (!afterSkipUrl.includes("enrollment")) return;
+    }
+
+    const switchLink = await clickLinkByText(page, [
+      "try another method", "try another way", "use another method",
+      "other methods", "choose another method",
+    ]);
+    if (switchLink) {
+      logger.info({ clicked: switchLink }, "Lender auth: clicked 'try another method' on enrollment page");
+      await sleep(3000);
+    }
+    const newUrl = page.url() as string;
+    const newText = await getPageText(page);
+    logger.info({ url: newUrl, pageTextSnippet: newText.substring(0, 300) }, "Lender auth: page state after enrollment handling");
+  }
+
   if (LENDER_TOTP_SECRET) {
     logger.info("Lender auth: TOTP secret available — generating 6-digit code");
 
-    if (currentUrl.includes("mfa-sms-challenge")) {
-      logger.info("Lender auth: on SMS challenge page — switching to OTP method");
+    const curUrl = page.url() as string;
+    if (curUrl.includes("mfa-sms-challenge") || curUrl.includes("mfa-sms-enrollment")) {
+      logger.info("Lender auth: on SMS page — switching to OTP/authenticator method");
       const switchLink = await clickLinkByText(page, [
         "try another method", "try another way", "use another method",
         "other methods", "choose another method",
@@ -310,7 +369,7 @@ async function handle2FA(page: any): Promise<void> {
       }
     }
 
-    const totpCode = authenticator.generate(LENDER_TOTP_SECRET);
+    const totpCode = generateTOTP(LENDER_TOTP_SECRET);
     logger.info({ codeLength: totpCode.length }, "Lender auth: TOTP code generated");
 
     const otpInput = await findSelector(page, [
