@@ -81,16 +81,15 @@ router.post("/refresh-lender", requireOwner, async (_req, res) => {
 
 interface CalcParams {
   lenderCode:    string;
+  programId:     string;
   tierName:      string;
   approvedRate:  number;
   approvedTerm:  number;
-  maxPayment:    number;
+  maxPaymentOverride?: number;
   downPayment?:  number;
   tradeValue?:   number;
   tradeLien?:    number;
   taxRate?:      number;
-  includeAftermarket?: boolean;
-  aftermarketAmount?:  number;
 }
 
 function pmt(rate: number, nper: number, pv: number): number {
@@ -102,18 +101,17 @@ function pmt(rate: number, nper: number, pv: number): number {
 router.post("/lender-calculate", requireOwner, async (req, res) => {
   const params = req.body as CalcParams;
 
-  if (!params.lenderCode || !params.tierName) {
-    res.status(400).json({ error: "lenderCode and tierName are required" });
+  if (!params.lenderCode || !params.tierName || !params.programId) {
+    res.status(400).json({ error: "lenderCode, programId, and tierName are required" });
     return;
   }
-  if (params.approvedRate == null || params.approvedTerm == null || params.maxPayment == null) {
-    res.status(400).json({ error: "approvedRate, approvedTerm, and maxPayment are required" });
+  if (params.approvedRate == null || params.approvedTerm == null) {
+    res.status(400).json({ error: "approvedRate and approvedTerm are required" });
     return;
   }
 
   const rate = Number(params.approvedRate);
   const term = Number(params.approvedTerm);
-  const maxPmtVal = Number(params.maxPayment);
   if (!isFinite(rate) || rate < 0 || rate > 100) {
     res.status(400).json({ error: "approvedRate must be between 0 and 100" });
     return;
@@ -121,17 +119,6 @@ router.post("/lender-calculate", requireOwner, async (req, res) => {
   if (!isFinite(term) || term <= 0 || term > 120 || !Number.isInteger(term)) {
     res.status(400).json({ error: "approvedTerm must be a positive integer up to 120" });
     return;
-  }
-  if (!isFinite(maxPmtVal) || maxPmtVal <= 0) {
-    res.status(400).json({ error: "maxPayment must be a positive number" });
-    return;
-  }
-  const optionals = [params.downPayment, params.tradeValue, params.tradeLien, params.taxRate, params.aftermarketAmount];
-  for (const v of optionals) {
-    if (v != null && (!isFinite(Number(v)) || Number(v) < 0)) {
-      res.status(400).json({ error: "Optional monetary fields must be non-negative numbers" });
-      return;
-    }
   }
 
   const programs = getCachedLenderPrograms();
@@ -146,37 +133,37 @@ router.post("/lender-calculate", requireOwner, async (req, res) => {
     return;
   }
 
-  const tier = lender.tiers.find(t => t.tierName === params.tierName);
+  const guide = lender.programs.find(g => g.programId === params.programId);
+  if (!guide) {
+    res.status(404).json({ error: `Program not found for ${params.lenderCode}` });
+    return;
+  }
+
+  const tier = guide.tiers.find(t => t.tierName === params.tierName);
   if (!tier) {
-    res.status(404).json({ error: `Tier "${params.tierName}" not found for ${params.lenderCode}` });
+    res.status(404).json({ error: `Tier "${params.tierName}" not found in program "${guide.programTitle}"` });
     return;
   }
 
   const { data: inventory } = getCacheState();
   const rateDecimal   = rate / 100;
   const termMonths    = term;
-  const maxPmt        = maxPmtVal;
+  const tierMaxPmt    = tier.maxPayment > 0 ? tier.maxPayment : Infinity;
+  const maxPmt        = params.maxPaymentOverride ? Math.min(Number(params.maxPaymentOverride), tierMaxPmt) : tierMaxPmt;
   const downPayment   = params.downPayment ?? 0;
   const tradeValue    = params.tradeValue ?? 0;
   const tradeLien     = params.tradeLien ?? 0;
   const taxRate       = (params.taxRate ?? 5) / 100;
-  const aftermarket   = params.includeAftermarket ? (params.aftermarketAmount ?? 0) : 0;
   const netTrade      = tradeValue - tradeLien;
-  const creditorFee   = tier.creditorFee;
-  const maxAdvLTV     = tier.maxAdvanceLTV / 100;
-  const maxAllInLTV   = tier.maxAllInLTV / 100;
-  const maxAftermktLTV = tier.maxAftermarketLTV / 100;
 
   interface Result {
     vin:             string;
     vehicle:         string;
     location:        string;
     bbWholesale:     number;
-    maxAdvance:      number;
     totalFinanced:   number;
     monthlyPayment:  number;
     costOfBorrowing: number;
-    ltv:             number;
     hasPhotos:       boolean;
     website:         string;
   }
@@ -188,36 +175,26 @@ router.post("/lender-calculate", requireOwner, async (req, res) => {
     const bbWholesale = parseFloat(item.bbAvgWholesale);
     if (isNaN(bbWholesale) || bbWholesale <= 0) continue;
 
-    const maxAdvance = bbWholesale * maxAdvLTV;
-
-    const maxAftermktAllowed = bbWholesale * maxAftermktLTV;
-    const effectiveAftermarket = Math.min(aftermarket, maxAftermktAllowed);
-
-    const amountBeforeTax = maxAdvance + effectiveAftermarket + creditorFee - downPayment - netTrade;
+    const vehicleCost = bbWholesale;
+    const amountBeforeTax = vehicleCost - downPayment - netTrade;
     if (amountBeforeTax <= 0) continue;
 
     const taxes = amountBeforeTax * taxRate;
     const totalFinanced = amountBeforeTax + taxes;
 
-    const maxAllInAllowed = bbWholesale * maxAllInLTV;
-    if (totalFinanced > maxAllInAllowed && maxAllInLTV > 0) continue;
-
     const monthlyPayment = pmt(rateDecimal, termMonths, totalFinanced);
-    if (monthlyPayment > maxPmt) continue;
+    if (maxPmt < Infinity && monthlyPayment > maxPmt) continue;
 
     const costOfBorrowing = (monthlyPayment * termMonths) - totalFinanced;
-    const ltv = bbWholesale > 0 ? (totalFinanced / bbWholesale) * 100 : 0;
 
     results.push({
       vin:             item.vin,
       vehicle:         item.vehicle,
       location:        item.location,
       bbWholesale,
-      maxAdvance:      Math.round(maxAdvance),
       totalFinanced:   Math.round(totalFinanced),
       monthlyPayment:  Math.round(monthlyPayment * 100) / 100,
       costOfBorrowing: Math.round(costOfBorrowing),
-      ltv:             Math.round(ltv * 10) / 10,
       hasPhotos:       item.hasPhotos,
       website:         item.website,
     });
@@ -228,6 +205,7 @@ router.post("/lender-calculate", requireOwner, async (req, res) => {
   res.set("Cache-Control", "no-store");
   res.json({
     lender:     params.lenderCode,
+    program:    guide.programTitle,
     tier:       params.tierName,
     tierConfig: tier,
     resultCount: results.length,

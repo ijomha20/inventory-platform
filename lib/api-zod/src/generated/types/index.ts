@@ -18,6 +18,7 @@ export * from "./lenderCalcResultItem";
 export * from "./lenderCalculateRequest";
 export * from "./lenderCalculateResponse";
 export * from "./lenderProgram";
+export * from "./lenderProgramGuide";
 export * from "./lenderProgramsResponse";
 export * from "./lenderProgramTier";
 export * from "./lenderStatus";

@@ -11,11 +11,9 @@ export interface LenderCalcResultItem {
   vehicle: string;
   location: string;
   bbWholesale: number;
-  maxAdvance: number;
   totalFinanced: number;
   monthlyPayment: number;
   costOfBorrowing: number;
-  ltv: number;
   hasPhotos?: boolean;
   website?: string;
 }

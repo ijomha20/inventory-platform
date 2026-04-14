@@ -10,6 +10,7 @@ import type { LenderProgramTier } from "./lenderProgramTier";
 
 export interface LenderCalculateResponse {
   lender: string;
+  program: string;
   tier: string;
   tierConfig: LenderProgramTier;
   resultCount: number;

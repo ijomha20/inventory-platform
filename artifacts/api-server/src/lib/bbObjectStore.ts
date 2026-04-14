@@ -141,28 +141,29 @@ export async function saveLenderSessionToStore(cookies: any[]): Promise<void> {
 // ---------------------------------------------------------------------------
 
 export interface LenderProgramTier {
-  tierName:          string;
-  maxAdvanceLTV:     number;
-  maxAftermarketLTV: number;
-  maxAllInLTV:       number;
-  creditorFee:       number;
-  dealerReserve:     number;
-  minRate?:          number;
-  maxRate?:          number;
-  minTerm?:          number;
-  maxTerm?:          number;
+  tierName:     string;
+  minRate:      number;
+  maxRate:      number;
+  maxPayment:   number;
+}
+
+export interface LenderProgramGuide {
+  programId:    string;
+  programTitle: string;
+  programType:  string;
+  tiers:        LenderProgramTier[];
 }
 
 export interface LenderProgram {
-  lenderCode: string;
-  lenderName: string;
-  tiers:      LenderProgramTier[];
+  lenderCode:   string;
+  lenderName:   string;
+  creditorId:   string;
+  programs:     LenderProgramGuide[];
 }
 
 export interface LenderProgramsBlob {
   programs:   LenderProgram[];
   updatedAt:  string;
-  sourceApp?: string;
 }
 
 export async function loadLenderProgramsFromStore(): Promise<LenderProgramsBlob | null> {

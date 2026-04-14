@@ -8,13 +8,7 @@
 
 export interface LenderProgramTier {
   tierName: string;
-  maxAdvanceLTV: number;
-  maxAftermarketLTV: number;
-  maxAllInLTV: number;
-  creditorFee: number;
-  dealerReserve: number;
-  minRate?: number | null;
-  maxRate?: number | null;
-  minTerm?: number | null;
-  maxTerm?: number | null;
+  minRate: number;
+  maxRate: number;
+  maxPayment: number;
 }

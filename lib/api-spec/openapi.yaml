@@ -521,35 +521,36 @@ components:
       properties:
         tierName:
           type: string
-        maxAdvanceLTV:
-          type: number
-        maxAftermarketLTV:
-          type: number
-        maxAllInLTV:
-          type: number
-        creditorFee:
-          type: number
-        dealerReserve:
-          type: number
         minRate:
           type: number
-          nullable: true
         maxRate:
           type: number
-          nullable: true
-        minTerm:
+        maxPayment:
           type: number
-          nullable: true
-        maxTerm:
-          type: number
-          nullable: true
       required:
         - tierName
-        - maxAdvanceLTV
-        - maxAftermarketLTV
-        - maxAllInLTV
-        - creditorFee
-        - dealerReserve
+        - minRate
+        - maxRate
+        - maxPayment
+
+    LenderProgramGuide:
+      type: object
+      properties:
+        programId:
+          type: string
+        programTitle:
+          type: string
+        programType:
+          type: string
+        tiers:
+          type: array
+          items:
+            $ref: "#/components/schemas/LenderProgramTier"
+      required:
+        - programId
+        - programTitle
+        - programType
+        - tiers
 
     LenderProgram:
       type: object
@@ -558,14 +559,17 @@ components:
           type: string
         lenderName:
           type: string
-        tiers:
+        creditorId:
+          type: string
+        programs:
           type: array
           items:
-            $ref: "#/components/schemas/LenderProgramTier"
+            $ref: "#/components/schemas/LenderProgramGuide"
       required:
         - lenderCode
         - lenderName
-        - tiers
+        - creditorId
+        - programs
 
     LenderProgramsResponse:
       type: object
@@ -575,9 +579,6 @@ components:
           items:
             $ref: "#/components/schemas/LenderProgram"
         updatedAt:
-          type: string
-          nullable: true
-        sourceApp:
           type: string
           nullable: true
       required:
@@ -611,13 +612,15 @@ components:
       properties:
         lenderCode:
           type: string
+        programId:
+          type: string
         tierName:
           type: string
         approvedRate:
           type: number
         approvedTerm:
           type: number
-        maxPayment:
+        maxPaymentOverride:
           type: number
         downPayment:
           type: number
@@ -627,16 +630,12 @@ components:
           type: number
         taxRate:
           type: number
-        includeAftermarket:
-          type: boolean
-        aftermarketAmount:
-          type: number
       required:
         - lenderCode
+        - programId
         - tierName
         - approvedRate
         - approvedTerm
-        - maxPayment
 
     LenderCalcResultItem:
       type: object
@@ -649,15 +648,11 @@ components:
           type: string
         bbWholesale:
           type: number
-        maxAdvance:
-          type: number
         totalFinanced:
           type: number
         monthlyPayment:
           type: number
         costOfBorrowing:
-          type: number
-        ltv:
           type: number
         hasPhotos:
           type: boolean
@@ -668,16 +663,16 @@ components:
         - vehicle
         - location
         - bbWholesale
-        - maxAdvance
         - totalFinanced
         - monthlyPayment
         - costOfBorrowing
-        - ltv
 
     LenderCalculateResponse:
       type: object
       properties:
         lender:
+          type: string
+        program:
           type: string
         tier:
           type: string
@@ -691,6 +686,7 @@ components:
             $ref: "#/components/schemas/LenderCalcResultItem"
       required:
         - lender
+        - program
         - tier
         - tierConfig
         - resultCount

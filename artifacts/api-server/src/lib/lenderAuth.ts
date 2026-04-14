@@ -148,18 +148,23 @@ export async function graphqlHealthCheck(appSession: string, csrfToken: string):
         "user-agent":             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
       },
       body: JSON.stringify({
-        operationName: "CurrentUser",
-        variables: {},
-        query: "query CurrentUser { currentUser { id email } }",
+        query: "{ __typename }",
       }),
       signal: AbortSignal.timeout(15_000),
     });
 
-    if (!resp.ok) return false;
+    if (!resp.ok) {
+      logger.warn({ status: resp.status }, "Lender auth: health check HTTP not ok");
+      return false;
+    }
     const body: any = await resp.json();
-    const hasUser = !!body?.data?.currentUser?.id;
-    if (hasUser) logger.info("Lender auth: GraphQL health check passed");
-    return hasUser;
+    const ok = !!body?.data?.__typename;
+    if (ok) {
+      logger.info("Lender auth: GraphQL health check passed");
+    } else {
+      logger.warn({ body: JSON.stringify(body).substring(0, 300) }, "Lender auth: health check no __typename");
+    }
+    return ok;
   } catch (err: any) {
     logger.warn({ err: err.message }, "Lender auth: GraphQL health check failed");
     return false;
@@ -184,7 +189,7 @@ export async function callGraphQL(
       "cookie":                 `appSession=${appSession}; CA_CSRF_TOKEN=${csrfToken}`,
       "user-agent":             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
     },
-    body: JSON.stringify({ operationName, variables, query }),
+    body: JSON.stringify(operationName ? { operationName, variables, query } : { variables, query }),
     signal: AbortSignal.timeout(30_000),
   });
 

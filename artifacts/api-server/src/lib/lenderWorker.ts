@@ -1,26 +1,29 @@
 import { logger } from "./logger.js";
-import { getCacheState } from "./inventoryCache.js";
 import {
   loadLenderProgramsFromStore,
   saveLenderProgramsToStore,
   type LenderProgram,
+  type LenderProgramGuide,
   type LenderProgramTier,
   type LenderProgramsBlob,
 } from "./bbObjectStore.js";
 import { getLenderAuthCookies, callGraphQL, LENDER_ENABLED } from "./lenderAuth.js";
 
-const RETAILER_ID = "23c5167f-22a0-47a9-b46b-a3a224f73ab7";
+const CREDITOR_NAME_TO_CODE: Record<string, { code: string; name: string }> = {
+  SANTANDER:  { code: "SAN", name: "Santander" },
+  EDEN_PARK:  { code: "EPI", name: "Eden Park" },
+  ACC:        { code: "ACC", name: "ACC" },
+  IAF:        { code: "iAF", name: "iA Auto Finance" },
+  QUANTIFI:   { code: "QLI", name: "Quantifi" },
+  RIFCO:      { code: "RFC", name: "Rifco" },
+};
 
-const KNOWN_LENDERS: { code: string; name: string }[] = [
-  { code: "SAN", name: "Santander" },
-  { code: "EPI", name: "Eden Park" },
-  { code: "ACC", name: "ACC" },
-  { code: "iAF", name: "iA Auto Finance" },
-  { code: "QLI", name: "Quantifi" },
-  { code: "CAV", name: "Cavalcade" },
-  { code: "RFC", name: "Rifco" },
-  { code: "THF", name: "The House Finance Corp" },
-];
+const IN_HOUSE_PROGRAM_MAP: Record<string, { code: string; name: string }> = {
+  "Cavalcade":              { code: "CAV", name: "Cavalcade" },
+  "Cavalcade Tier Program": { code: "CAV", name: "Cavalcade" },
+  "Powersports":            { code: "THF", name: "The House Finance Corp" },
+  "Auto Program":           { code: "THF", name: "The House Finance Corp" },
+};
 
 interface LenderStatus {
   running:   boolean;
@@ -57,242 +60,117 @@ export async function loadLenderProgramsFromCache(): Promise<LenderProgramsBlob 
   }
 }
 
-function sleep(ms: number): Promise<void> {
-  return new Promise((r) => setTimeout(r, ms));
-}
-
-function rand(min: number, max: number): number {
-  return Math.floor(Math.random() * (max - min + 1)) + min;
-}
-
-const APPLICATIONS_QUERY = `
-  query Applications($retailerId: ID!, $first: Int, $after: String) {
-    applications(
-      retailerId: $retailerId
-      first: $first
-      after: $after
-      orderBy: { field: CREATED_AT, direction: DESC }
-    ) {
-      edges {
-        node {
-          id
-          status
-          createdAt
-          applicant {
-            firstName
-            lastName
-          }
-          worksheetConnections {
-            edges {
-              node {
-                id
-                creditor {
-                  id
-                  name
-                  code
-                }
-                status
-              }
-            }
-          }
-        }
-      }
-      pageInfo {
-        hasNextPage
-        endCursor
-      }
-    }
-  }
-`;
-
-const WORKSHEET_DETAIL_QUERY = `
-  query WorksheetConnection($id: ID!) {
-    worksheetConnection(id: $id) {
+const CREDITORS_PROGRAMS_QUERY = `{
+  creditors {
+    id
+    name
+    status
+    programs {
       id
-      creditor {
+      type
+      title
+      tiers {
         id
         name
-        code
-      }
-      programs {
-        edges {
-          node {
-            id
-            name
-            tiers {
-              edges {
-                node {
-                  id
-                  name
-                  maxAdvanceLTV
-                  maxAftermarketLTV
-                  maxAllInLTV
-                  creditorFee
-                  dealerReserve
-                  minRate
-                  maxRate
-                  minTerm
-                  maxTerm
-                }
-              }
-            }
-          }
-        }
+        maxPayment { amount currency }
+        interestRate { from to }
       }
     }
   }
-`;
+}`;
 
-async function findRecentDealWithLenders(
-  appSession: string,
-  csrfToken: string,
-): Promise<{ appId: string; worksheetMap: Map<string, string> } | null> {
-  let after: string | null = null;
-  const maxPages = 10;
+function mapCreditorToLenderPrograms(creditor: any): LenderProgram[] {
+  const creditorName: string = creditor.name ?? "";
+  const creditorId: string = creditor.id;
 
-  for (let page = 0; page < maxPages; page++) {
-    const variables: any = { retailerId: RETAILER_ID, first: 20 };
-    if (after) variables.after = after;
+  if (creditorName === "IN_HOUSE") {
+    const grouped = new Map<string, { code: string; name: string; guides: LenderProgramGuide[] }>();
 
-    const data = await callGraphQL(appSession, csrfToken, "Applications", APPLICATIONS_QUERY, variables);
-    const edges = data?.applications?.edges ?? [];
-
-    if (edges.length === 0) break;
-
-    for (const edge of edges) {
-      const app = edge.node;
-      const wsEdges = app?.worksheetConnections?.edges ?? [];
-      const lenderCodes = new Set<string>();
-      const worksheetMap = new Map<string, string>();
-
-      for (const wsEdge of wsEdges) {
-        const ws = wsEdge.node;
-        const code = ws?.creditor?.code;
-        if (code && KNOWN_LENDERS.some(l => l.code === code)) {
-          lenderCodes.add(code);
-          worksheetMap.set(code, ws.id);
-        }
+    for (const prog of creditor.programs ?? []) {
+      const match = IN_HOUSE_PROGRAM_MAP[prog.title];
+      if (!match) continue;
+      if (!grouped.has(match.code)) {
+        grouped.set(match.code, { code: match.code, name: match.name, guides: [] });
       }
-
-      if (lenderCodes.size >= 4) {
-        logger.info(
-          { appId: app.id, lenderCount: lenderCodes.size, lenders: [...lenderCodes] },
-          "Lender sync: found deal with multiple lenders",
-        );
-        return { appId: app.id, worksheetMap };
-      }
+      grouped.get(match.code)!.guides.push(mapProgramGuide(prog));
     }
 
-    const pageInfo = data?.applications?.pageInfo;
-    if (!pageInfo?.hasNextPage) break;
-    after = pageInfo.endCursor;
-    await sleep(rand(500, 1000));
+    return [...grouped.values()].map(g => ({
+      lenderCode: g.code,
+      lenderName: g.name,
+      creditorId,
+      programs: g.guides,
+    }));
   }
 
-  return null;
+  const mapping = CREDITOR_NAME_TO_CODE[creditorName];
+  if (!mapping) {
+    logger.info({ creditorName, creditorId }, "Lender sync: unknown creditor — skipping");
+    return [];
+  }
+
+  const guides: LenderProgramGuide[] = (creditor.programs ?? []).map(mapProgramGuide);
+
+  return [{
+    lenderCode: mapping.code,
+    lenderName: mapping.name,
+    creditorId,
+    programs: guides,
+  }];
 }
 
-async function fetchProgramsForWorksheet(
-  appSession: string,
-  csrfToken: string,
-  lenderCode: string,
-  lenderName: string,
-  worksheetId: string,
-): Promise<LenderProgram | null> {
-  try {
-    const data = await callGraphQL(
-      appSession, csrfToken,
-      "WorksheetConnection",
-      WORKSHEET_DETAIL_QUERY,
-      { id: worksheetId },
-    );
+function mapProgramGuide(prog: any): LenderProgramGuide {
+  const tiers: LenderProgramTier[] = (prog.tiers ?? []).map((t: any) => ({
+    tierName:   t.name ?? "Unknown",
+    minRate:    t.interestRate?.from ?? 0,
+    maxRate:    t.interestRate?.to ?? 0,
+    maxPayment: t.maxPayment?.amount ?? 0,
+  }));
 
-    const ws = data?.worksheetConnection;
-    if (!ws) {
-      logger.warn({ lenderCode, worksheetId }, "Lender sync: worksheet not found");
-      return null;
-    }
-
-    const programEdges = ws?.programs?.edges ?? [];
-    const tiers: LenderProgramTier[] = [];
-
-    for (const progEdge of programEdges) {
-      const program = progEdge.node;
-      const tierEdges = program?.tiers?.edges ?? [];
-
-      for (const tierEdge of tierEdges) {
-        const tier = tierEdge.node;
-        tiers.push({
-          tierName:          tier.name ?? program.name ?? "Unknown",
-          maxAdvanceLTV:     Number(tier.maxAdvanceLTV ?? 0),
-          maxAftermarketLTV: Number(tier.maxAftermarketLTV ?? 0),
-          maxAllInLTV:       Number(tier.maxAllInLTV ?? 0),
-          creditorFee:       Number(tier.creditorFee ?? 0),
-          dealerReserve:     Number(tier.dealerReserve ?? 0),
-          minRate:           tier.minRate != null ? Number(tier.minRate) : undefined,
-          maxRate:           tier.maxRate != null ? Number(tier.maxRate) : undefined,
-          minTerm:           tier.minTerm != null ? Number(tier.minTerm) : undefined,
-          maxTerm:           tier.maxTerm != null ? Number(tier.maxTerm) : undefined,
-        });
-      }
-    }
-
-    if (tiers.length === 0) {
-      logger.info({ lenderCode }, "Lender sync: no program tiers found for lender");
-      return null;
-    }
-
-    logger.info({ lenderCode, tierCount: tiers.length }, "Lender sync: fetched program tiers");
-    return { lenderCode, lenderName, tiers };
-  } catch (err: any) {
-    logger.warn({ lenderCode, err: err.message }, "Lender sync: failed to fetch worksheet programs");
-    return null;
-  }
+  return {
+    programId:    prog.id,
+    programTitle: prog.title ?? "Unknown",
+    programType:  prog.type ?? "FINANCE",
+    tiers,
+  };
 }
 
 async function syncLenderPrograms(): Promise<void> {
   const { appSession, csrfToken } = await getLenderAuthCookies();
-  logger.info("Lender sync: auth ready — searching for recent deal");
+  logger.info("Lender sync: auth ready — fetching creditor programs");
 
-  const deal = await findRecentDealWithLenders(appSession, csrfToken);
-  if (!deal) {
-    throw new Error("Lender sync: could not find a recent deal submitted to known lenders");
+  const data = await callGraphQL(appSession, csrfToken, "", CREDITORS_PROGRAMS_QUERY);
+  const creditors = data?.creditors ?? [];
+
+  if (creditors.length === 0) {
+    throw new Error("Lender sync: creditors query returned empty");
   }
 
+  logger.info({ creditorCount: creditors.length }, "Lender sync: fetched creditors from CreditApp");
+
   const programs: LenderProgram[] = [];
-
-  for (const lender of KNOWN_LENDERS) {
-    const worksheetId = deal.worksheetMap.get(lender.code);
-    if (!worksheetId) {
-      logger.info({ lenderCode: lender.code }, "Lender sync: no worksheet for this lender in selected deal");
-      continue;
-    }
-
-    const program = await fetchProgramsForWorksheet(
-      appSession, csrfToken,
-      lender.code, lender.name,
-      worksheetId,
-    );
-    if (program) programs.push(program);
-
-    await sleep(rand(800, 1500));
+  for (const cred of creditors) {
+    if (cred.status !== "ACTIVE") continue;
+    const mapped = mapCreditorToLenderPrograms(cred);
+    programs.push(...mapped);
   }
 
   if (programs.length === 0) {
-    throw new Error("Lender sync: fetched 0 programs from all lenders");
+    throw new Error("Lender sync: no active lender programs found");
   }
+
+  const totalTiers = programs.reduce((s, p) => s + p.programs.reduce((s2, g) => s2 + g.tiers.length, 0), 0);
 
   const blob: LenderProgramsBlob = {
     programs,
     updatedAt: new Date().toISOString(),
-    sourceApp: deal.appId,
   };
 
   await saveLenderProgramsToStore(blob);
   cachedPrograms = blob;
 
   logger.info(
-    { lenderCount: programs.length, totalTiers: programs.reduce((s, p) => s + p.tiers.length, 0) },
+    { lenderCount: programs.length, totalTiers },
     "Lender sync: programs saved to object storage",
   );
 }

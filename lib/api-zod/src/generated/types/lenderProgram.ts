@@ -5,10 +5,11 @@
  * API specification
  * OpenAPI spec version: 0.1.0
  */
-import type { LenderProgramTier } from "./lenderProgramTier";
+import type { LenderProgramGuide } from "./lenderProgramGuide";
 
 export interface LenderProgram {
   lenderCode: string;
   lenderName: string;
-  tiers: LenderProgramTier[];
+  creditorId: string;
+  programs: LenderProgramGuide[];
 }

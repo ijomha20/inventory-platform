@@ -127,24 +127,25 @@ export const GetLenderProgramsResponse = zod.object({
     zod.object({
       lenderCode: zod.string(),
       lenderName: zod.string(),
-      tiers: zod.array(
+      creditorId: zod.string(),
+      programs: zod.array(
         zod.object({
-          tierName: zod.string(),
-          maxAdvanceLTV: zod.number(),
-          maxAftermarketLTV: zod.number(),
-          maxAllInLTV: zod.number(),
-          creditorFee: zod.number(),
-          dealerReserve: zod.number(),
-          minRate: zod.number().nullish(),
-          maxRate: zod.number().nullish(),
-          minTerm: zod.number().nullish(),
-          maxTerm: zod.number().nullish(),
+          programId: zod.string(),
+          programTitle: zod.string(),
+          programType: zod.string(),
+          tiers: zod.array(
+            zod.object({
+              tierName: zod.string(),
+              minRate: zod.number(),
+              maxRate: zod.number(),
+              maxPayment: zod.number(),
+            }),
+          ),
         }),
       ),
     }),
   ),
   updatedAt: zod.string().nullish(),
-  sourceApp: zod.string().nullish(),
 });
 
 /**
@@ -171,32 +172,26 @@ export const RefreshLenderResponse = zod.object({
  */
 export const LenderCalculateBody = zod.object({
   lenderCode: zod.string(),
+  programId: zod.string(),
   tierName: zod.string(),
   approvedRate: zod.number(),
   approvedTerm: zod.number(),
-  maxPayment: zod.number(),
+  maxPaymentOverride: zod.number().optional(),
   downPayment: zod.number().optional(),
   tradeValue: zod.number().optional(),
   tradeLien: zod.number().optional(),
   taxRate: zod.number().optional(),
-  includeAftermarket: zod.boolean().optional(),
-  aftermarketAmount: zod.number().optional(),
 });
 
 export const LenderCalculateResponse = zod.object({
   lender: zod.string(),
+  program: zod.string(),
   tier: zod.string(),
   tierConfig: zod.object({
     tierName: zod.string(),
-    maxAdvanceLTV: zod.number(),
-    maxAftermarketLTV: zod.number(),
-    maxAllInLTV: zod.number(),
-    creditorFee: zod.number(),
-    dealerReserve: zod.number(),
-    minRate: zod.number().nullish(),
-    maxRate: zod.number().nullish(),
-    minTerm: zod.number().nullish(),
-    maxTerm: zod.number().nullish(),
+    minRate: zod.number(),
+    maxRate: zod.number(),
+    maxPayment: zod.number(),
   }),
   resultCount: zod.number(),
   results: zod.array(
@@ -205,11 +200,9 @@ export const LenderCalculateResponse = zod.object({
       vehicle: zod.string(),
       location: zod.string(),
       bbWholesale: zod.number(),
-      maxAdvance: zod.number(),
       totalFinanced: zod.number(),
       monthlyPayment: zod.number(),
       costOfBorrowing: zod.number(),
-      ltv: zod.number(),
       hasPhotos: zod.boolean().optional(),
       website: zod.string().optional(),
     }),

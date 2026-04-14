@@ -8,14 +8,13 @@
 
 export interface LenderCalculateRequest {
   lenderCode: string;
+  programId: string;
   tierName: string;
   approvedRate: number;
   approvedTerm: number;
-  maxPayment: number;
+  maxPaymentOverride?: number;
   downPayment?: number;
   tradeValue?: number;
   tradeLien?: number;
   taxRate?: number;
-  includeAftermarket?: boolean;
-  aftermarketAmount?: number;
 }

@@ -7,6 +7,7 @@ import {
 } from "@workspace/api-client-react";
 import type {
   LenderProgram,
+  LenderProgramGuide,
   LenderProgramTier,
   LenderCalcResultItem,
   LenderCalculateResponse,
@@ -34,18 +35,13 @@ function formatPayment(n: number): string {
   return new Intl.NumberFormat("en-CA", { style: "currency", currency: "CAD", minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n);
 }
 
-function TierConfigCard({ tier }: { tier: LenderProgramTier }) {
+function TierConfigCard({ tier, programTitle }: { tier: LenderProgramTier; programTitle: string }) {
   return (
     <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 text-sm space-y-2">
-      <div className="font-medium text-blue-800">Tier: {tier.tierName}</div>
-      <div className="grid grid-cols-2 sm:grid-cols-3 gap-x-4 gap-y-1 text-blue-700">
-        <div>Max Advance LTV: <span className="font-semibold">{tier.maxAdvanceLTV}%</span></div>
-        <div>Max Aftermarket LTV: <span className="font-semibold">{tier.maxAftermarketLTV}%</span></div>
-        <div>Max All-In LTV: <span className="font-semibold">{tier.maxAllInLTV}%</span></div>
-        <div>Creditor Fee: <span className="font-semibold">{formatCurrency(tier.creditorFee)}</span></div>
-        <div>Dealer Reserve: <span className="font-semibold">{tier.dealerReserve}%</span></div>
-        {tier.minRate != null && <div>Rate Range: <span className="font-semibold">{tier.minRate}–{tier.maxRate}%</span></div>}
-        {tier.minTerm != null && <div>Term Range: <span className="font-semibold">{tier.minTerm}–{tier.maxTerm} mo</span></div>}
+      <div className="font-medium text-blue-800">{programTitle} — {tier.tierName}</div>
+      <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-blue-700">
+        <div>Rate Range: <span className="font-semibold">{tier.minRate}–{tier.maxRate}%</span></div>
+        <div>Max Payment: <span className="font-semibold">{tier.maxPayment > 0 ? formatCurrency(tier.maxPayment) : "None"}</span></div>
       </div>
     </div>
   );
@@ -61,15 +57,9 @@ function ResultRow({ item, rank }: { item: LenderCalcResultItem; rank: number })
       </td>
       <td className="px-3 py-2.5 text-sm text-gray-600">{item.location}</td>
       <td className="px-3 py-2.5 text-sm text-right font-medium text-gray-700">{formatCurrency(item.bbWholesale)}</td>
-      <td className="px-3 py-2.5 text-sm text-right font-medium text-gray-700">{formatCurrency(item.maxAdvance)}</td>
       <td className="px-3 py-2.5 text-sm text-right font-medium text-gray-700">{formatCurrency(item.totalFinanced)}</td>
       <td className="px-3 py-2.5 text-sm text-right font-semibold text-green-700">{formatPayment(item.monthlyPayment)}</td>
       <td className="px-3 py-2.5 text-sm text-right text-gray-500">{formatCurrency(item.costOfBorrowing)}</td>
-      <td className="px-3 py-2.5 text-sm text-right">
-        <Badge variant={item.ltv > 130 ? "destructive" : item.ltv > 110 ? "secondary" : "default"} className="text-xs">
-          {item.ltv}%
-        </Badge>
-      </td>
     </tr>
   );
 }
@@ -85,15 +75,15 @@ export default function LenderCalculator() {
   const calcMutation = useLenderCalculate();
 
   const [selectedLender, setSelectedLender] = useState("");
+  const [selectedProgram, setSelectedProgram] = useState("");
   const [selectedTier, setSelectedTier] = useState("");
   const [approvedRate, setApprovedRate] = useState("14.99");
   const [approvedTerm, setApprovedTerm] = useState("72");
-  const [maxPayment, setMaxPayment] = useState("500");
+  const [maxPaymentOverride, setMaxPaymentOverride] = useState("");
   const [downPayment, setDownPayment] = useState("0");
   const [tradeValue, setTradeValue] = useState("0");
   const [tradeLien, setTradeLien] = useState("0");
   const [taxRate, setTaxRate] = useState("5");
-  const [aftermarketAmount, setAftermarketAmount] = useState("0");
   const [showAdvanced, setShowAdvanced] = useState(false);
 
   const programs: LenderProgram[] = programsData?.programs ?? [];
@@ -103,9 +93,14 @@ export default function LenderCalculator() {
     [programs, selectedLender],
   );
 
-  const selectedTierObj = useMemo(
-    () => selectedLenderObj?.tiers.find(t => t.tierName === selectedTier),
-    [selectedLenderObj, selectedTier],
+  const selectedGuide: LenderProgramGuide | undefined = useMemo(
+    () => selectedLenderObj?.programs.find(g => g.programId === selectedProgram),
+    [selectedLenderObj, selectedProgram],
+  );
+
+  const selectedTierObj: LenderProgramTier | undefined = useMemo(
+    () => selectedGuide?.tiers.find(t => t.tierName === selectedTier),
+    [selectedGuide, selectedTier],
   );
 
   const calcResults: LenderCalculateResponse | null = calcMutation.data ?? null;
@@ -119,28 +114,39 @@ export default function LenderCalculator() {
   };
 
   const handleCalculate = () => {
-    if (!selectedLender || !selectedTier) return;
-    calcMutation.mutate({
-      data: {
-        lenderCode: selectedLender,
-        tierName: selectedTier,
-        approvedRate: parseFloat(approvedRate) || 0,
-        approvedTerm: parseInt(approvedTerm) || 72,
-        maxPayment: parseFloat(maxPayment) || 500,
-        downPayment: parseFloat(downPayment) || 0,
-        tradeValue: parseFloat(tradeValue) || 0,
-        tradeLien: parseFloat(tradeLien) || 0,
-        taxRate: parseFloat(taxRate) || 5,
-        includeAftermarket: parseFloat(aftermarketAmount) > 0,
-        aftermarketAmount: parseFloat(aftermarketAmount) || 0,
-      },
-    });
+    if (!selectedLender || !selectedProgram || !selectedTier) return;
+    const payload: any = {
+      lenderCode: selectedLender,
+      programId: selectedProgram,
+      tierName: selectedTier,
+      approvedRate: parseFloat(approvedRate) || 0,
+      approvedTerm: parseInt(approvedTerm) || 72,
+      downPayment: parseFloat(downPayment) || 0,
+      tradeValue: parseFloat(tradeValue) || 0,
+      tradeLien: parseFloat(tradeLien) || 0,
+      taxRate: parseFloat(taxRate) || 5,
+    };
+    const pmtOverride = parseFloat(maxPaymentOverride);
+    if (pmtOverride > 0) payload.maxPaymentOverride = pmtOverride;
+
+    calcMutation.mutate({ data: payload });
   };
 
   const handleLenderChange = (code: string) => {
     setSelectedLender(code);
+    setSelectedProgram("");
     setSelectedTier("");
   };
+
+  const handleProgramChange = (programId: string) => {
+    setSelectedProgram(programId);
+    setSelectedTier("");
+  };
+
+  const totalPrograms = useMemo(
+    () => programs.reduce((sum, p) => sum + p.programs.length, 0),
+    [programs],
+  );
 
   return (
     <div className="space-y-6">
@@ -187,7 +193,6 @@ export default function LenderCalculator() {
                 <p className="text-sm font-medium text-amber-800">No lender programs cached</p>
                 <p className="text-sm text-amber-700 mt-1">
                   Click "Sync Programs" to fetch the latest lender program matrices from CreditApp.
-                  This requires a recent deal submitted to lenders in the system.
                 </p>
               </div>
             </div>
@@ -204,7 +209,9 @@ export default function LenderCalculator() {
                   <Calculator className="w-4 h-4" />
                   Calculator Inputs
                 </CardTitle>
-                <CardDescription>Select lender, tier, and enter approval details</CardDescription>
+                <CardDescription>
+                  {programs.length} lender{programs.length !== 1 ? "s" : ""}, {totalPrograms} program{totalPrograms !== 1 ? "s" : ""}
+                </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="space-y-2">
@@ -216,7 +223,7 @@ export default function LenderCalculator() {
                     <SelectContent>
                       {programs.map(p => (
                         <SelectItem key={p.lenderCode} value={p.lenderCode}>
-                          {p.lenderName} ({p.lenderCode}) — {p.tiers.length} tier{p.tiers.length !== 1 ? "s" : ""}
+                          {p.lenderName} ({p.lenderCode})
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -225,15 +232,15 @@ export default function LenderCalculator() {
 
                 {selectedLenderObj && (
                   <div className="space-y-2">
-                    <Label className="text-xs font-medium text-gray-600">Program Tier</Label>
-                    <Select value={selectedTier} onValueChange={setSelectedTier}>
+                    <Label className="text-xs font-medium text-gray-600">Program</Label>
+                    <Select value={selectedProgram} onValueChange={handleProgramChange}>
                       <SelectTrigger>
-                        <SelectValue placeholder="Select a tier" />
+                        <SelectValue placeholder="Select a program" />
                       </SelectTrigger>
                       <SelectContent>
-                        {selectedLenderObj.tiers.map(t => (
-                          <SelectItem key={t.tierName} value={t.tierName}>
-                            {t.tierName} (LTV {t.maxAdvanceLTV}%)
+                        {selectedLenderObj.programs.map(g => (
+                          <SelectItem key={g.programId} value={g.programId}>
+                            {g.programTitle} ({g.tiers.length} tier{g.tiers.length !== 1 ? "s" : ""})
                           </SelectItem>
                         ))}
                       </SelectContent>
@@ -241,7 +248,27 @@ export default function LenderCalculator() {
                   </div>
                 )}
 
-                {selectedTierObj && <TierConfigCard tier={selectedTierObj} />}
+                {selectedGuide && (
+                  <div className="space-y-2">
+                    <Label className="text-xs font-medium text-gray-600">Tier</Label>
+                    <Select value={selectedTier} onValueChange={setSelectedTier}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select a tier" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {selectedGuide.tiers.map(t => (
+                          <SelectItem key={t.tierName} value={t.tierName}>
+                            {t.tierName} ({t.minRate}–{t.maxRate}%)
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
+
+                {selectedTierObj && selectedGuide && (
+                  <TierConfigCard tier={selectedTierObj} programTitle={selectedGuide.programTitle} />
+                )}
 
                 <Separator />
 
@@ -273,13 +300,14 @@ export default function LenderCalculator() {
 
                 <div className="space-y-1.5">
                   <Label className="text-xs font-medium text-gray-600 flex items-center gap-1">
-                    <DollarSign className="w-3 h-3" /> Max Monthly Payment
+                    <DollarSign className="w-3 h-3" /> Max Payment Override
                   </Label>
                   <Input
                     type="number"
                     step="10"
-                    value={maxPayment}
-                    onChange={e => setMaxPayment(e.target.value)}
+                    placeholder={selectedTierObj ? `Tier max: ${selectedTierObj.maxPayment > 0 ? formatCurrency(selectedTierObj.maxPayment) : "None"}` : "Optional"}
+                    value={maxPaymentOverride}
+                    onChange={e => setMaxPaymentOverride(e.target.value)}
                     className="h-9"
                   />
                 </div>
@@ -336,22 +364,13 @@ export default function LenderCalculator() {
                         />
                       </div>
                     </div>
-                    <div className="space-y-1.5">
-                      <Label className="text-xs font-medium text-gray-600">Aftermarket ($)</Label>
-                      <Input
-                        type="number"
-                        value={aftermarketAmount}
-                        onChange={e => setAftermarketAmount(e.target.value)}
-                        className="h-9"
-                      />
-                    </div>
                   </div>
                 )}
 
                 <Button
                   className="w-full"
                   onClick={handleCalculate}
-                  disabled={!selectedLender || !selectedTier || calcMutation.isPending}
+                  disabled={!selectedLender || !selectedProgram || !selectedTier || calcMutation.isPending}
                 >
                   {calcMutation.isPending ? (
                     <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
@@ -389,7 +408,7 @@ export default function LenderCalculator() {
                       <Badge variant="secondary" className="text-xs ml-1">{calcResults.resultCount} vehicles</Badge>
                     </CardTitle>
                     <div className="text-xs text-gray-400">
-                      {calcResults.lender} / {calcResults.tier}
+                      {calcResults.lender} / {calcResults.program} / {calcResults.tier}
                     </div>
                   </div>
                 </CardHeader>
@@ -402,18 +421,16 @@ export default function LenderCalculator() {
                     </div>
                   ) : (
                     <div className="overflow-x-auto -mx-6">
-                      <table className="w-full text-left min-w-[700px]">
+                      <table className="w-full text-left min-w-[600px]">
                         <thead>
                           <tr className="border-b border-gray-200 text-xs text-gray-500 uppercase tracking-wider">
                             <th className="px-3 py-2">#</th>
                             <th className="px-3 py-2">Vehicle</th>
                             <th className="px-3 py-2">Location</th>
                             <th className="px-3 py-2 text-right">BB Wholesale</th>
-                            <th className="px-3 py-2 text-right">Max Advance</th>
                             <th className="px-3 py-2 text-right">Financed</th>
                             <th className="px-3 py-2 text-right">Payment</th>
                             <th className="px-3 py-2 text-right">COB</th>
-                            <th className="px-3 py-2 text-right">LTV</th>
                           </tr>
                         </thead>
                         <tbody>
@@ -433,7 +450,7 @@ export default function LenderCalculator() {
                 <CardContent className="py-16">
                   <div className="text-center text-gray-400">
                     <Calculator className="w-10 h-10 mx-auto mb-3 opacity-40" />
-                    <p className="text-sm font-medium">Select a lender and tier, then click Calculate</p>
+                    <p className="text-sm font-medium">Select a lender, program, and tier, then click Calculate</p>
                     <p className="text-xs mt-1">
                       The calculator will filter your inventory by the customer's approval parameters
                     </p>

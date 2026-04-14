@@ -10,5 +10,4 @@ import type { LenderProgram } from "./lenderProgram";
 export interface LenderProgramsResponse {
   programs: LenderProgram[];
   updatedAt?: string | null;
-  sourceApp?: string | null;
 }
