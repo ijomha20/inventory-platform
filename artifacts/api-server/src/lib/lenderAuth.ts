@@ -354,7 +354,19 @@ async function loginWithAuth0(page: any): Promise<boolean> {
   await sleep(2000);
 
   await handle2FA(page);
-  await sleep(1500);
+  await sleep(3000);
+
+  const postUrl = page.url() as string;
+  const postContent = (await page.content() as string).substring(0, 500);
+  logger.info({ url: postUrl, contentSnippet: postContent.substring(0, 200) }, "Lender auth: page state after 2FA");
+
+  if (postUrl.includes("auth0.com") || postUrl.includes("/login")) {
+    logger.info("Lender auth: still on auth page after 2FA — waiting for redirect");
+    try { await page.waitForNavigation({ waitUntil: "domcontentloaded", timeout: 20_000 }); } catch (_) {}
+    await sleep(3000);
+    const redirectedUrl = page.url() as string;
+    logger.info({ url: redirectedUrl }, "Lender auth: URL after waiting for redirect");
+  }
 
   const ok = await isLoggedIn(page);
   logger.info({ ok }, "Lender auth: login result");
