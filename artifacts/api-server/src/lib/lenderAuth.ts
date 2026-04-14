@@ -396,34 +396,32 @@ async function loginWithAuth0(page: any): Promise<boolean> {
   logger.info({ passAttrs }, "Lender auth: password input found");
 
   await passInput.click().catch(() => passInput.focus());
-  await sleep(300);
-  await passInput.type(LENDER_PASSWORD, { delay: 40 });
   await sleep(500);
+
+  for (const ch of LENDER_PASSWORD) {
+    await page.keyboard.press(ch === " " ? "Space" : ch);
+    await sleep(rand(40, 80));
+  }
+  await sleep(1000);
 
   const typedLen = await passInput.evaluate((el: HTMLInputElement) => el.value.length);
   logger.info({ typedLen, expected: LENDER_PASSWORD.length }, "Lender auth: password typed");
 
-  await sleep(300);
-
-  const allButtons = await page.evaluate(() => {
-    return Array.from(document.querySelectorAll("button")).map((b: HTMLButtonElement) => ({
-      type: b.type, name: b.name, text: b.textContent?.trim().substring(0, 50),
-      disabled: b.disabled, visible: b.offsetParent !== null,
-    }));
-  });
-  logger.info({ buttons: allButtons }, "Lender auth: buttons on password page");
-
-  const submitBtn = await findSelector(page, ['button[type="submit"]', 'button[name="action"]'], 5000);
-  if (submitBtn) {
-    logger.info("Lender auth: clicking submit after password");
-    try { await submitBtn.click(); } catch (_) {
-      await submitBtn.evaluate((el: HTMLElement) => el.click());
-    }
+  if (typedLen !== LENDER_PASSWORD.length) {
+    logger.warn("Lender auth: keyboard.press didn't fill — falling back to element.type()");
+    await passInput.evaluate((el: HTMLInputElement) => {
+      const nativeSet = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+      nativeSet.call(el, "");
+      el.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await sleep(200);
+    await passInput.type(LENDER_PASSWORD, { delay: 50 });
+    await sleep(500);
   }
 
-  await sleep(1000);
+  await sleep(500);
+  logger.info("Lender auth: submitting password via Enter key");
   await page.keyboard.press("Enter");
-  logger.info("Lender auth: also pressed Enter as backup");
 
   logger.info("Lender auth: waiting for post-password navigation");
   await sleep(4000);
