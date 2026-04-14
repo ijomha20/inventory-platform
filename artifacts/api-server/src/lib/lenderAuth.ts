@@ -389,20 +389,47 @@ async function loginWithAuth0(page: any): Promise<boolean> {
 
   const passInput = await findSelector(page, AUTH0_PASS_SELECTORS, 12_000);
   if (!passInput) { logger.error("Lender auth: password input not found"); return false; }
-  logger.info("Lender auth: password input found — typing password");
-  await humanType(page, passInput, LENDER_PASSWORD);
 
+  const passAttrs = await passInput.evaluate((el: HTMLInputElement) => ({
+    tag: el.tagName, id: el.id, name: el.name, type: el.type, placeholder: el.placeholder,
+  }));
+  logger.info({ passAttrs }, "Lender auth: password input found");
+
+  await passInput.click().catch(() => passInput.focus());
+  await sleep(200);
+  await passInput.evaluate((el: HTMLInputElement) => { el.value = ""; });
+  await page.keyboard.type(LENDER_PASSWORD, { delay: 50 });
   await sleep(500);
+
+  const typedLen = await passInput.evaluate((el: HTMLInputElement) => el.value.length);
+  logger.info({ typedLen, expected: LENDER_PASSWORD.length }, "Lender auth: password typed");
+
+  if (typedLen === 0) {
+    logger.warn("Lender auth: page.keyboard.type did not fill field — trying element.type()");
+    await humanType(page, passInput, LENDER_PASSWORD);
+  }
+
+  await sleep(300);
+
+  const allButtons = await page.evaluate(() => {
+    return Array.from(document.querySelectorAll("button")).map((b: HTMLButtonElement) => ({
+      type: b.type, name: b.name, text: b.textContent?.trim().substring(0, 50),
+      disabled: b.disabled, visible: b.offsetParent !== null,
+    }));
+  });
+  logger.info({ buttons: allButtons }, "Lender auth: buttons on password page");
+
   const submitBtn = await findSelector(page, ['button[type="submit"]', 'button[name="action"]'], 5000);
   if (submitBtn) {
     logger.info("Lender auth: clicking submit after password");
     try { await submitBtn.click(); } catch (_) {
       await submitBtn.evaluate((el: HTMLElement) => el.click());
     }
-  } else {
-    logger.warn("Lender auth: no submit button found after password — pressing Enter");
-    await page.keyboard.press("Enter");
   }
+
+  await sleep(1000);
+  await page.keyboard.press("Enter");
+  logger.info("Lender auth: also pressed Enter as backup");
 
   logger.info("Lender auth: waiting for post-password navigation");
   await sleep(4000);
@@ -411,24 +438,35 @@ async function loginWithAuth0(page: any): Promise<boolean> {
 
   const postPasswordUrl = page.url() as string;
   const postPasswordText = await getPageText(page);
-  logger.info({ url: postPasswordUrl, textSnippet: postPasswordText.substring(0, 300) }, "Lender auth: page state after password submit");
+  logger.info({ url: postPasswordUrl, textSnippet: postPasswordText.substring(0, 500) }, "Lender auth: page state after password submit");
 
   const stillOnPassword = postPasswordUrl.includes("/u/login/password") || postPasswordText.includes("enter your password");
   if (stillOnPassword) {
-    logger.warn("Lender auth: still on password page — password may be wrong or submit failed");
-    logger.info("Lender auth: retrying password entry with keyboard Enter");
+    const errorText = await page.evaluate(() => {
+      const errs = document.querySelectorAll('[class*="error"], [class*="alert"], [role="alert"], .ulp-input-error');
+      return Array.from(errs).map((e: Element) => (e as HTMLElement).textContent?.trim()).filter(Boolean);
+    });
+    logger.error({ errorText }, "Lender auth: still on password page — checking for error messages");
+
+    logger.info("Lender auth: retrying with triple-click select-all, then type");
     const passRetry = await findSelector(page, AUTH0_PASS_SELECTORS, 5_000);
     if (passRetry) {
-      await passRetry.evaluate((el: HTMLInputElement) => { el.value = ""; });
-      await humanType(page, passRetry, LENDER_PASSWORD);
+      await passRetry.click({ clickCount: 3 }).catch(() => {});
+      await sleep(200);
+      await page.keyboard.type(LENDER_PASSWORD, { delay: 30 });
+      await sleep(500);
       await page.keyboard.press("Enter");
-      await sleep(4000);
-      try { await page.waitForNavigation({ waitUntil: "domcontentloaded", timeout: 20_000 }); } catch (_) {}
+      await sleep(5000);
+      try { await page.waitForNavigation({ waitUntil: "domcontentloaded", timeout: 15_000 }); } catch (_) {}
       await sleep(2000);
       const retryUrl = page.url() as string;
       logger.info({ url: retryUrl }, "Lender auth: URL after password retry");
       if (retryUrl.includes("/u/login/password")) {
-        logger.error("Lender auth: still on password page after retry — login failed");
+        const retryErrors = await page.evaluate(() => {
+          const errs = document.querySelectorAll('[class*="error"], [class*="alert"], [role="alert"], .ulp-input-error');
+          return Array.from(errs).map((e: Element) => (e as HTMLElement).textContent?.trim()).filter(Boolean);
+        });
+        logger.error({ retryErrors }, "Lender auth: still on password page after retry — login failed");
         return false;
       }
     }
