@@ -219,58 +219,74 @@ async function humanType(page: any, element: any, text: string): Promise<void> {
   await sleep(rand(200, 400));
 }
 
+async function clickLinkByText(page: any, phrases: string[]): Promise<string | null> {
+  return page.evaluate((phrases: string[]) => {
+    const els = Array.from(document.querySelectorAll("a, button, [role='button'], span[tabindex]"));
+    for (const el of els) {
+      const t = ((el as HTMLElement).textContent ?? "").toLowerCase().trim();
+      if (phrases.some((p) => t.includes(p))) {
+        (el as HTMLElement).click();
+        return t;
+      }
+    }
+    return null;
+  }, phrases);
+}
+
+async function getPageText(page: any): Promise<string> {
+  return page.evaluate(() => (document.body?.textContent ?? "").toLowerCase());
+}
+
 async function handle2FA(page: any): Promise<void> {
   if (!LENDER_2FA_CODE) {
     logger.warn("Lender auth: LENDER_CREDITAPP_2FA_CODE not set — attempting dismiss");
     await sleep(2000);
-    const dismissed = await page.evaluate(() => {
-      const phrases = ["remind me later", "skip", "not now", "maybe later", "do it later"];
-      const els = Array.from(document.querySelectorAll("button, a, [role='button']"));
-      for (const el of els) {
-        const t = ((el as HTMLElement).textContent ?? "").toLowerCase().trim();
-        if (phrases.some((p) => t.includes(p))) {
-          (el as HTMLElement).click();
-          return (el as HTMLElement).textContent?.trim() ?? "unknown";
-        }
-      }
-      return null;
-    });
+    const dismissed = await clickLinkByText(page, ["remind me later", "skip", "not now", "maybe later", "do it later"]);
     if (dismissed) logger.info({ dismissed }, "Lender auth: 2FA prompt dismissed");
     return;
   }
 
   await sleep(2000);
 
-  const has2FAPrompt = await page.evaluate(() => {
-    const text = document.body?.textContent?.toLowerCase() ?? "";
-    return text.includes("verification") || text.includes("two-factor") ||
-           text.includes("2fa") || text.includes("backup") ||
-           text.includes("authenticator") || text.includes("security code") ||
-           text.includes("enter the code") || text.includes("recovery code");
-  });
+  const pageText = await getPageText(page);
+  const has2FA = pageText.includes("verification") || pageText.includes("two-factor") ||
+                 pageText.includes("2fa") || pageText.includes("authenticator") ||
+                 pageText.includes("security code") || pageText.includes("enter the code") ||
+                 pageText.includes("recovery code") || pageText.includes("verify your identity");
 
-  if (!has2FAPrompt) {
+  if (!has2FA) {
     logger.info("Lender auth: no 2FA prompt detected — skipping");
     return;
   }
 
-  logger.info("Lender auth: 2FA prompt detected — entering backup code");
+  logger.info("Lender auth: 2FA prompt detected — navigating to recovery code input");
+  const currentUrl = page.url() as string;
+  logger.info({ url: currentUrl, pageTextSnippet: pageText.substring(0, 300) }, "Lender auth: 2FA page state");
 
-  const useBackupLink = await page.evaluate(() => {
-    const els = Array.from(document.querySelectorAll("a, button, [role='button']"));
-    for (const el of els) {
-      const t = ((el as HTMLElement).textContent ?? "").toLowerCase().trim();
-      if (t.includes("recovery code") || t.includes("backup code") || t.includes("use a recovery") || t.includes("try another")) {
-        (el as HTMLElement).click();
-        return t;
-      }
-    }
-    return null;
-  });
+  const step1 = await clickLinkByText(page, [
+    "try another method", "try another way", "use another method",
+    "other methods", "i can't use this method", "other options",
+    "choose another method",
+  ]);
+  if (step1) {
+    logger.info({ clicked: step1 }, "Lender auth: step 1 — clicked 'try another method'");
+    await sleep(3000);
+  } else {
+    logger.info("Lender auth: no 'try another method' link found — may already be on method selection");
+  }
 
-  if (useBackupLink) {
-    logger.info({ clicked: useBackupLink }, "Lender auth: clicked backup/recovery code link");
-    await sleep(2000);
+  const step2Text = await getPageText(page);
+  logger.info({ pageTextSnippet: step2Text.substring(0, 300) }, "Lender auth: page state after step 1");
+
+  const step2 = await clickLinkByText(page, [
+    "recovery code", "backup code", "use a recovery code",
+    "use recovery code", "enter a recovery code",
+  ]);
+  if (step2) {
+    logger.info({ clicked: step2 }, "Lender auth: step 2 — clicked 'recovery code' option");
+    await sleep(3000);
+  } else {
+    logger.info("Lender auth: no 'recovery code' link found — may already be on code input");
   }
 
   const codeInput = await findSelector(page, [
@@ -278,11 +294,13 @@ async function handle2FA(page: any): Promise<void> {
     'input[name="recovery-code"]',
     'input[name="recoveryCode"]',
     'input[name="backup_code"]',
+    'input[name="recovery_code"]',
     'input[type="text"]',
     'input[inputmode="numeric"]',
-  ], 8000);
+  ], 10000);
 
   if (codeInput) {
+    logger.info("Lender auth: found recovery code input — entering code");
     try {
       await humanType(page, codeInput, LENDER_2FA_CODE);
     } catch (typeErr: any) {
@@ -295,6 +313,8 @@ async function handle2FA(page: any): Promise<void> {
       }, LENDER_2FA_CODE);
       await sleep(500);
     }
+
+    await sleep(1000);
     const submitBtn = await findSelector(page, ['button[type="submit"]', 'button[name="action"]'], 5000);
     if (submitBtn) {
       try {
@@ -302,12 +322,13 @@ async function handle2FA(page: any): Promise<void> {
       } catch (_) {
         await submitBtn.evaluate((el: HTMLElement) => el.click());
       }
-      logger.info("Lender auth: 2FA backup code submitted");
+      logger.info("Lender auth: 2FA recovery code submitted");
     }
     await sleep(3000);
-    try { await page.waitForNavigation({ waitUntil: "domcontentloaded", timeout: 15_000 }); } catch (_) {}
+    try { await page.waitForNavigation({ waitUntil: "domcontentloaded", timeout: 20_000 }); } catch (_) {}
   } else {
-    logger.warn("Lender auth: could not find 2FA code input field");
+    const finalText = await getPageText(page);
+    logger.warn({ pageTextSnippet: finalText.substring(0, 400) }, "Lender auth: could not find recovery code input field");
   }
 }
 
