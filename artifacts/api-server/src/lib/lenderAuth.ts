@@ -202,7 +202,15 @@ async function findSelector(page: any, selectors: string[], timeout = 8000): Pro
 }
 
 async function humanType(page: any, element: any, text: string): Promise<void> {
-  await element.click();
+  try {
+    await element.click();
+  } catch (_) {
+    try {
+      await element.evaluate((el: HTMLElement) => { el.focus(); el.click(); });
+    } catch (_) {
+      await element.focus();
+    }
+  }
   await sleep(rand(80, 200));
   for (const ch of text) {
     await element.type(ch, { delay: 0 });
@@ -275,10 +283,25 @@ async function handle2FA(page: any): Promise<void> {
   ], 8000);
 
   if (codeInput) {
-    await humanType(page, codeInput, LENDER_2FA_CODE);
+    try {
+      await humanType(page, codeInput, LENDER_2FA_CODE);
+    } catch (typeErr: any) {
+      logger.warn({ err: typeErr.message }, "Lender auth: humanType failed for 2FA — using JS fallback");
+      await codeInput.evaluate((el: HTMLInputElement, code: string) => {
+        el.focus();
+        el.value = code;
+        el.dispatchEvent(new Event("input", { bubbles: true }));
+        el.dispatchEvent(new Event("change", { bubbles: true }));
+      }, LENDER_2FA_CODE);
+      await sleep(500);
+    }
     const submitBtn = await findSelector(page, ['button[type="submit"]', 'button[name="action"]'], 5000);
     if (submitBtn) {
-      await submitBtn.click();
+      try {
+        await submitBtn.click();
+      } catch (_) {
+        await submitBtn.evaluate((el: HTMLElement) => el.click());
+      }
       logger.info("Lender auth: 2FA backup code submitted");
     }
     await sleep(3000);
