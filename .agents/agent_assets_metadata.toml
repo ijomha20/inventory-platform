@@ -30,3 +30,9 @@ id = "-lkO__0FRnq5SUyV0gHZi"
 uri = "file://downloads/git-commit-history.txt"
 type = "text"
 title = "Script Reviewer — Full Git Commit History"
+
+[[outputs]]
+id = "MMSvBhpIbcVrtzHeDzY5Q"
+uri = "file://.local/lender-calculator-code-review.md"
+type = "text"
+title = "Lender Deal Calculator — Full Code Review"
