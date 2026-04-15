@@ -36,3 +36,9 @@ id = "MMSvBhpIbcVrtzHeDzY5Q"
 uri = "file://.local/lender-calculator-code-review.md"
 type = "text"
 title = "Lender Deal Calculator — Full Code Review"
+
+[[outputs]]
+id = "tHZvsmUgFhlQ6Hwd9Vpmg"
+uri = "file://matrix-motors-complete-source.txt"
+type = "text"
+title = "Matrix Motors Inventory Portal — Complete Source Code"
