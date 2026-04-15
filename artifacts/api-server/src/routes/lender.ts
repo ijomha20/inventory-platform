@@ -281,36 +281,30 @@ router.post("/lender-calculate", requireOwnerOrViewer, async (req, res) => {
     let sellingPrice = 0;
     let priceSource  = "";
     const maxAdvance = isFinite(maxAdvanceLTV) ? bbWholesale * maxAdvanceLTV : Infinity;
+    const maxAllIn   = isFinite(maxAllInLTV) ? bbWholesale * maxAllInLTV : Infinity;
 
-    const maxAllIn = isFinite(maxAllInLTV) ? bbWholesale * maxAllInLTV : Infinity;
-
+    // --- Step 1: Determine selling price ---
     if (rawOnline > 0) {
       sellingPrice = rawOnline;
       priceSource  = "online";
-    } else {
-      // No online price: maximize selling price within LTV constraints
-      let ceiling = Infinity;
-      if (isFinite(maxAdvance)) {
-        ceiling = maxAdvance + downPayment + netTrade;
-      }
-      if (isFinite(maxAllIn)) {
-        // All-in ceiling: total financed must fit within maxAllIn, so selling
-        // price (the advance portion) can be at most maxAllIn minus room
-        // needed for creditor fee, plus down payment and trade equity.
-        const allInCeiling = maxAllIn - creditorFee + downPayment + netTrade;
-        ceiling = Math.min(ceiling, allInCeiling);
-      }
-
-      if (isFinite(ceiling) && pacCost > 0 && ceiling >= pacCost) {
-        sellingPrice = Math.round(ceiling);
+    } else if (isFinite(maxAdvance)) {
+      const advCeiling = Math.round(maxAdvance + downPayment + netTrade);
+      if (pacCost > 0 && advCeiling >= pacCost) {
+        sellingPrice = advCeiling;
         priceSource  = "maximized";
       } else if (pacCost > 0) {
-        sellingPrice = pacCost;
-        priceSource  = "pac";
+        debugCounts.ltvAdvance++;
+        continue;
       } else {
         debugCounts.noPrice++;
         continue;
       }
+    } else if (pacCost > 0) {
+      sellingPrice = pacCost;
+      priceSource  = "pac";
+    } else {
+      debugCounts.noPrice++;
+      continue;
     }
 
     if (pacCost > 0 && sellingPrice < pacCost) {
@@ -324,93 +318,81 @@ router.post("/lender-calculate", requireOwnerOrViewer, async (req, res) => {
     const lenderExposure = sellingPrice - downPayment - netTrade;
     if (isFinite(maxAdvance) && lenderExposure > maxAdvance) { debugCounts.ltvAdvance++; continue; }
 
-    // --- Maximize profit: admin -> warranty -> gap ---
-    // Admin fee treatment varies by lender based on their LTV formula:
-    //   "backend"  — admin counts against backend (aftermarket) LTV
-    //   "allIn"    — admin counts against all-in LTV only (not aftermarket)
-    //   "excluded" — admin is outside both LTV calculations entirely (e.g. Eden Park)
-    //   "unknown"  — fallback: treat as all-in for safety
-
     const adminInclusion = guide.adminFeeInclusion ?? "unknown";
-
     const minWarPrice = Math.round(MIN_WARRANTY_COST * MARKUP);
     const minGapPrice = Math.round(MIN_GAP_COST * MARKUP);
     const minWarPriceCapped = (capWarranty != null) ? Math.min(minWarPrice, capWarranty) : minWarPrice;
     const minGapPriceCapped = gapAllowed ? ((capGap != null) ? Math.min(minGapPrice, capGap) : minGapPrice) : 0;
+    const minProducts = minWarPriceCapped + minGapPriceCapped;
 
-    // Safe subtraction that treats Infinity - Infinity as Infinity (unlimited budget)
-    function safeSub(a: number, b: number): number {
-      if (!isFinite(a)) return Infinity;
-      return a - b;
-    }
-    function safeMin(a: number, b: number): number {
-      if (!isFinite(a)) return b;
-      if (!isFinite(b)) return a;
-      return Math.min(a, b);
-    }
+    // allInRoom = how much LTV room is left after selling price + creditor fee
+    const allInRoom = isFinite(maxAllIn) ? maxAllIn - lenderExposure - creditorFee : Infinity;
+    if (isFinite(allInRoom) && allInRoom < minWarPriceCapped) { debugCounts.ltvAllIn++; continue; }
 
-    const allInRoom = safeSub(maxAllIn, lenderExposure + creditorFee);
-    if (isFinite(allInRoom) && allInRoom <= 0) { debugCounts.ltvAllIn++; continue; }
+    // aftermarketCap from the separate aftermarket LTV (if any)
+    const aftermarketCap = isFinite(maxAftermarket) ? maxAftermarket : Infinity;
 
-    // Step 1: Determine admin fee — maximize first in profit priority
+    // --- Step 2: Auto-maximize admin fee ---
     let effectiveAdmin: number;
     if (capAdmin != null && capAdmin > 0) {
-      effectiveAdmin = Math.min(requestedAdmin > 0 ? requestedAdmin : capAdmin, capAdmin);
-    } else if (requestedAdmin > 0) {
-      effectiveAdmin = requestedAdmin;
+      effectiveAdmin = capAdmin;
+    } else if (isFinite(allInRoom)) {
+      const adminBudget = allInRoom - minProducts;
+      effectiveAdmin = adminBudget > 0 ? Math.floor(adminBudget) : 0;
     } else {
-      effectiveAdmin = requestedAdmin;
+      effectiveAdmin = 0;
     }
 
-    // Constrain admin based on where it sits in the LTV calculation
-    if (adminInclusion === "backend" && isFinite(allInRoom)) {
-      const backendBudget = safeMin(maxAftermarket, allInRoom);
-      if (isFinite(backendBudget)) {
-        const adminMaxBackend = backendBudget - minWarPriceCapped;
-        if (adminMaxBackend < 0) { debugCounts.ltvAllIn++; continue; }
-        if (effectiveAdmin > adminMaxBackend) effectiveAdmin = Math.max(0, Math.floor(adminMaxBackend));
-      }
+    // Constrain admin by where it sits in LTV
+    if (adminInclusion === "backend" && isFinite(aftermarketCap)) {
+      const backendBudget = Math.min(aftermarketCap, isFinite(allInRoom) ? allInRoom : aftermarketCap);
+      const adminMax = backendBudget - minWarPriceCapped;
+      if (adminMax < 0) { debugCounts.ltvAllIn++; continue; }
+      if (effectiveAdmin > adminMax) effectiveAdmin = Math.floor(adminMax);
     } else if ((adminInclusion === "allIn" || adminInclusion === "unknown") && isFinite(allInRoom)) {
-      const adminCeiling = allInRoom - minWarPriceCapped;
-      if (adminCeiling < 0) { debugCounts.ltvAllIn++; continue; }
-      if (effectiveAdmin > adminCeiling) effectiveAdmin = Math.max(0, Math.floor(adminCeiling));
+      const adminMax = allInRoom - minWarPriceCapped;
+      if (adminMax < 0) { debugCounts.ltvAllIn++; continue; }
+      if (effectiveAdmin > adminMax) effectiveAdmin = Math.floor(adminMax);
     }
+    if (effectiveAdmin < 0) effectiveAdmin = 0;
 
-    // Step 2: Aftermarket budget (warranty + GAP)
+    // --- Step 3: Aftermarket budget (warranty + GAP) ---
     let aftermarketBudget: number;
     if (adminInclusion === "backend") {
-      aftermarketBudget = safeSub(safeMin(maxAftermarket, allInRoom), effectiveAdmin);
+      const backendPool = Math.min(aftermarketCap, isFinite(allInRoom) ? allInRoom : aftermarketCap);
+      aftermarketBudget = backendPool - effectiveAdmin;
     } else if (adminInclusion === "excluded") {
-      aftermarketBudget = safeMin(maxAftermarket, allInRoom);
+      aftermarketBudget = isFinite(allInRoom) ? Math.min(aftermarketCap, allInRoom) : aftermarketCap;
     } else {
-      aftermarketBudget = safeMin(maxAftermarket, safeSub(allInRoom, effectiveAdmin));
+      const allInAfterAdmin = isFinite(allInRoom) ? allInRoom - effectiveAdmin : Infinity;
+      aftermarketBudget = Math.min(aftermarketCap, isFinite(allInAfterAdmin) ? allInAfterAdmin : aftermarketCap);
     }
-    if (isFinite(aftermarketBudget) && aftermarketBudget < minWarPriceCapped) { debugCounts.ltvMinAftermarket++; continue; }
+    if (aftermarketBudget < minWarPriceCapped) { debugCounts.ltvMinAftermarket++; continue; }
 
-    // Step 2a: Maximize warranty
+    // --- Step 3a: Maximize warranty (leave room for GAP when uncapped) ---
     let warPrice: number;
     if (capWarranty != null) {
-      warPrice = isFinite(aftermarketBudget) ? Math.min(aftermarketBudget, capWarranty) : capWarranty;
+      warPrice = Math.min(aftermarketBudget, capWarranty);
     } else {
-      warPrice = isFinite(aftermarketBudget) ? aftermarketBudget : minWarPrice;
+      const reserveForGap = gapAllowed ? minGapPriceCapped : 0;
+      warPrice = aftermarketBudget > reserveForGap ? aftermarketBudget - reserveForGap : aftermarketBudget;
     }
     warPrice = Math.max(warPrice, minWarPriceCapped);
-    if (isFinite(aftermarketBudget) && warPrice > aftermarketBudget) { debugCounts.ltvMinAftermarket++; continue; }
+    if (warPrice > aftermarketBudget) { debugCounts.ltvMinAftermarket++; continue; }
     const warCost = Math.round(warPrice / MARKUP);
-    let remainingAftermarket = isFinite(aftermarketBudget) ? aftermarketBudget - warPrice : Infinity;
+    const remainingAftermarket = aftermarketBudget - warPrice;
 
-    // Step 3: Maximize GAP with whatever aftermarket room is left
+    // --- Step 3b: Maximize GAP ---
     let gapPr = 0;
     let gCost = 0;
-    const gapFits = isFinite(remainingAftermarket) ? remainingAftermarket >= minGapPriceCapped : true;
-    if (gapAllowed && gapFits && minGapPriceCapped > 0) {
+    if (gapAllowed && remainingAftermarket >= minGapPriceCapped && minGapPriceCapped > 0) {
       if (capGap != null) {
-        gapPr = isFinite(remainingAftermarket) ? Math.min(remainingAftermarket, capGap) : capGap;
+        gapPr = Math.min(remainingAftermarket, capGap);
       } else {
-        gapPr = isFinite(remainingAftermarket) ? remainingAftermarket : minGapPrice;
+        gapPr = remainingAftermarket;
       }
       gapPr = Math.max(gapPr, minGapPriceCapped);
-      if (isFinite(remainingAftermarket) && gapPr > remainingAftermarket) gapPr = 0;
+      if (gapPr > remainingAftermarket) gapPr = 0;
       gCost = Math.round(gapPr / MARKUP);
     }
 
