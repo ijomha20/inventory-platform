@@ -176,6 +176,12 @@ export interface LenderProgramGuide {
   maxWarrantyPrice?:      number;
   maxGapPrice?:           number;
   maxAdminFee?:           number;
+  backendLtvCalculation?: string;
+  allInLtvCalculation?: string;
+  backendRemainingCalculation?: string;
+  allInRemainingCalculation?: string;
+  aftermarketBase?: "bbWholesale" | "salePrice" | "unknown";
+  allInOnlyRules?: boolean;
 }
 
 export interface LenderProgram {

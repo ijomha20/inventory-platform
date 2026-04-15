@@ -59,30 +59,32 @@ function conditionLabel(c: string): string {
 
 function ResultRow({ item, rank }: { item: LenderCalcResultItem; rank: number }) {
   return (
-    <tr className="hover:bg-gray-50 border-b border-gray-100 last:border-0">
-      <td className="px-3 py-2.5 text-xs text-gray-400 font-medium">{rank}</td>
-      <td className="px-3 py-2.5 text-sm font-medium text-gray-900 whitespace-nowrap">{item.vehicle}</td>
-      <td className="px-3 py-2.5 text-sm text-gray-600">{item.location}</td>
-      <td className="px-3 py-2.5 text-sm text-center text-gray-700">{item.term}mo</td>
-      <td className="px-3 py-2.5 text-sm text-center">
+    <tr className="border-b border-gray-100 last:border-0 odd:bg-white even:bg-slate-50/40 hover:bg-blue-50/50">
+      <td className="w-12 px-3 py-2.5 text-xs text-gray-500 font-semibold text-center">{rank}</td>
+      <td className="w-[320px] px-3 py-2.5 text-sm font-semibold text-gray-900">
+        <div className="truncate" title={item.vehicle}>{item.vehicle}</div>
+      </td>
+      <td className="w-28 px-3 py-2.5 text-sm text-gray-700">{item.location}</td>
+      <td className="w-20 px-3 py-2.5 text-sm text-center text-gray-700">{item.term}mo</td>
+      <td className="w-28 px-3 py-2.5 text-sm text-center">
         <Badge variant="outline" className="text-xs">{conditionLabel(item.conditionUsed)}</Badge>
       </td>
-      <td className="px-3 py-2.5 text-sm text-right font-medium text-gray-700">{formatCurrency(item.bbWholesale)}</td>
-      <td className="px-3 py-2.5 text-sm text-right font-medium text-gray-700">
+      <td className="w-28 px-3 py-2.5 text-sm text-right font-medium text-gray-700">{formatCurrency(item.bbWholesale)}</td>
+      <td className="w-36 px-3 py-2.5 text-sm text-right font-medium text-gray-700">
         {item.sellingPrice > 0 ? formatCurrency(item.sellingPrice) : "—"}
         {item.priceSource && <span className="text-xs text-gray-400 ml-1">({item.priceSource === "online" ? "Online" : "PAC"})</span>}
       </td>
-      <td className="px-3 py-2.5 text-sm text-right text-gray-600">
+      <td className="w-36 px-3 py-2.5 text-sm text-right text-gray-700">
         {formatCurrency(item.warrantyPrice)}
         <span className="text-xs text-gray-400 ml-0.5">/{formatCurrency(item.warrantyCost)}</span>
       </td>
-      <td className="px-3 py-2.5 text-sm text-right text-gray-600">
+      <td className="w-32 px-3 py-2.5 text-sm text-right text-gray-700">
         {formatCurrency(item.gapPrice)}
         <span className="text-xs text-gray-400 ml-0.5">/{formatCurrency(item.gapCost)}</span>
       </td>
-      <td className="px-3 py-2.5 text-sm text-right font-medium text-gray-700">{formatCurrency(item.totalFinanced)}</td>
-      <td className="px-3 py-2.5 text-sm text-right font-semibold text-green-700">{formatPayment(item.monthlyPayment)}</td>
-      <td className="px-3 py-2.5 text-sm text-right font-semibold text-emerald-700">{formatCurrency(item.profit)}</td>
+      <td className="w-36 px-3 py-2.5 text-sm text-right font-medium text-gray-700">{formatCurrency(item.totalFinanced)}</td>
+      <td className="w-32 px-3 py-2.5 text-sm text-right font-semibold text-green-700">{formatPayment(item.monthlyPayment)}</td>
+      <td className="w-32 px-3 py-2.5 text-sm text-right font-semibold text-emerald-700">{formatCurrency(item.profit)}</td>
     </tr>
   );
 }
@@ -224,8 +226,8 @@ export default function LenderCalculator() {
       )}
 
       {programs.length > 0 && (
-        <div className="space-y-6">
-          <div className="max-w-md">
+        <div className="grid grid-cols-1 xl:grid-cols-[400px_minmax(0,1fr)] gap-6">
+          <div>
             <Card>
               <CardHeader className="pb-4">
                 <CardTitle className="text-base flex items-center gap-2">
@@ -238,14 +240,14 @@ export default function LenderCalculator() {
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="space-y-2">
-                  <Label className="text-xs font-medium text-gray-600">Lender</Label>
+                  <Label className="text-xs font-semibold tracking-wide text-gray-700 uppercase">Lender</Label>
                   <Select value={selectedLender} onValueChange={handleLenderChange}>
-                    <SelectTrigger>
+                    <SelectTrigger className="h-10 text-sm font-medium bg-white">
                       <SelectValue placeholder="Select a lender" />
                     </SelectTrigger>
-                    <SelectContent>
+                    <SelectContent className="max-h-80">
                       {programs.map(p => (
-                        <SelectItem key={p.lenderCode} value={p.lenderCode}>
+                        <SelectItem key={p.lenderCode} value={p.lenderCode} className="text-sm py-2">
                           {p.lenderName} ({p.lenderCode})
                         </SelectItem>
                       ))}
@@ -255,14 +257,14 @@ export default function LenderCalculator() {
 
                 {selectedLenderObj && (
                   <div className="space-y-2">
-                    <Label className="text-xs font-medium text-gray-600">Program</Label>
+                    <Label className="text-xs font-semibold tracking-wide text-gray-700 uppercase">Program</Label>
                     <Select value={selectedProgram} onValueChange={handleProgramChange}>
-                      <SelectTrigger>
+                      <SelectTrigger className="h-10 text-sm font-medium bg-white">
                         <SelectValue placeholder="Select a program" />
                       </SelectTrigger>
-                      <SelectContent>
+                      <SelectContent className="max-h-80">
                         {selectedLenderObj.programs.map(g => (
-                          <SelectItem key={g.programId} value={g.programId}>
+                          <SelectItem key={g.programId} value={g.programId} className="text-sm py-2">
                             {g.programTitle} ({g.tiers.length} tier{g.tiers.length !== 1 ? "s" : ""})
                           </SelectItem>
                         ))}
@@ -273,14 +275,14 @@ export default function LenderCalculator() {
 
                 {selectedGuide && (
                   <div className="space-y-2">
-                    <Label className="text-xs font-medium text-gray-600">Tier</Label>
+                    <Label className="text-xs font-semibold tracking-wide text-gray-700 uppercase">Tier</Label>
                     <Select value={selectedTier} onValueChange={setSelectedTier}>
-                      <SelectTrigger>
+                      <SelectTrigger className="h-10 text-sm font-medium bg-white">
                         <SelectValue placeholder="Select a tier" />
                       </SelectTrigger>
-                      <SelectContent>
+                      <SelectContent className="max-h-80">
                         {selectedGuide.tiers.map(t => (
-                          <SelectItem key={t.tierName} value={t.tierName}>
+                          <SelectItem key={t.tierName} value={t.tierName} className="text-sm py-2">
                             {t.tierName} ({t.minRate}–{t.maxRate}%)
                           </SelectItem>
                         ))}
@@ -296,7 +298,7 @@ export default function LenderCalculator() {
                 <Separator />
 
                 <div className="space-y-1.5">
-                  <Label className="text-xs font-medium text-gray-600 flex items-center gap-1">
+                  <Label className="text-xs font-semibold tracking-wide text-gray-700 uppercase flex items-center gap-1">
                     <Percent className="w-3 h-3" /> Rate (%)
                   </Label>
                   <Input
@@ -309,7 +311,7 @@ export default function LenderCalculator() {
                 </div>
 
                 <div className="space-y-1.5">
-                  <Label className="text-xs font-medium text-gray-600 flex items-center gap-1">
+                  <Label className="text-xs font-semibold tracking-wide text-gray-700 uppercase flex items-center gap-1">
                     <DollarSign className="w-3 h-3" /> Max Payment Override
                   </Label>
                   <Input
@@ -325,7 +327,7 @@ export default function LenderCalculator() {
                 <Separator />
 
                 <div className="space-y-1.5">
-                  <Label className="text-xs font-medium text-gray-600">Down Payment</Label>
+                  <Label className="text-xs font-semibold tracking-wide text-gray-700 uppercase">Down Payment</Label>
                   <Input
                     type="number"
                     value={downPayment}
@@ -336,7 +338,7 @@ export default function LenderCalculator() {
 
                 <div className="grid grid-cols-2 gap-3">
                   <div className="space-y-1.5">
-                    <Label className="text-xs font-medium text-gray-600">Trade-In Value</Label>
+                    <Label className="text-xs font-semibold tracking-wide text-gray-700 uppercase">Trade-In Value</Label>
                     <Input
                       type="number"
                       value={tradeValue}
@@ -345,7 +347,7 @@ export default function LenderCalculator() {
                     />
                   </div>
                   <div className="space-y-1.5">
-                    <Label className="text-xs font-medium text-gray-600">Trade Lien</Label>
+                    <Label className="text-xs font-semibold tracking-wide text-gray-700 uppercase">Trade Lien</Label>
                     <Input
                       type="number"
                       value={tradeLien}
@@ -368,7 +370,7 @@ export default function LenderCalculator() {
                   <div className="space-y-3 pt-1">
                     <div className="grid grid-cols-2 gap-3">
                       <div className="space-y-1.5">
-                        <Label className="text-xs font-medium text-gray-600">Tax Rate (%)</Label>
+                        <Label className="text-xs font-semibold tracking-wide text-gray-700 uppercase">Tax Rate (%)</Label>
                         <Input
                           type="number"
                           step="0.5"
@@ -378,7 +380,7 @@ export default function LenderCalculator() {
                         />
                       </div>
                       <div className="space-y-1.5">
-                        <Label className="text-xs font-medium text-gray-600">Dealer Admin Fee</Label>
+                        <Label className="text-xs font-semibold tracking-wide text-gray-700 uppercase">Dealer Admin Fee</Label>
                         <Input
                           type="number"
                           value={adminFee}
@@ -413,7 +415,7 @@ export default function LenderCalculator() {
             </Card>
           </div>
 
-          <div>
+          <div className="min-w-0">
             {calcMutation.isError && (
               <Card className="border-red-200 bg-red-50 mb-4">
                 <CardContent className="pt-6">
@@ -431,15 +433,23 @@ export default function LenderCalculator() {
             {calcResults && (
               <Card>
                 <CardHeader className="pb-4">
-                  <div className="flex items-center justify-between">
+                  <div className="flex items-center justify-between gap-4">
                     <CardTitle className="text-base flex items-center gap-2">
                       <Car className="w-4 h-4" />
                       Results
                       <Badge variant="secondary" className="text-xs ml-1">{calcResults.resultCount} vehicles</Badge>
                     </CardTitle>
-                    <div className="text-xs text-gray-400">
+                    <div className="text-xs text-gray-500 text-right">
                       {calcResults.lender} / {calcResults.program} / {calcResults.tier}
                     </div>
+                  </div>
+                  <div className="flex flex-wrap gap-2 pt-1">
+                    <Badge variant="outline" className="text-xs">Rate: {approvedRate}%</Badge>
+                    <Badge variant="outline" className="text-xs">Tax: {taxRate}%</Badge>
+                    {maxPaymentOverride && Number(maxPaymentOverride) > 0 && (
+                      <Badge variant="outline" className="text-xs">Pmt Cap: {formatCurrency(Number(maxPaymentOverride))}</Badge>
+                    )}
+                    <Badge variant="outline" className="text-xs">Down: {formatCurrency(Number(downPayment || 0))}</Badge>
                   </div>
                 </CardHeader>
                 <CardContent>
@@ -450,22 +460,22 @@ export default function LenderCalculator() {
                       <p className="text-xs mt-1">Try adjusting the max payment or rate</p>
                     </div>
                   ) : (
-                    <div className="overflow-x-auto -mx-6">
-                      <table className="text-left min-w-[900px]">
-                        <thead>
-                          <tr className="border-b border-gray-200 text-xs text-gray-500 uppercase tracking-wider">
-                            <th className="px-3 py-2">#</th>
-                            <th className="px-3 py-2">Vehicle</th>
-                            <th className="px-3 py-2">Location</th>
-                            <th className="px-3 py-2 text-center">Term</th>
-                            <th className="px-3 py-2 text-center">Condition</th>
-                            <th className="px-3 py-2 text-right">BB Value</th>
-                            <th className="px-3 py-2 text-right">Sell Price</th>
-                            <th className="px-3 py-2 text-right">Warranty</th>
-                            <th className="px-3 py-2 text-right">GAP</th>
-                            <th className="px-3 py-2 text-right">Financed</th>
-                            <th className="px-3 py-2 text-right">Payment</th>
-                            <th className="px-3 py-2 text-right">Profit</th>
+                    <div className="overflow-x-auto rounded-md border border-gray-200">
+                      <table className="text-left min-w-[1520px] w-full table-fixed">
+                        <thead className="bg-gray-50 sticky top-0 z-10">
+                          <tr className="border-b border-gray-200 text-xs text-gray-600 uppercase tracking-wide">
+                            <th className="w-12 px-3 py-2 text-center">#</th>
+                            <th className="w-[320px] px-3 py-2">Vehicle</th>
+                            <th className="w-28 px-3 py-2">Location</th>
+                            <th className="w-20 px-3 py-2 text-center">Term</th>
+                            <th className="w-28 px-3 py-2 text-center">Condition</th>
+                            <th className="w-28 px-3 py-2 text-right">BB Value</th>
+                            <th className="w-36 px-3 py-2 text-right">Sell Price</th>
+                            <th className="w-36 px-3 py-2 text-right">Warranty</th>
+                            <th className="w-32 px-3 py-2 text-right">GAP</th>
+                            <th className="w-36 px-3 py-2 text-right">Financed</th>
+                            <th className="w-32 px-3 py-2 text-right">Payment</th>
+                            <th className="w-32 px-3 py-2 text-right">Profit</th>
                           </tr>
                         </thead>
                         <tbody>

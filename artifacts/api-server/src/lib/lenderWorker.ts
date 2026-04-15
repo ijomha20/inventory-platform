@@ -96,9 +96,13 @@ const CREDITORS_PROGRAMS_QUERY = `{
         average { milage { from to } }
         rough { milage { from to } }
       }
+      backendLtvCalculation
+      allInLtvCalculation
       maxExtendedWarrantyFeeCalculation
       maxGapInsuranceFeeCalculation
       maxDealerAdminFeeCalculation
+      backendRemainingCalculation
+      allInRemainingCalculation
     }
   }
 }`;
@@ -189,6 +193,27 @@ function mapProgramGuide(prog: any): LenderProgramGuide {
     return isFinite(n) ? n : undefined;
   }
 
+  function parseCalcString(val: unknown): string | undefined {
+    if (typeof val !== "string") return undefined;
+    const s = val.trim();
+    return s.length > 0 ? s : undefined;
+  }
+
+  function inferAftermarketBase(backendRemaining?: string): "bbWholesale" | "salePrice" | "unknown" {
+    if (!backendRemaining) return "unknown";
+    const hasWholesale = backendRemaining.includes("wholesaleValueBasedOnProgram");
+    const hasSalePrice = backendRemaining.includes("salePrice");
+    if (hasWholesale && !hasSalePrice) return "bbWholesale";
+    if (hasSalePrice && !hasWholesale) return "salePrice";
+    return "unknown";
+  }
+
+  const backendLtvCalculation = parseCalcString(prog.backendLtvCalculation);
+  const allInLtvCalculation = parseCalcString(prog.allInLtvCalculation);
+  const backendRemainingCalculation = parseCalcString(prog.backendRemainingCalculation);
+  const allInRemainingCalculation = parseCalcString(prog.allInRemainingCalculation);
+  const aftermarketBase = inferAftermarketBase(backendRemainingCalculation);
+
   return {
     programId:              prog.id,
     programTitle:           prog.title ?? "Unknown",
@@ -200,6 +225,12 @@ function mapProgramGuide(prog: any): LenderProgramGuide {
     maxWarrantyPrice: parseCalcNumber(prog.maxExtendedWarrantyFeeCalculation),
     maxGapPrice:      parseCalcNumber(prog.maxGapInsuranceFeeCalculation),
     maxAdminFee:      parseCalcNumber(prog.maxDealerAdminFeeCalculation),
+    backendLtvCalculation,
+    allInLtvCalculation,
+    backendRemainingCalculation,
+    allInRemainingCalculation,
+    aftermarketBase,
+    allInOnlyRules: !!allInRemainingCalculation && !backendRemainingCalculation,
   };
 }
 

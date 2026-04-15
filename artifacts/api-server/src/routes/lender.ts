@@ -204,11 +204,15 @@ router.post("/lender-calculate", requireOwner, async (req, res) => {
   const programMaxWarranty = guide.maxWarrantyPrice;
   const programMaxGap      = guide.maxGapPrice;
   const programMaxAdmin    = guide.maxAdminFee;
-  const effectiveAdmin     = (programMaxAdmin != null && adminFee > programMaxAdmin) ? programMaxAdmin : adminFee;
-  const gapAllowed         = programMaxGap == null || programMaxGap > 0;
+  const allInOnlyRules     = !!guide.allInOnlyRules || (tier.maxAftermarketLTV <= 0 && tier.maxAllInLTV > 0);
+  const capWarranty        = allInOnlyRules ? undefined : programMaxWarranty;
+  const capGap             = allInOnlyRules ? undefined : programMaxGap;
+  const capAdmin           = allInOnlyRules ? undefined : programMaxAdmin;
+  const effectiveAdmin     = (capAdmin != null && adminFee > capAdmin) ? capAdmin : adminFee;
+  const gapAllowed         = capGap == null || capGap > 0;
 
   const maxAdvanceLTV      = tier.maxAdvanceLTV > 0 ? tier.maxAdvanceLTV / 100 : Infinity;
-  const maxAftermarketLTV  = tier.maxAftermarketLTV > 0 ? tier.maxAftermarketLTV / 100 : Infinity;
+  const maxAftermarketLTV  = allInOnlyRules ? Infinity : (tier.maxAftermarketLTV > 0 ? tier.maxAftermarketLTV / 100 : Infinity);
   const maxAllInLTV        = tier.maxAllInLTV > 0 ? tier.maxAllInLTV / 100 : Infinity;
 
   interface Result {
@@ -271,8 +275,9 @@ router.post("/lender-calculate", requireOwner, async (req, res) => {
 
     const rawCost = parseFloat(item.cost?.replace(/[^0-9.]/g, "") || "0");
 
+    const aftermarketBaseValue = guide.aftermarketBase === "salePrice" ? sellingPrice : bbWholesale;
     const maxAdvance     = bbWholesale * maxAdvanceLTV;
-    const maxAftermarket = bbWholesale * maxAftermarketLTV;
+    const maxAftermarket = aftermarketBaseValue * maxAftermarketLTV;
     const maxAllIn       = bbWholesale * maxAllInLTV;
 
     const lenderExposure = sellingPrice - downPayment - netTrade;
@@ -280,8 +285,8 @@ router.post("/lender-calculate", requireOwner, async (req, res) => {
 
     const minWarPrice = Math.round(MIN_WARRANTY_COST * MARKUP);
     const minGapPrice = Math.round(MIN_GAP_COST * MARKUP);
-    const minWarPriceCapped = (programMaxWarranty != null) ? Math.min(minWarPrice, programMaxWarranty) : minWarPrice;
-    const minGapPriceCapped = gapAllowed ? ((programMaxGap != null) ? Math.min(minGapPrice, programMaxGap) : minGapPrice) : 0;
+    const minWarPriceCapped = (capWarranty != null) ? Math.min(minWarPrice, capWarranty) : minWarPrice;
+    const minGapPriceCapped = gapAllowed ? ((capGap != null) ? Math.min(minGapPrice, capGap) : minGapPrice) : 0;
     const minAftermarketTotal = minWarPriceCapped + minGapPriceCapped;
 
     if (minAftermarketTotal > maxAftermarket) { debugCounts.ltvMinAftermarket++; continue; }
@@ -295,7 +300,7 @@ router.post("/lender-calculate", requireOwner, async (req, res) => {
 
     if (!gapAllowed) {
       let wp = maxAftermarketAmount;
-      if (programMaxWarranty != null && wp > programMaxWarranty) wp = programMaxWarranty;
+      if (capWarranty != null && wp > capWarranty) wp = capWarranty;
       wp = Math.max(wp, minWarPriceCapped);
       warPrice = Math.round(wp);
       warCost  = Math.round(warPrice / MARKUP);
@@ -303,9 +308,9 @@ router.post("/lender-calculate", requireOwner, async (req, res) => {
       gCost    = 0;
     } else {
       let maxWarPr = maxAftermarketAmount;
-      if (programMaxWarranty != null) maxWarPr = Math.min(maxWarPr, programMaxWarranty);
+      if (capWarranty != null) maxWarPr = Math.min(maxWarPr, capWarranty);
       let maxGapPr = maxAftermarketAmount;
-      if (programMaxGap != null) maxGapPr = Math.min(maxGapPr, programMaxGap);
+      if (capGap != null) maxGapPr = Math.min(maxGapPr, capGap);
 
       const warrantyCostShare = MIN_WARRANTY_COST / (MIN_WARRANTY_COST + MIN_GAP_COST);
       const gapCostShare      = MIN_GAP_COST / (MIN_WARRANTY_COST + MIN_GAP_COST);
@@ -395,6 +400,8 @@ router.post("/lender-calculate", requireOwner, async (req, res) => {
       maxGapPrice:      programMaxGap ?? null,
       maxAdminFee:      programMaxAdmin ?? null,
       gapAllowed,
+      aftermarketBase:  guide.aftermarketBase ?? "unknown",
+      allInOnlyRules,
     },
     resultCount: results.length,
     results,
