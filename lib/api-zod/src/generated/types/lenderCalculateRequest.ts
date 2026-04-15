@@ -16,4 +16,9 @@ export interface LenderCalculateRequest {
   tradeValue?: number;
   tradeLien?: number;
   taxRate?: number;
+  warrantyPrice?: number;
+  warrantyCost?: number;
+  gapPrice?: number;
+  gapCost?: number;
+  adminFee?: number;
 }

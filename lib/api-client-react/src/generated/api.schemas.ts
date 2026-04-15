@@ -153,6 +153,11 @@ export interface LenderCalculateRequest {
   tradeValue?: number;
   tradeLien?: number;
   taxRate?: number;
+  warrantyPrice?: number;
+  warrantyCost?: number;
+  gapPrice?: number;
+  gapCost?: number;
+  adminFee?: number;
 }
 
 export interface LenderCalcResultItem {
@@ -166,7 +171,7 @@ export interface LenderCalcResultItem {
   priceSource: string;
   totalFinanced: number;
   monthlyPayment: number;
-  costOfBorrowing: number;
+  profit: number;
   hasPhotos?: boolean;
   website?: string;
 }

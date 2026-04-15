@@ -17,7 +17,7 @@ export interface LenderCalcResultItem {
   priceSource: string;
   totalFinanced: number;
   monthlyPayment: number;
-  costOfBorrowing: number;
+  profit: number;
   hasPhotos?: boolean;
   website?: string;
 }

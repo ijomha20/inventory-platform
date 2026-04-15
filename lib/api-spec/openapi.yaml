@@ -701,6 +701,16 @@ components:
           type: number
         taxRate:
           type: number
+        warrantyPrice:
+          type: number
+        warrantyCost:
+          type: number
+        gapPrice:
+          type: number
+        gapCost:
+          type: number
+        adminFee:
+          type: number
       required:
         - lenderCode
         - programId
@@ -730,7 +740,7 @@ components:
           type: number
         monthlyPayment:
           type: number
-        costOfBorrowing:
+        profit:
           type: number
         hasPhotos:
           type: boolean
@@ -747,7 +757,7 @@ components:
         - priceSource
         - totalFinanced
         - monthlyPayment
-        - costOfBorrowing
+        - profit
 
     LenderCalculateResponse:
       type: object

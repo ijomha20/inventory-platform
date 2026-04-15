@@ -90,6 +90,11 @@ interface CalcParams {
   tradeValue?:   number;
   tradeLien?:    number;
   taxRate?:      number;
+  warrantyPrice?:  number;
+  warrantyCost?:   number;
+  gapPrice?:       number;
+  gapCost?:        number;
+  adminFee?:       number;
 }
 
 function pmt(rate: number, nper: number, pv: number): number {
@@ -180,14 +185,26 @@ router.post("/lender-calculate", requireOwner, async (req, res) => {
   }
 
   const { data: inventory } = getCacheState();
-  const rateDecimal   = rate / 100;
-  const tierMaxPmt    = tier.maxPayment > 0 ? tier.maxPayment : Infinity;
-  const maxPmt        = params.maxPaymentOverride ? Math.min(Number(params.maxPaymentOverride), tierMaxPmt) : tierMaxPmt;
-  const downPayment   = params.downPayment ?? 0;
-  const tradeValue    = params.tradeValue ?? 0;
-  const tradeLien     = params.tradeLien ?? 0;
-  const taxRate       = (params.taxRate ?? 5) / 100;
-  const netTrade      = tradeValue - tradeLien;
+  const rateDecimal    = rate / 100;
+  const tierMaxPmt     = tier.maxPayment > 0 ? tier.maxPayment : Infinity;
+  const maxPmt         = params.maxPaymentOverride ? Math.min(Number(params.maxPaymentOverride), tierMaxPmt) : tierMaxPmt;
+  const downPayment    = params.downPayment ?? 0;
+  const tradeValue     = params.tradeValue ?? 0;
+  const tradeLien      = params.tradeLien ?? 0;
+  const taxRate        = (params.taxRate ?? 5) / 100;
+  const netTrade       = tradeValue - tradeLien;
+  const warrantyPrice  = params.warrantyPrice ?? 0;
+  const warrantyCost   = params.warrantyCost ?? 0;
+  const gapPrice       = params.gapPrice ?? 0;
+  const gapCost        = params.gapCost ?? 0;
+  const adminFee       = params.adminFee ?? 0;
+  const aftermarketRevenue = warrantyPrice + gapPrice;
+  const creditorFee    = tier.creditorFee ?? 0;
+  const dealerReserve  = tier.dealerReserve ?? 0;
+
+  const maxAdvanceLTV      = tier.maxAdvanceLTV > 0 ? tier.maxAdvanceLTV / 100 : Infinity;
+  const maxAftermarketLTV  = tier.maxAftermarketLTV > 0 ? tier.maxAftermarketLTV / 100 : Infinity;
+  const maxAllInLTV        = tier.maxAllInLTV > 0 ? tier.maxAllInLTV / 100 : Infinity;
 
   interface Result {
     vin:             string;
@@ -200,7 +217,7 @@ router.post("/lender-calculate", requireOwner, async (req, res) => {
     priceSource:     string;
     totalFinanced:   number;
     monthlyPayment:  number;
-    costOfBorrowing: number;
+    profit:          number;
     hasPhotos:       boolean;
     website:         string;
   }
@@ -239,8 +256,22 @@ router.post("/lender-calculate", requireOwner, async (req, res) => {
       continue;
     }
 
-    const vehicleCost = bbWholesale;
-    const amountBeforeTax = vehicleCost - downPayment - netTrade;
+    const rawCost = parseFloat(item.cost?.replace(/[^0-9.]/g, "") || "0");
+
+    const maxAdvance     = bbWholesale * maxAdvanceLTV;
+    const maxAftermarket = bbWholesale * maxAftermarketLTV;
+    const maxAllIn       = bbWholesale * maxAllInLTV;
+
+    const vehicleAdvance = bbWholesale;
+    if (vehicleAdvance > maxAdvance) continue;
+
+    const withAftermarket = vehicleAdvance + aftermarketRevenue;
+    if (withAftermarket > maxAftermarket) continue;
+
+    const allInTotal = withAftermarket + adminFee + creditorFee;
+    if (allInTotal > maxAllIn) continue;
+
+    const amountBeforeTax = allInTotal - downPayment - netTrade;
     if (amountBeforeTax <= 0) continue;
 
     const taxes = amountBeforeTax * taxRate;
@@ -252,7 +283,10 @@ router.post("/lender-calculate", requireOwner, async (req, res) => {
     const monthlyPayment = pmt(rateDecimal, termMonths, totalFinanced);
     if (maxPmt < Infinity && monthlyPayment > maxPmt) continue;
 
-    const costOfBorrowing = (monthlyPayment * termMonths) - totalFinanced;
+    const frontEndGross   = sellingPrice - (rawCost > 0 ? rawCost : bbWholesale);
+    const warrantyProfit  = warrantyPrice - warrantyCost;
+    const gapProfit       = gapPrice - gapCost;
+    const profit = frontEndGross + warrantyProfit + gapProfit + adminFee + dealerReserve - creditorFee;
 
     results.push({
       vin:             item.vin,
@@ -265,7 +299,7 @@ router.post("/lender-calculate", requireOwner, async (req, res) => {
       priceSource,
       totalFinanced:   Math.round(totalFinanced),
       monthlyPayment:  Math.round(monthlyPayment * 100) / 100,
-      costOfBorrowing: Math.round(costOfBorrowing),
+      profit:          Math.round(profit),
       hasPhotos:       item.hasPhotos,
       website:         item.website,
     });

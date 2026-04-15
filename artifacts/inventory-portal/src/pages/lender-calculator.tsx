@@ -74,7 +74,7 @@ function ResultRow({ item, rank }: { item: LenderCalcResultItem; rank: number })
       </td>
       <td className="px-3 py-2.5 text-sm text-right font-medium text-gray-700">{formatCurrency(item.totalFinanced)}</td>
       <td className="px-3 py-2.5 text-sm text-right font-semibold text-green-700">{formatPayment(item.monthlyPayment)}</td>
-      <td className="px-3 py-2.5 text-sm text-right text-gray-500">{formatCurrency(item.costOfBorrowing)}</td>
+      <td className="px-3 py-2.5 text-sm text-right font-semibold text-emerald-700">{formatCurrency(item.profit)}</td>
     </tr>
   );
 }
@@ -98,6 +98,11 @@ export default function LenderCalculator() {
   const [tradeValue, setTradeValue] = useState("0");
   const [tradeLien, setTradeLien] = useState("0");
   const [taxRate, setTaxRate] = useState("5");
+  const [warrantyPrice, setWarrantyPrice] = useState("0");
+  const [warrantyCost, setWarrantyCost] = useState("0");
+  const [gapPrice, setGapPrice] = useState("0");
+  const [gapCost, setGapCost] = useState("0");
+  const [adminFee, setAdminFee] = useState("0");
   const [showAdvanced, setShowAdvanced] = useState(false);
 
   const programs: LenderProgram[] = programsData?.programs ?? [];
@@ -138,6 +143,11 @@ export default function LenderCalculator() {
       tradeValue: parseFloat(tradeValue) || 0,
       tradeLien: parseFloat(tradeLien) || 0,
       taxRate: parseFloat(taxRate) || 5,
+      warrantyPrice: parseFloat(warrantyPrice) || 0,
+      warrantyCost: parseFloat(warrantyCost) || 0,
+      gapPrice: parseFloat(gapPrice) || 0,
+      gapCost: parseFloat(gapCost) || 0,
+      adminFee: parseFloat(adminFee) || 0,
     };
     const pmtOverride = parseFloat(maxPaymentOverride);
     if (pmtOverride > 0) payload.maxPaymentOverride = pmtOverride;
@@ -366,6 +376,60 @@ export default function LenderCalculator() {
                         className="h-9"
                       />
                     </div>
+
+                    <Separator />
+
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="space-y-1.5">
+                        <Label className="text-xs font-medium text-gray-600">Warranty Price</Label>
+                        <Input
+                          type="number"
+                          value={warrantyPrice}
+                          onChange={e => setWarrantyPrice(e.target.value)}
+                          className="h-9"
+                        />
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label className="text-xs font-medium text-gray-600">Warranty Cost</Label>
+                        <Input
+                          type="number"
+                          value={warrantyCost}
+                          onChange={e => setWarrantyCost(e.target.value)}
+                          className="h-9"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="space-y-1.5">
+                        <Label className="text-xs font-medium text-gray-600">GAP Price</Label>
+                        <Input
+                          type="number"
+                          value={gapPrice}
+                          onChange={e => setGapPrice(e.target.value)}
+                          className="h-9"
+                        />
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label className="text-xs font-medium text-gray-600">GAP Cost</Label>
+                        <Input
+                          type="number"
+                          value={gapCost}
+                          onChange={e => setGapCost(e.target.value)}
+                          className="h-9"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <Label className="text-xs font-medium text-gray-600">Dealer Admin Fee</Label>
+                      <Input
+                        type="number"
+                        value={adminFee}
+                        onChange={e => setAdminFee(e.target.value)}
+                        className="h-9"
+                      />
+                    </div>
                   </div>
                 )}
 
@@ -435,7 +499,7 @@ export default function LenderCalculator() {
                             <th className="px-3 py-2 text-right">Sell Price</th>
                             <th className="px-3 py-2 text-right">Financed</th>
                             <th className="px-3 py-2 text-right">Payment</th>
-                            <th className="px-3 py-2 text-right">COB</th>
+                            <th className="px-3 py-2 text-right">Profit</th>
                           </tr>
                         </thead>
                         <tbody>
