@@ -225,9 +225,10 @@ router.post("/lender-calculate", requireOwnerOrViewer, async (req, res) => {
 
   const adminInclusion = guide.adminFeeInclusion ?? "unknown";
 
+  // CreditApp fee calculation fields: positive numbers are real caps, 0 means "no cap set"
   const capWarranty = (guide.maxWarrantyPrice != null && guide.maxWarrantyPrice > 0) ? guide.maxWarrantyPrice : undefined;
-  const capGap      = (guide.maxGapPrice != null)      ? guide.maxGapPrice      : undefined;
-  const capAdmin    = (guide.maxAdminFee != null && guide.maxAdminFee > 0)  ? guide.maxAdminFee      : undefined;
+  const capGap      = (guide.maxGapPrice != null && guide.maxGapPrice > 0)           ? guide.maxGapPrice      : undefined;
+  const capAdmin    = (guide.maxAdminFee != null && guide.maxAdminFee > 0)            ? guide.maxAdminFee      : undefined;
   const gapAllowed  = capGap == null || capGap > 0;
 
   interface Result {
