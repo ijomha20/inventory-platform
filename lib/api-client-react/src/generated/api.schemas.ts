@@ -148,7 +148,6 @@ export interface LenderCalculateRequest {
   programId: string;
   tierName: string;
   approvedRate: number;
-  approvedTerm: number;
   maxPaymentOverride?: number;
   downPayment?: number;
   tradeValue?: number;
@@ -160,6 +159,8 @@ export interface LenderCalcResultItem {
   vin: string;
   vehicle: string;
   location: string;
+  term: number;
+  conditionUsed: string;
   bbWholesale: number;
   totalFinanced: number;
   monthlyPayment: number;

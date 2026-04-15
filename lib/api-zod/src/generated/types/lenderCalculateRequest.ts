@@ -11,7 +11,6 @@ export interface LenderCalculateRequest {
   programId: string;
   tierName: string;
   approvedRate: number;
-  approvedTerm: number;
   maxPaymentOverride?: number;
   downPayment?: number;
   tradeValue?: number;

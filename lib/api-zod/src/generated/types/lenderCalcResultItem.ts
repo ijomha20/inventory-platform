@@ -10,6 +10,8 @@ export interface LenderCalcResultItem {
   vin: string;
   vehicle: string;
   location: string;
+  term: number;
+  conditionUsed: string;
   bbWholesale: number;
   totalFinanced: number;
   monthlyPayment: number;

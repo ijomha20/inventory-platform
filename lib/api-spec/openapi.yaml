@@ -691,8 +691,6 @@ components:
           type: string
         approvedRate:
           type: number
-        approvedTerm:
-          type: number
         maxPaymentOverride:
           type: number
         downPayment:
@@ -708,7 +706,6 @@ components:
         - programId
         - tierName
         - approvedRate
-        - approvedTerm
 
     LenderCalcResultItem:
       type: object
@@ -718,6 +715,10 @@ components:
         vehicle:
           type: string
         location:
+          type: string
+        term:
+          type: integer
+        conditionUsed:
           type: string
         bbWholesale:
           type: number
@@ -735,6 +736,8 @@ components:
         - vin
         - vehicle
         - location
+        - term
+        - conditionUsed
         - bbWholesale
         - totalFinanced
         - monthlyPayment

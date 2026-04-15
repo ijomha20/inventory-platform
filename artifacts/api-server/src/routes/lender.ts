@@ -4,12 +4,13 @@ import { accessListTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { isOwner } from "../lib/auth.js";
 import { logger } from "../lib/logger.js";
-import { getCacheState } from "../lib/inventoryCache.js";
+import { getCacheState, type InventoryItem } from "../lib/inventoryCache.js";
 import {
   getLenderSyncStatus,
   getCachedLenderPrograms,
   runLenderSync,
 } from "../lib/lenderWorker.js";
+import type { VehicleTermMatrixEntry, VehicleConditionMatrixEntry } from "../lib/bbObjectStore.js";
 
 const router = Router();
 
@@ -84,7 +85,6 @@ interface CalcParams {
   programId:     string;
   tierName:      string;
   approvedRate:  number;
-  approvedTerm:  number;
   maxPaymentOverride?: number;
   downPayment?:  number;
   tradeValue?:   number;
@@ -98,6 +98,45 @@ function pmt(rate: number, nper: number, pv: number): number {
   return (pv * r * Math.pow(1 + r, nper)) / (Math.pow(1 + r, nper) - 1);
 }
 
+function parseVehicleYear(vehicle: string): number | null {
+  const match = vehicle.match(/\b(19|20)\d{2}\b/);
+  return match ? parseInt(match[0], 10) : null;
+}
+
+function lookupTerm(
+  matrix: VehicleTermMatrixEntry[],
+  year: number,
+  km: number,
+): number | null {
+  const entry = matrix.find(e => e.year === year);
+  if (!entry) return null;
+  const match = entry.data.find(d => km >= d.kmFrom && km <= d.kmTo);
+  return match ? match.term : null;
+}
+
+type ConditionBucket = "extraClean" | "clean" | "average" | "rough";
+const conditionToBBField: Record<ConditionBucket, keyof NonNullable<InventoryItem["bbValues"]>> = {
+  extraClean: "xclean",
+  clean:      "clean",
+  average:    "avg",
+  rough:      "rough",
+};
+
+function lookupCondition(
+  matrix: VehicleConditionMatrixEntry[],
+  year: number,
+  km: number,
+): ConditionBucket | null {
+  const entry = matrix.find(e => e.year === year);
+  if (!entry) return null;
+  const buckets: ConditionBucket[] = ["extraClean", "clean", "average", "rough"];
+  for (const bucket of buckets) {
+    const range = entry[bucket];
+    if (km >= range.kmFrom && km <= range.kmTo) return bucket;
+  }
+  return null;
+}
+
 router.post("/lender-calculate", requireOwner, async (req, res) => {
   const params = req.body as CalcParams;
 
@@ -105,19 +144,14 @@ router.post("/lender-calculate", requireOwner, async (req, res) => {
     res.status(400).json({ error: "lenderCode, programId, and tierName are required" });
     return;
   }
-  if (params.approvedRate == null || params.approvedTerm == null) {
-    res.status(400).json({ error: "approvedRate and approvedTerm are required" });
+  if (params.approvedRate == null) {
+    res.status(400).json({ error: "approvedRate is required" });
     return;
   }
 
   const rate = Number(params.approvedRate);
-  const term = Number(params.approvedTerm);
   if (!isFinite(rate) || rate < 0 || rate > 100) {
     res.status(400).json({ error: "approvedRate must be between 0 and 100" });
-    return;
-  }
-  if (!isFinite(term) || term <= 0 || term > 120 || !Number.isInteger(term)) {
-    res.status(400).json({ error: "approvedTerm must be a positive integer up to 120" });
     return;
   }
 
@@ -147,7 +181,6 @@ router.post("/lender-calculate", requireOwner, async (req, res) => {
 
   const { data: inventory } = getCacheState();
   const rateDecimal   = rate / 100;
-  const termMonths    = term;
   const tierMaxPmt    = tier.maxPayment > 0 ? tier.maxPayment : Infinity;
   const maxPmt        = params.maxPaymentOverride ? Math.min(Number(params.maxPaymentOverride), tierMaxPmt) : tierMaxPmt;
   const downPayment   = params.downPayment ?? 0;
@@ -160,6 +193,8 @@ router.post("/lender-calculate", requireOwner, async (req, res) => {
     vin:             string;
     vehicle:         string;
     location:        string;
+    term:            number;
+    conditionUsed:   string;
     bbWholesale:     number;
     totalFinanced:   number;
     monthlyPayment:  number;
@@ -171,9 +206,22 @@ router.post("/lender-calculate", requireOwner, async (req, res) => {
   const results: Result[] = [];
 
   for (const item of inventory) {
-    if (!item.bbAvgWholesale) continue;
-    const bbWholesale = parseFloat(item.bbAvgWholesale);
-    if (isNaN(bbWholesale) || bbWholesale <= 0) continue;
+    const vehicleYear = parseVehicleYear(item.vehicle);
+    if (!vehicleYear) continue;
+
+    const km = parseInt(item.km?.replace(/[^0-9]/g, "") || "0", 10);
+    if (!km || km <= 0) continue;
+
+    const termMonths = lookupTerm(guide.vehicleTermMatrix, vehicleYear, km);
+    if (!termMonths) continue;
+
+    const condition = lookupCondition(guide.vehicleConditionMatrix, vehicleYear, km);
+    if (!condition) continue;
+
+    if (!item.bbValues) continue;
+    const bbField = conditionToBBField[condition];
+    const bbWholesale = item.bbValues[bbField];
+    if (!bbWholesale || bbWholesale <= 0) continue;
 
     const vehicleCost = bbWholesale;
     const amountBeforeTax = vehicleCost - downPayment - netTrade;
@@ -191,6 +239,8 @@ router.post("/lender-calculate", requireOwner, async (req, res) => {
       vin:             item.vin,
       vehicle:         item.vehicle,
       location:        item.location,
+      term:            termMonths,
+      conditionUsed:   condition,
       bbWholesale,
       totalFinanced:   Math.round(totalFinanced),
       monthlyPayment:  Math.round(monthlyPayment * 100) / 100,

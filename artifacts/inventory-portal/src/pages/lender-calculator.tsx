@@ -25,7 +25,7 @@ import {
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
-import { RefreshCw, Calculator, DollarSign, Car, Percent, Clock, AlertCircle, ChevronDown, ChevronUp } from "lucide-react";
+import { RefreshCw, Calculator, DollarSign, Car, Percent, AlertCircle, ChevronDown, ChevronUp, Eye } from "lucide-react";
 
 function formatCurrency(n: number): string {
   return new Intl.NumberFormat("en-CA", { style: "currency", currency: "CAD", minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(n);
@@ -47,6 +47,16 @@ function TierConfigCard({ tier, programTitle }: { tier: LenderProgramTier; progr
   );
 }
 
+function conditionLabel(c: string): string {
+  const map: Record<string, string> = {
+    extraClean: "Extra Clean",
+    clean: "Clean",
+    average: "Average",
+    rough: "Rough",
+  };
+  return map[c] ?? c;
+}
+
 function ResultRow({ item, rank }: { item: LenderCalcResultItem; rank: number }) {
   return (
     <tr className="hover:bg-gray-50 border-b border-gray-100 last:border-0">
@@ -56,6 +66,10 @@ function ResultRow({ item, rank }: { item: LenderCalcResultItem; rank: number })
         <div className="text-xs text-gray-400 font-mono">{item.vin}</div>
       </td>
       <td className="px-3 py-2.5 text-sm text-gray-600">{item.location}</td>
+      <td className="px-3 py-2.5 text-sm text-center text-gray-700">{item.term}mo</td>
+      <td className="px-3 py-2.5 text-sm text-center">
+        <Badge variant="outline" className="text-xs">{conditionLabel(item.conditionUsed)}</Badge>
+      </td>
       <td className="px-3 py-2.5 text-sm text-right font-medium text-gray-700">{formatCurrency(item.bbWholesale)}</td>
       <td className="px-3 py-2.5 text-sm text-right font-medium text-gray-700">{formatCurrency(item.totalFinanced)}</td>
       <td className="px-3 py-2.5 text-sm text-right font-semibold text-green-700">{formatPayment(item.monthlyPayment)}</td>
@@ -78,7 +92,6 @@ export default function LenderCalculator() {
   const [selectedProgram, setSelectedProgram] = useState("");
   const [selectedTier, setSelectedTier] = useState("");
   const [approvedRate, setApprovedRate] = useState("14.99");
-  const [approvedTerm, setApprovedTerm] = useState("72");
   const [maxPaymentOverride, setMaxPaymentOverride] = useState("");
   const [downPayment, setDownPayment] = useState("0");
   const [tradeValue, setTradeValue] = useState("0");
@@ -120,7 +133,6 @@ export default function LenderCalculator() {
       programId: selectedProgram,
       tierName: selectedTier,
       approvedRate: parseFloat(approvedRate) || 0,
-      approvedTerm: parseInt(approvedTerm) || 72,
       downPayment: parseFloat(downPayment) || 0,
       tradeValue: parseFloat(tradeValue) || 0,
       tradeLien: parseFloat(tradeLien) || 0,
@@ -272,30 +284,17 @@ export default function LenderCalculator() {
 
                 <Separator />
 
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="space-y-1.5">
-                    <Label className="text-xs font-medium text-gray-600 flex items-center gap-1">
-                      <Percent className="w-3 h-3" /> Rate (%)
-                    </Label>
-                    <Input
-                      type="number"
-                      step="0.01"
-                      value={approvedRate}
-                      onChange={e => setApprovedRate(e.target.value)}
-                      className="h-9"
-                    />
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label className="text-xs font-medium text-gray-600 flex items-center gap-1">
-                      <Clock className="w-3 h-3" /> Term (mo)
-                    </Label>
-                    <Input
-                      type="number"
-                      value={approvedTerm}
-                      onChange={e => setApprovedTerm(e.target.value)}
-                      className="h-9"
-                    />
-                  </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs font-medium text-gray-600 flex items-center gap-1">
+                    <Percent className="w-3 h-3" /> Rate (%)
+                  </Label>
+                  <Input
+                    type="number"
+                    step="0.01"
+                    value={approvedRate}
+                    onChange={e => setApprovedRate(e.target.value)}
+                    className="h-9"
+                  />
                 </div>
 
                 <div className="space-y-1.5">
@@ -375,9 +374,9 @@ export default function LenderCalculator() {
                   {calcMutation.isPending ? (
                     <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
                   ) : (
-                    <Calculator className="w-4 h-4 mr-2" />
+                    <Eye className="w-4 h-4 mr-2" />
                   )}
-                  Calculate
+                  View Inventory
                 </Button>
               </CardContent>
             </Card>
@@ -417,7 +416,7 @@ export default function LenderCalculator() {
                     <div className="text-center py-12 text-gray-400">
                       <Car className="w-10 h-10 mx-auto mb-3 opacity-40" />
                       <p className="text-sm font-medium">No vehicles qualify</p>
-                      <p className="text-xs mt-1">Try adjusting the max payment, rate, or term</p>
+                      <p className="text-xs mt-1">Try adjusting the max payment or rate</p>
                     </div>
                   ) : (
                     <div className="overflow-x-auto -mx-6">
@@ -427,6 +426,8 @@ export default function LenderCalculator() {
                             <th className="px-3 py-2">#</th>
                             <th className="px-3 py-2">Vehicle</th>
                             <th className="px-3 py-2">Location</th>
+                            <th className="px-3 py-2 text-center">Term</th>
+                            <th className="px-3 py-2 text-center">Condition</th>
                             <th className="px-3 py-2 text-right">BB Wholesale</th>
                             <th className="px-3 py-2 text-right">Financed</th>
                             <th className="px-3 py-2 text-right">Payment</th>
@@ -450,7 +451,7 @@ export default function LenderCalculator() {
                 <CardContent className="py-16">
                   <div className="text-center text-gray-400">
                     <Calculator className="w-10 h-10 mx-auto mb-3 opacity-40" />
-                    <p className="text-sm font-medium">Select a lender, program, and tier, then click Calculate</p>
+                    <p className="text-sm font-medium">Select a lender, program, and tier, then click View Inventory</p>
                     <p className="text-xs mt-1">
                       The calculator will filter your inventory by the customer's approval parameters
                     </p>
