@@ -215,11 +215,13 @@ router.post("/lender-calculate", requireOwnerOrViewer, async (req, res) => {
   const programMaxWarranty = guide.maxWarrantyPrice;
   const programMaxGap      = guide.maxGapPrice;
   const programMaxAdmin    = guide.maxAdminFee;
-  const hasIndividualCaps  = (programMaxWarranty != null && programMaxWarranty > 0)
-                          || (programMaxGap != null && programMaxGap > 0)
-                          || (programMaxAdmin != null && programMaxAdmin > 0);
+
+  // allInOnlyRules: lender has no separate aftermarket LTV — all products
+  // constrained by a single all-in LTV bucket.  The fee calculation numbers
+  // from CreditApp (maxWarranty/Gap/Admin) are deal-specific outputs, NOT
+  // static program caps, so we ignore them and use only LTV constraints.
   const allInOnlyRules     = !!guide.allInOnlyRules
-                          || (!hasIndividualCaps && tier.maxAftermarketLTV <= 0 && tier.maxAllInLTV > 0);
+                          || (tier.maxAftermarketLTV <= 0 && tier.maxAllInLTV > 0);
   const capWarranty        = allInOnlyRules ? undefined : programMaxWarranty;
   const capGap             = allInOnlyRules ? undefined : programMaxGap;
   const capAdmin           = allInOnlyRules ? undefined : programMaxAdmin;
@@ -278,23 +280,31 @@ router.post("/lender-calculate", requireOwnerOrViewer, async (req, res) => {
 
     let sellingPrice = 0;
     let priceSource  = "";
-    const maxAdvance = bbWholesale * maxAdvanceLTV;
+    const maxAdvance = isFinite(maxAdvanceLTV) ? bbWholesale * maxAdvanceLTV : Infinity;
 
     if (rawOnline > 0) {
       sellingPrice = rawOnline;
       priceSource  = "online";
     } else {
-      // No online price: maximize selling price to the advance LTV ceiling
-      const maxSellingFromLTV = maxAdvance + downPayment + netTrade;
-      if (pacCost > 0 && maxSellingFromLTV >= pacCost) {
-        sellingPrice = Math.round(maxSellingFromLTV);
-        priceSource  = "maximized";
-      } else if (pacCost <= 0) {
-        debugCounts.noPrice++;
-        continue;
+      if (isFinite(maxAdvance)) {
+        // No online price: maximize selling price to the advance LTV ceiling
+        const maxSellingFromLTV = maxAdvance + downPayment + netTrade;
+        if (pacCost > 0 && maxSellingFromLTV >= pacCost) {
+          sellingPrice = Math.round(maxSellingFromLTV);
+          priceSource  = "maximized";
+        } else if (pacCost <= 0) {
+          debugCounts.noPrice++;
+          continue;
+        } else {
+          debugCounts.ltvAdvance++;
+          continue;
+        }
+      } else if (pacCost > 0) {
+        // Advance LTV is unlimited — use PAC cost as the selling price floor
+        sellingPrice = pacCost;
+        priceSource  = "pac";
       } else {
-        // LTV ceiling can't even cover PAC cost
-        debugCounts.ltvAdvance++;
+        debugCounts.noPrice++;
         continue;
       }
     }
@@ -305,11 +315,11 @@ router.post("/lender-calculate", requireOwnerOrViewer, async (req, res) => {
     }
 
     const aftermarketBaseValue = guide.aftermarketBase === "salePrice" ? sellingPrice : bbWholesale;
-    const maxAftermarket = aftermarketBaseValue * maxAftermarketLTV;
-    const maxAllIn       = bbWholesale * maxAllInLTV;
+    const maxAftermarket = isFinite(maxAftermarketLTV) ? aftermarketBaseValue * maxAftermarketLTV : Infinity;
+    const maxAllIn       = isFinite(maxAllInLTV) ? bbWholesale * maxAllInLTV : Infinity;
 
     const lenderExposure = sellingPrice - downPayment - netTrade;
-    if (lenderExposure > maxAdvance) { debugCounts.ltvAdvance++; continue; }
+    if (isFinite(maxAdvance) && lenderExposure > maxAdvance) { debugCounts.ltvAdvance++; continue; }
 
     // --- Maximize profit: admin -> warranty -> gap ---
     // Admin fee treatment varies by lender based on their LTV formula:
@@ -325,8 +335,19 @@ router.post("/lender-calculate", requireOwnerOrViewer, async (req, res) => {
     const minWarPriceCapped = (capWarranty != null) ? Math.min(minWarPrice, capWarranty) : minWarPrice;
     const minGapPriceCapped = gapAllowed ? ((capGap != null) ? Math.min(minGapPrice, capGap) : minGapPrice) : 0;
 
-    const allInRoom = maxAllIn - lenderExposure - creditorFee;
-    if (allInRoom <= 0) { debugCounts.ltvAllIn++; continue; }
+    // Safe subtraction that treats Infinity - Infinity as Infinity (unlimited budget)
+    function safeSub(a: number, b: number): number {
+      if (!isFinite(a)) return Infinity;
+      return a - b;
+    }
+    function safeMin(a: number, b: number): number {
+      if (!isFinite(a)) return b;
+      if (!isFinite(b)) return a;
+      return Math.min(a, b);
+    }
+
+    const allInRoom = safeSub(maxAllIn, lenderExposure + creditorFee);
+    if (isFinite(allInRoom) && allInRoom <= 0) { debugCounts.ltvAllIn++; continue; }
 
     // Step 1: Determine admin fee — maximize first in profit priority
     let effectiveAdmin: number;
@@ -334,22 +355,19 @@ router.post("/lender-calculate", requireOwnerOrViewer, async (req, res) => {
       effectiveAdmin = Math.min(requestedAdmin > 0 ? requestedAdmin : capAdmin, capAdmin);
     } else if (requestedAdmin > 0) {
       effectiveAdmin = requestedAdmin;
-    } else if (adminInclusion === "backend") {
-      const backendBudget = Math.min(maxAftermarket, allInRoom);
-      effectiveAdmin = Math.max(0, Math.floor(backendBudget - minWarPriceCapped - minGapPriceCapped));
-    } else if (adminInclusion === "allIn" || adminInclusion === "unknown") {
-      effectiveAdmin = Math.max(0, Math.floor(allInRoom - minWarPriceCapped - minGapPriceCapped));
     } else {
-      effectiveAdmin = 0;
+      effectiveAdmin = requestedAdmin;
     }
 
     // Constrain admin based on where it sits in the LTV calculation
-    if (adminInclusion === "backend") {
-      const backendBudget = Math.min(maxAftermarket, allInRoom);
-      const adminMaxBackend = backendBudget - minWarPriceCapped;
-      if (adminMaxBackend < 0) { debugCounts.ltvAllIn++; continue; }
-      if (effectiveAdmin > adminMaxBackend) effectiveAdmin = Math.max(0, Math.floor(adminMaxBackend));
-    } else if (adminInclusion === "allIn" || adminInclusion === "unknown") {
+    if (adminInclusion === "backend" && isFinite(allInRoom)) {
+      const backendBudget = safeMin(maxAftermarket, allInRoom);
+      if (isFinite(backendBudget)) {
+        const adminMaxBackend = backendBudget - minWarPriceCapped;
+        if (adminMaxBackend < 0) { debugCounts.ltvAllIn++; continue; }
+        if (effectiveAdmin > adminMaxBackend) effectiveAdmin = Math.max(0, Math.floor(adminMaxBackend));
+      }
+    } else if ((adminInclusion === "allIn" || adminInclusion === "unknown") && isFinite(allInRoom)) {
       const adminCeiling = allInRoom - minWarPriceCapped;
       if (adminCeiling < 0) { debugCounts.ltvAllIn++; continue; }
       if (effectiveAdmin > adminCeiling) effectiveAdmin = Math.max(0, Math.floor(adminCeiling));
@@ -358,40 +376,38 @@ router.post("/lender-calculate", requireOwnerOrViewer, async (req, res) => {
     // Step 2: Aftermarket budget (warranty + GAP)
     let aftermarketBudget: number;
     if (adminInclusion === "backend") {
-      // Admin already consumed from the shared backend budget
-      aftermarketBudget = Math.min(maxAftermarket, allInRoom) - effectiveAdmin;
+      aftermarketBudget = safeSub(safeMin(maxAftermarket, allInRoom), effectiveAdmin);
     } else if (adminInclusion === "excluded") {
-      // Admin is outside LTV — aftermarket gets full min(maxAftermarket, allInRoom)
-      aftermarketBudget = Math.min(maxAftermarket, allInRoom);
+      aftermarketBudget = safeMin(maxAftermarket, allInRoom);
     } else {
-      // "allIn" or "unknown" — admin consumed from all-in only, not aftermarket
-      aftermarketBudget = Math.min(maxAftermarket, allInRoom - effectiveAdmin);
+      aftermarketBudget = safeMin(maxAftermarket, safeSub(allInRoom, effectiveAdmin));
     }
-    if (aftermarketBudget < minWarPriceCapped) { debugCounts.ltvMinAftermarket++; continue; }
+    if (isFinite(aftermarketBudget) && aftermarketBudget < minWarPriceCapped) { debugCounts.ltvMinAftermarket++; continue; }
 
     // Step 2a: Maximize warranty
     let warPrice: number;
     if (capWarranty != null) {
-      warPrice = Math.min(aftermarketBudget, capWarranty);
+      warPrice = isFinite(aftermarketBudget) ? Math.min(aftermarketBudget, capWarranty) : capWarranty;
     } else {
-      warPrice = aftermarketBudget;
+      warPrice = isFinite(aftermarketBudget) ? aftermarketBudget : minWarPrice;
     }
     warPrice = Math.max(warPrice, minWarPriceCapped);
-    if (warPrice > aftermarketBudget) { debugCounts.ltvMinAftermarket++; continue; }
+    if (isFinite(aftermarketBudget) && warPrice > aftermarketBudget) { debugCounts.ltvMinAftermarket++; continue; }
     const warCost = Math.round(warPrice / MARKUP);
-    let remainingAftermarket = aftermarketBudget - warPrice;
+    let remainingAftermarket = isFinite(aftermarketBudget) ? aftermarketBudget - warPrice : Infinity;
 
     // Step 3: Maximize GAP with whatever aftermarket room is left
     let gapPr = 0;
     let gCost = 0;
-    if (gapAllowed && remainingAftermarket >= minGapPriceCapped && minGapPriceCapped > 0) {
+    const gapFits = isFinite(remainingAftermarket) ? remainingAftermarket >= minGapPriceCapped : true;
+    if (gapAllowed && gapFits && minGapPriceCapped > 0) {
       if (capGap != null) {
-        gapPr = Math.min(remainingAftermarket, capGap);
+        gapPr = isFinite(remainingAftermarket) ? Math.min(remainingAftermarket, capGap) : capGap;
       } else {
-        gapPr = remainingAftermarket;
+        gapPr = isFinite(remainingAftermarket) ? remainingAftermarket : minGapPrice;
       }
       gapPr = Math.max(gapPr, minGapPriceCapped);
-      if (gapPr > remainingAftermarket) gapPr = 0;
+      if (isFinite(remainingAftermarket) && gapPr > remainingAftermarket) gapPr = 0;
       gCost = Math.round(gapPr / MARKUP);
     }
 
@@ -443,7 +459,7 @@ router.post("/lender-calculate", requireOwnerOrViewer, async (req, res) => {
 
   results.sort((a, b) => b.profit - a.profit);
 
-  logger.info({ debugCounts, lender: params.lenderCode, program: guide.programTitle, tier: params.tierName, allInOnlyRules, hasIndividualCaps, adminInclusion: guide.adminFeeInclusion, capAdmin, capWarranty, capGap }, "Lender calculate debug");
+  logger.info({ debugCounts, lender: params.lenderCode, program: guide.programTitle, tier: params.tierName, allInOnlyRules, adminInclusion: guide.adminFeeInclusion, capAdmin, capWarranty, capGap }, "Lender calculate debug");
 
   res.set("Cache-Control", "no-store");
   res.json({

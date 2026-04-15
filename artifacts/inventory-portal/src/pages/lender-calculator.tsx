@@ -22,38 +22,22 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Separator } from "@/components/ui/separator";
-import { RefreshCw, Calculator, DollarSign, Car, Percent, AlertCircle, ChevronDown, ChevronUp, Eye } from "lucide-react";
+import { RefreshCw, Calculator, Car, AlertCircle, Eye, ChevronDown, ChevronUp } from "lucide-react";
 
 function formatCurrency(n: number): string {
+  if (!isFinite(n)) return "—";
   return new Intl.NumberFormat("en-CA", { style: "currency", currency: "CAD", minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(n);
 }
 
 function formatPayment(n: number): string {
+  if (!isFinite(n)) return "—";
   return new Intl.NumberFormat("en-CA", { style: "currency", currency: "CAD", minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n);
 }
 
-function TierConfigCard({ tier, programTitle }: { tier: LenderProgramTier; programTitle: string }) {
-  return (
-    <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 text-sm space-y-2">
-      <div className="font-medium text-blue-800">{programTitle} — {tier.tierName}</div>
-      <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-blue-700">
-        <div>Rate Range: <span className="font-semibold">{tier.minRate}–{tier.maxRate}%</span></div>
-        <div>Max Payment: <span className="font-semibold">{tier.maxPayment > 0 ? formatCurrency(tier.maxPayment) : "None"}</span></div>
-      </div>
-    </div>
-  );
-}
-
 function conditionLabel(c: string): string {
-  const map: Record<string, string> = {
-    extraClean: "Extra Clean",
-    clean: "Clean",
-    average: "Average",
-    rough: "Rough",
-  };
+  const map: Record<string, string> = { extraClean: "Extra Clean", clean: "Clean", average: "Average", rough: "Rough" };
   return map[c] ?? c;
 }
 
@@ -72,7 +56,11 @@ function ResultRow({ item, rank }: { item: LenderCalcResultItem; rank: number })
       <td className="px-3 py-2.5 text-sm text-right font-medium text-gray-700">{formatCurrency(item.bbWholesale)}</td>
       <td className="px-3 py-2.5 text-sm text-right font-medium text-gray-700">
         {item.sellingPrice > 0 ? formatCurrency(item.sellingPrice) : "—"}
-        {item.priceSource && <span className="text-xs text-gray-400 ml-1">({item.priceSource === "online" ? "Online" : item.priceSource === "maximized" ? "Max LTV" : "PAC"})</span>}
+        {item.priceSource && (
+          <span className="text-xs text-gray-400 ml-1">
+            ({item.priceSource === "online" ? "Online" : item.priceSource === "maximized" ? "Max LTV" : "PAC"})
+          </span>
+        )}
       </td>
       <td className="px-3 py-2.5 text-sm text-right font-medium text-indigo-700">{formatCurrency(item.adminFeeUsed)}</td>
       <td className="px-3 py-2.5 text-sm text-right text-gray-700">
@@ -134,14 +122,12 @@ export default function LenderCalculator() {
 
   const calcResults: LenderCalculateResponse | null = calcMutation.data ?? null;
 
-  // Auto-select program when lender has exactly one program
   useEffect(() => {
     if (selectedLenderObj && selectedLenderObj.programs.length === 1 && !selectedProgram) {
       setSelectedProgram(selectedLenderObj.programs[0].programId);
     }
   }, [selectedLenderObj, selectedProgram]);
 
-  // Auto-fill approved rate with tier's minimum rate when tier is selected
   useEffect(() => {
     if (selectedTierObj) {
       setApprovedRate(String(selectedTierObj.minRate));
@@ -171,7 +157,6 @@ export default function LenderCalculator() {
     };
     const pmtOverride = parseFloat(maxPaymentOverride);
     if (pmtOverride > 0) payload.maxPaymentOverride = pmtOverride;
-
     calcMutation.mutate({ data: payload });
   };
 
@@ -191,16 +176,20 @@ export default function LenderCalculator() {
     [programs],
   );
 
+  const selectClass = "h-9 text-sm font-medium bg-white border-gray-300 shadow-sm";
+  const dropdownClass = "max-h-80 bg-white border border-gray-200 shadow-lg";
+  const optionClass = "text-sm py-2.5 px-3 cursor-pointer hover:bg-gray-100 focus:bg-gray-100";
+
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+    <div className="space-y-4">
+      {/* Header row */}
+      <div className="flex items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Inventory Selector</h1>
-          <p className="text-sm text-gray-500 mt-1">
-            Filter inventory by customer approval parameters using cached lender program matrices
+          <p className="text-sm text-gray-500 mt-0.5">
+            {programs.length} lender{programs.length !== 1 ? "s" : ""}, {totalPrograms} program{totalPrograms !== 1 ? "s" : ""}
           </p>
         </div>
-
         <div className="flex items-center gap-3">
           {statusData && (
             <div className="text-xs text-gray-400">
@@ -216,12 +205,7 @@ export default function LenderCalculator() {
             </div>
           )}
           {isUserOwner && (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={handleRefresh}
-              disabled={refreshMutation.isPending || statusData?.running}
-            >
+            <Button variant="outline" size="sm" onClick={handleRefresh} disabled={refreshMutation.isPending || statusData?.running}>
               <RefreshCw className={`w-4 h-4 mr-1.5 ${statusData?.running ? "animate-spin" : ""}`} />
               Sync Programs
             </Button>
@@ -248,28 +232,19 @@ export default function LenderCalculator() {
       )}
 
       {programs.length > 0 && (
-        <div className="grid grid-cols-1 xl:grid-cols-[400px_minmax(0,1fr)] gap-6">
-          <div>
-            <Card>
-              <CardHeader className="pb-4">
-                <CardTitle className="text-base flex items-center gap-2">
-                  <Calculator className="w-4 h-4" />
-                  Calculator Inputs
-                </CardTitle>
-                <CardDescription>
-                  {programs.length} lender{programs.length !== 1 ? "s" : ""}, {totalPrograms} program{totalPrograms !== 1 ? "s" : ""}
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="space-y-2">
-                  <Label className="text-xs font-semibold tracking-wide text-gray-700 uppercase">Lender</Label>
+        <>
+          {/* Inputs — horizontal across top */}
+          <Card>
+            <CardContent className="pt-5 pb-4">
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-x-4 gap-y-3">
+                {/* Lender */}
+                <div className="space-y-1">
+                  <Label className="text-xs font-semibold tracking-wide text-gray-600 uppercase">Lender</Label>
                   <Select value={selectedLender} onValueChange={handleLenderChange}>
-                    <SelectTrigger className="h-10 text-sm font-medium bg-white border-gray-300 shadow-sm">
-                      <SelectValue placeholder="Select a lender" />
-                    </SelectTrigger>
-                    <SelectContent className="max-h-80 bg-white border border-gray-200 shadow-lg">
+                    <SelectTrigger className={selectClass}><SelectValue placeholder="Select" /></SelectTrigger>
+                    <SelectContent className={dropdownClass}>
                       {programs.map(p => (
-                        <SelectItem key={p.lenderCode} value={p.lenderCode} className="text-sm py-2.5 px-3 cursor-pointer hover:bg-gray-100 focus:bg-gray-100">
+                        <SelectItem key={p.lenderCode} value={p.lenderCode} className={optionClass}>
                           {p.lenderName} ({p.lenderCode})
                         </SelectItem>
                       ))}
@@ -277,271 +252,212 @@ export default function LenderCalculator() {
                   </Select>
                 </div>
 
-                {selectedLenderObj && selectedLenderObj.programs.length > 1 && (
-                  <div className="space-y-2">
-                    <Label className="text-xs font-semibold tracking-wide text-gray-700 uppercase">Program</Label>
-                    <Select value={selectedProgram} onValueChange={handleProgramChange}>
-                      <SelectTrigger className="h-10 text-sm font-medium bg-white border-gray-300 shadow-sm">
-                        <SelectValue placeholder="Select a program" />
-                      </SelectTrigger>
-                      <SelectContent className="max-h-80 bg-white border border-gray-200 shadow-lg">
-                        {selectedLenderObj.programs.map(g => (
-                          <SelectItem key={g.programId} value={g.programId} className="text-sm py-2.5 px-3 cursor-pointer hover:bg-gray-100 focus:bg-gray-100">
+                {/* Program */}
+                <div className="space-y-1">
+                  <Label className="text-xs font-semibold tracking-wide text-gray-600 uppercase">Program</Label>
+                  {selectedLenderObj && selectedLenderObj.programs.length === 1 && selectedProgram ? (
+                    <div className="h-9 flex items-center px-3 bg-gray-50 border border-gray-200 rounded-md text-sm font-medium text-gray-700 truncate">
+                      {selectedLenderObj.programs[0].programTitle}
+                    </div>
+                  ) : (
+                    <Select value={selectedProgram} onValueChange={handleProgramChange} disabled={!selectedLenderObj}>
+                      <SelectTrigger className={selectClass}><SelectValue placeholder="Select" /></SelectTrigger>
+                      <SelectContent className={dropdownClass}>
+                        {(selectedLenderObj?.programs ?? []).map(g => (
+                          <SelectItem key={g.programId} value={g.programId} className={optionClass}>
                             {g.programTitle} ({g.tiers.length} tier{g.tiers.length !== 1 ? "s" : ""})
                           </SelectItem>
                         ))}
                       </SelectContent>
                     </Select>
-                  </div>
-                )}
-
-                {selectedLenderObj && selectedLenderObj.programs.length === 1 && selectedProgram && (
-                  <div className="space-y-1">
-                    <Label className="text-xs font-semibold tracking-wide text-gray-700 uppercase">Program</Label>
-                    <div className="h-10 flex items-center px-3 bg-gray-50 border border-gray-200 rounded-md text-sm font-medium text-gray-700">
-                      {selectedLenderObj.programs[0].programTitle} ({selectedLenderObj.programs[0].tiers.length} tier{selectedLenderObj.programs[0].tiers.length !== 1 ? "s" : ""})
-                    </div>
-                  </div>
-                )}
-
-                {selectedGuide && (
-                  <div className="space-y-2">
-                    <Label className="text-xs font-semibold tracking-wide text-gray-700 uppercase">Tier</Label>
-                    <Select value={selectedTier} onValueChange={setSelectedTier}>
-                      <SelectTrigger className="h-10 text-sm font-medium bg-white border-gray-300 shadow-sm">
-                        <SelectValue placeholder="Select a tier" />
-                      </SelectTrigger>
-                      <SelectContent className="max-h-80 bg-white border border-gray-200 shadow-lg">
-                        {selectedGuide.tiers.map(t => (
-                          <SelectItem key={t.tierName} value={t.tierName} className="text-sm py-2.5 px-3 cursor-pointer hover:bg-gray-100 focus:bg-gray-100">
-                            {t.tierName} ({t.minRate}–{t.maxRate}%)
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                )}
-
-                {selectedTierObj && selectedGuide && (
-                  <TierConfigCard tier={selectedTierObj} programTitle={selectedGuide.programTitle} />
-                )}
-
-                <Separator />
-
-                <div className="space-y-1.5">
-                  <Label className="text-xs font-semibold tracking-wide text-gray-700 uppercase flex items-center gap-1">
-                    <Percent className="w-3 h-3" /> Approved Rate (%)
-                  </Label>
-                  <Input
-                    type="number"
-                    step="0.01"
-                    value={approvedRate}
-                    onChange={e => setApprovedRate(e.target.value)}
-                    className="h-9"
-                  />
-                  {selectedTierObj && (
-                    <p className="text-xs text-gray-400">
-                      Tier range: {selectedTierObj.minRate}%–{selectedTierObj.maxRate}% (auto-filled with lowest)
-                    </p>
                   )}
                 </div>
 
-                <div className="space-y-1.5">
-                  <Label className="text-xs font-semibold tracking-wide text-gray-700 uppercase flex items-center gap-1">
-                    <DollarSign className="w-3 h-3" /> Max Payment Override
-                  </Label>
+                {/* Tier */}
+                <div className="space-y-1">
+                  <Label className="text-xs font-semibold tracking-wide text-gray-600 uppercase">Tier</Label>
+                  <Select value={selectedTier} onValueChange={setSelectedTier} disabled={!selectedGuide}>
+                    <SelectTrigger className={selectClass}><SelectValue placeholder="Select" /></SelectTrigger>
+                    <SelectContent className={dropdownClass}>
+                      {(selectedGuide?.tiers ?? []).map(t => (
+                        <SelectItem key={t.tierName} value={t.tierName} className={optionClass}>
+                          {t.tierName} ({t.minRate}–{t.maxRate}%)
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {/* Approved Rate */}
+                <div className="space-y-1">
+                  <Label className="text-xs font-semibold tracking-wide text-gray-600 uppercase">Rate (%)</Label>
+                  <Input type="number" step="0.01" value={approvedRate} onChange={e => setApprovedRate(e.target.value)} className="h-9" />
+                </div>
+
+                {/* Max Payment */}
+                <div className="space-y-1">
+                  <Label className="text-xs font-semibold tracking-wide text-gray-600 uppercase">Max Payment</Label>
                   <Input
-                    type="number"
-                    step="10"
-                    placeholder={selectedTierObj ? `Tier max: ${selectedTierObj.maxPayment > 0 ? formatCurrency(selectedTierObj.maxPayment) : "None"}` : "Optional"}
-                    value={maxPaymentOverride}
-                    onChange={e => setMaxPaymentOverride(e.target.value)}
-                    className="h-9"
+                    type="number" step="10"
+                    placeholder={selectedTierObj ? `${selectedTierObj.maxPayment > 0 ? formatCurrency(selectedTierObj.maxPayment) : "None"}` : "Optional"}
+                    value={maxPaymentOverride} onChange={e => setMaxPaymentOverride(e.target.value)} className="h-9"
                   />
                 </div>
 
-                <Separator />
-
-                <div className="space-y-1.5">
-                  <Label className="text-xs font-semibold tracking-wide text-gray-700 uppercase">Down Payment</Label>
-                  <Input
-                    type="number"
-                    value={downPayment}
-                    onChange={e => setDownPayment(e.target.value)}
-                    className="h-9"
-                  />
+                {/* Down Payment */}
+                <div className="space-y-1">
+                  <Label className="text-xs font-semibold tracking-wide text-gray-600 uppercase">Down Payment</Label>
+                  <Input type="number" value={downPayment} onChange={e => setDownPayment(e.target.value)} className="h-9" />
                 </div>
+              </div>
 
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="space-y-1.5">
-                    <Label className="text-xs font-semibold tracking-wide text-gray-700 uppercase">Trade-In Value</Label>
-                    <Input
-                      type="number"
-                      value={tradeValue}
-                      onChange={e => setTradeValue(e.target.value)}
-                      className="h-9"
-                    />
+              {/* Second row: trade, advanced toggle, View Inventory button */}
+              <div className="flex items-end gap-4 mt-3">
+                <div className="grid grid-cols-2 gap-3 w-64 flex-shrink-0">
+                  <div className="space-y-1">
+                    <Label className="text-xs font-semibold tracking-wide text-gray-600 uppercase">Trade Value</Label>
+                    <Input type="number" value={tradeValue} onChange={e => setTradeValue(e.target.value)} className="h-9" />
                   </div>
-                  <div className="space-y-1.5">
-                    <Label className="text-xs font-semibold tracking-wide text-gray-700 uppercase">Trade Lien</Label>
-                    <Input
-                      type="number"
-                      value={tradeLien}
-                      onChange={e => setTradeLien(e.target.value)}
-                      className="h-9"
-                    />
+                  <div className="space-y-1">
+                    <Label className="text-xs font-semibold tracking-wide text-gray-600 uppercase">Trade Lien</Label>
+                    <Input type="number" value={tradeLien} onChange={e => setTradeLien(e.target.value)} className="h-9" />
                   </div>
                 </div>
+
+                {showAdvanced && (
+                  <div className="grid grid-cols-2 gap-3 w-56 flex-shrink-0">
+                    <div className="space-y-1">
+                      <Label className="text-xs font-semibold tracking-wide text-gray-600 uppercase">Tax (%)</Label>
+                      <Input type="number" step="0.5" value={taxRate} onChange={e => setTaxRate(e.target.value)} className="h-9" />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs font-semibold tracking-wide text-gray-600 uppercase">Admin Fee</Label>
+                      <Input type="number" value={adminFee} onChange={e => setAdminFee(e.target.value)} className="h-9" />
+                    </div>
+                  </div>
+                )}
 
                 <button
                   type="button"
                   onClick={() => setShowAdvanced(!showAdvanced)}
-                  className="flex items-center gap-1 text-xs text-gray-500 hover:text-gray-700 transition-colors"
+                  className="flex items-center gap-1 text-xs text-gray-500 hover:text-gray-700 transition-colors pb-2 whitespace-nowrap"
                 >
                   {showAdvanced ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
-                  {showAdvanced ? "Hide" : "Show"} advanced options
+                  {showAdvanced ? "Less" : "More"}
                 </button>
 
-                {showAdvanced && (
-                  <div className="space-y-3 pt-1">
-                    <div className="grid grid-cols-2 gap-3">
-                      <div className="space-y-1.5">
-                        <Label className="text-xs font-semibold tracking-wide text-gray-700 uppercase">Tax Rate (%)</Label>
-                        <Input
-                          type="number"
-                          step="0.5"
-                          value={taxRate}
-                          onChange={e => setTaxRate(e.target.value)}
-                          className="h-9"
-                        />
-                      </div>
-                      <div className="space-y-1.5">
-                        <Label className="text-xs font-semibold tracking-wide text-gray-700 uppercase">Dealer Admin Fee</Label>
-                        <Input
-                          type="number"
-                          value={adminFee}
-                          onChange={e => setAdminFee(e.target.value)}
-                          className="h-9"
-                        />
-                      </div>
-                    </div>
-                    <p className="text-xs text-gray-500">
-                      Profit maximized in order: dealer admin fee, then warranty (cost × 2.5, min $600 cost), then GAP (cost × 2.5, min $550 cost).
-                      {selectedGuide?.maxWarrantyPrice != null && <span className="block mt-1">Max warranty selling price: {formatCurrency(selectedGuide.maxWarrantyPrice)}</span>}
-                      {selectedGuide?.maxGapPrice != null && selectedGuide.maxGapPrice === 0 && <span className="block mt-1 text-amber-600 font-medium">GAP not allowed by this lender</span>}
-                      {selectedGuide?.maxGapPrice != null && selectedGuide.maxGapPrice > 0 && <span className="block mt-1">Max GAP selling price: {formatCurrency(selectedGuide.maxGapPrice)}</span>}
-                      {selectedGuide?.maxAdminFee != null && <span className="block mt-1">Max admin fee: {formatCurrency(selectedGuide.maxAdminFee)}</span>}
-                    </p>
-                  </div>
-                )}
+                <div className="ml-auto flex-shrink-0">
+                  <Button
+                    onClick={handleCalculate}
+                    disabled={!selectedLender || !selectedProgram || !selectedTier || calcMutation.isPending}
+                    className="h-9"
+                  >
+                    {calcMutation.isPending ? (
+                      <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
+                    ) : (
+                      <Eye className="w-4 h-4 mr-2" />
+                    )}
+                    View Inventory
+                  </Button>
+                </div>
+              </div>
 
-                <Button
-                  className="w-full"
-                  onClick={handleCalculate}
-                  disabled={!selectedLender || !selectedProgram || !selectedTier || calcMutation.isPending}
-                >
-                  {calcMutation.isPending ? (
-                    <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
-                  ) : (
-                    <Eye className="w-4 h-4 mr-2" />
-                  )}
-                  View Inventory
-                </Button>
+              {/* Tier info badge */}
+              {selectedTierObj && (
+                <div className="flex items-center gap-3 mt-2 text-xs text-blue-700">
+                  <Badge variant="outline" className="text-xs bg-blue-50 border-blue-200">
+                    {selectedGuide?.programTitle} — {selectedTierObj.tierName}
+                  </Badge>
+                  <span>Rate: {selectedTierObj.minRate}–{selectedTierObj.maxRate}%</span>
+                  <span>Max Pmt: {selectedTierObj.maxPayment > 0 ? formatCurrency(selectedTierObj.maxPayment) : "None"}</span>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Error */}
+          {calcMutation.isError && (
+            <Card className="border-red-200 bg-red-50">
+              <CardContent className="pt-6">
+                <div className="flex items-start gap-3">
+                  <AlertCircle className="w-5 h-5 text-red-600 mt-0.5 flex-shrink-0" />
+                  <div>
+                    <p className="text-sm font-medium text-red-800">Calculation Error</p>
+                    <p className="text-sm text-red-700 mt-1">{String((calcMutation.error as any)?.message || "Unknown error")}</p>
+                  </div>
+                </div>
               </CardContent>
             </Card>
-          </div>
+          )}
 
-          <div className="min-w-0">
-            {calcMutation.isError && (
-              <Card className="border-red-200 bg-red-50 mb-4">
-                <CardContent className="pt-6">
-                  <div className="flex items-start gap-3">
-                    <AlertCircle className="w-5 h-5 text-red-600 mt-0.5 flex-shrink-0" />
-                    <div>
-                      <p className="text-sm font-medium text-red-800">Calculation Error</p>
-                      <p className="text-sm text-red-700 mt-1">{String((calcMutation.error as any)?.message || "Unknown error")}</p>
-                    </div>
+          {/* Results — full width below */}
+          {calcResults && (
+            <Card>
+              <CardContent className="pt-5">
+                <div className="flex items-center justify-between gap-4 mb-3">
+                  <div className="flex items-center gap-2 text-sm font-semibold text-gray-900">
+                    <Car className="w-4 h-4" />
+                    Results
+                    <Badge variant="secondary" className="text-xs ml-1">{calcResults.resultCount} vehicles</Badge>
                   </div>
-                </CardContent>
-              </Card>
-            )}
-
-            {calcResults && (
-              <Card>
-                <CardHeader className="pb-4">
-                  <div className="flex items-center justify-between gap-4">
-                    <CardTitle className="text-base flex items-center gap-2">
-                      <Car className="w-4 h-4" />
-                      Results
-                      <Badge variant="secondary" className="text-xs ml-1">{calcResults.resultCount} vehicles</Badge>
-                    </CardTitle>
-                    <div className="text-xs text-gray-500 text-right">
-                      {calcResults.lender} / {calcResults.program} / {calcResults.tier}
-                    </div>
-                  </div>
-                  <div className="flex flex-wrap gap-2 pt-1">
+                  <div className="flex flex-wrap gap-2">
+                    <Badge variant="outline" className="text-xs">{calcResults.lender} / {calcResults.program} / {calcResults.tier}</Badge>
                     <Badge variant="outline" className="text-xs">Rate: {approvedRate}%</Badge>
-                    <Badge variant="outline" className="text-xs">Tax: {taxRate}%</Badge>
                     {maxPaymentOverride && Number(maxPaymentOverride) > 0 && (
                       <Badge variant="outline" className="text-xs">Pmt Cap: {formatCurrency(Number(maxPaymentOverride))}</Badge>
                     )}
-                    <Badge variant="outline" className="text-xs">Down: {formatCurrency(Number(downPayment || 0))}</Badge>
                   </div>
-                </CardHeader>
-                <CardContent>
-                  {calcResults.resultCount === 0 ? (
-                    <div className="text-center py-12 text-gray-400">
-                      <Car className="w-10 h-10 mx-auto mb-3 opacity-40" />
-                      <p className="text-sm font-medium">No vehicles qualify</p>
-                      <p className="text-xs mt-1">Try adjusting the max payment or rate</p>
-                    </div>
-                  ) : (
-                    <div className="rounded-md border border-gray-200">
-                      <table className="text-left w-full">
-                        <thead className="bg-gray-50 sticky top-0 z-10">
-                          <tr className="border-b border-gray-200 text-xs text-gray-600 uppercase tracking-wide">
-                            <th className="w-10 px-3 py-2.5 text-center">#</th>
-                            <th className="px-3 py-2.5" style={{ width: "280px" }}>Vehicle</th>
-                            <th className="px-3 py-2.5" style={{ width: "100px" }}>Location</th>
-                            <th className="px-3 py-2.5 text-center" style={{ width: "70px" }}>Term</th>
-                            <th className="px-3 py-2.5 text-center" style={{ width: "100px" }}>Condition</th>
-                            <th className="px-3 py-2.5 text-right" style={{ width: "110px" }}>BB Value</th>
-                            <th className="px-3 py-2.5 text-right" style={{ width: "120px" }}>Sell Price</th>
-                            <th className="px-3 py-2.5 text-right" style={{ width: "100px" }}>Admin Fee</th>
-                            <th className="px-3 py-2.5 text-right" style={{ width: "130px" }}>Warranty</th>
-                            <th className="px-3 py-2.5 text-right" style={{ width: "120px" }}>GAP</th>
-                            <th className="px-3 py-2.5 text-right" style={{ width: "120px" }}>Financed</th>
-                            <th className="px-3 py-2.5 text-right" style={{ width: "100px" }}>Payment</th>
-                            <th className="px-3 py-2.5 text-right" style={{ width: "100px" }}>Profit</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {calcResults.results.map((item, idx) => (
-                            <ResultRow key={item.vin} item={item} rank={idx + 1} />
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-            )}
+                </div>
 
-            {!calcResults && !calcMutation.isError && (
-              <Card className="border-dashed border-gray-300">
-                <CardContent className="py-16">
-                  <div className="text-center text-gray-400">
-                    <Calculator className="w-10 h-10 mx-auto mb-3 opacity-40" />
-                    <p className="text-sm font-medium">Select a lender, program, and tier, then click View Inventory</p>
-                    <p className="text-xs mt-1">
-                      The Inventory Selector filters your inventory by the customer's approval parameters
-                    </p>
+                {calcResults.resultCount === 0 ? (
+                  <div className="text-center py-12 text-gray-400">
+                    <Car className="w-10 h-10 mx-auto mb-3 opacity-40" />
+                    <p className="text-sm font-medium">No vehicles qualify</p>
+                    <p className="text-xs mt-1">Try adjusting the max payment or rate</p>
                   </div>
-                </CardContent>
-              </Card>
-            )}
-          </div>
-        </div>
+                ) : (
+                  <div className="rounded-md border border-gray-200 overflow-x-auto">
+                    <table className="text-left w-full">
+                      <thead className="bg-gray-50 sticky top-0 z-10">
+                        <tr className="border-b border-gray-200 text-xs text-gray-600 uppercase tracking-wide">
+                          <th className="w-10 px-3 py-2.5 text-center">#</th>
+                          <th className="px-3 py-2.5" style={{ minWidth: "240px" }}>Vehicle</th>
+                          <th className="px-3 py-2.5" style={{ minWidth: "90px" }}>Location</th>
+                          <th className="px-3 py-2.5 text-center" style={{ minWidth: "60px" }}>Term</th>
+                          <th className="px-3 py-2.5 text-center" style={{ minWidth: "90px" }}>Condition</th>
+                          <th className="px-3 py-2.5 text-right" style={{ minWidth: "100px" }}>BB Value</th>
+                          <th className="px-3 py-2.5 text-right" style={{ minWidth: "110px" }}>Sell Price</th>
+                          <th className="px-3 py-2.5 text-right" style={{ minWidth: "90px" }}>Admin Fee</th>
+                          <th className="px-3 py-2.5 text-right" style={{ minWidth: "120px" }}>Warranty</th>
+                          <th className="px-3 py-2.5 text-right" style={{ minWidth: "110px" }}>GAP</th>
+                          <th className="px-3 py-2.5 text-right" style={{ minWidth: "110px" }}>Financed</th>
+                          <th className="px-3 py-2.5 text-right" style={{ minWidth: "90px" }}>Payment</th>
+                          <th className="px-3 py-2.5 text-right" style={{ minWidth: "90px" }}>Profit</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {calcResults.results.map((item, idx) => (
+                          <ResultRow key={item.vin} item={item} rank={idx + 1} />
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          )}
+
+          {!calcResults && !calcMutation.isError && (
+            <Card className="border-dashed border-gray-300">
+              <CardContent className="py-16">
+                <div className="text-center text-gray-400">
+                  <Calculator className="w-10 h-10 mx-auto mb-3 opacity-40" />
+                  <p className="text-sm font-medium">Select a lender, program, and tier, then click View Inventory</p>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+        </>
       )}
     </div>
   );
