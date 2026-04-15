@@ -443,6 +443,8 @@ router.post("/lender-calculate", requireOwnerOrViewer, async (req, res) => {
 
   results.sort((a, b) => b.profit - a.profit);
 
+  logger.info({ debugCounts, lender: params.lenderCode, program: guide.programTitle, tier: params.tierName, allInOnlyRules, hasIndividualCaps, adminInclusion: guide.adminFeeInclusion, capAdmin, capWarranty, capGap }, "Lender calculate debug");
+
   res.set("Cache-Control", "no-store");
   res.json({
     lender:     params.lenderCode,
@@ -458,9 +460,45 @@ router.post("/lender-calculate", requireOwnerOrViewer, async (req, res) => {
       allInOnlyRules,
       adminFeeInclusion:  guide.adminFeeInclusion ?? "unknown",
     },
+    debugCounts,
     resultCount: results.length,
     results,
   });
+});
+
+// Diagnostic endpoint — dumps cached program metadata for debugging
+router.get("/lender-debug", requireOwner, async (_req, res) => {
+  const programs = getCachedLenderPrograms();
+  if (!programs) {
+    res.json({ error: "No cached programs", programs: [] });
+    return;
+  }
+  const summary = programs.programs.map(lender => ({
+    lenderCode: lender.lenderCode,
+    lenderName: lender.lenderName,
+    programs: lender.programs.map(g => ({
+      programId: g.programId,
+      programTitle: g.programTitle,
+      tiersCount: g.tiers.length,
+      tiers: g.tiers.map(t => ({
+        tierName: t.tierName,
+        maxAdvanceLTV: t.maxAdvanceLTV,
+        maxAftermarketLTV: t.maxAftermarketLTV,
+        maxAllInLTV: t.maxAllInLTV,
+        creditorFee: t.creditorFee,
+        dealerReserve: t.dealerReserve,
+      })),
+      maxWarrantyPrice: g.maxWarrantyPrice ?? null,
+      maxGapPrice: g.maxGapPrice ?? null,
+      maxAdminFee: g.maxAdminFee ?? null,
+      aftermarketBase: g.aftermarketBase ?? "unknown",
+      allInOnlyRules: g.allInOnlyRules ?? false,
+      adminFeeInclusion: g.adminFeeInclusion ?? "unknown",
+      backendLtvCalculation: g.backendLtvCalculation ?? null,
+      allInLtvCalculation: g.allInLtvCalculation ?? null,
+    })),
+  }));
+  res.json({ updatedAt: programs.updatedAt, lenders: summary });
 });
 
 export default router;

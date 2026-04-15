@@ -226,6 +226,20 @@ function mapProgramGuide(prog: any): LenderProgramGuide {
   const aftermarketBase = inferAftermarketBase(backendRemainingCalculation);
   const adminFeeInclusion = inferAdminFeeInclusion(backendLtvCalculation, allInLtvCalculation);
 
+  const parsedMaxWarranty = parseCalcNumber(prog.maxExtendedWarrantyFeeCalculation);
+  const parsedMaxGap     = parseCalcNumber(prog.maxGapInsuranceFeeCalculation);
+  const parsedMaxAdmin   = parseCalcNumber(prog.maxDealerAdminFeeCalculation);
+
+  logger.info({
+    program: prog.title,
+    rawWarrantyCalc: prog.maxExtendedWarrantyFeeCalculation ?? null,
+    rawGapCalc:      prog.maxGapInsuranceFeeCalculation ?? null,
+    rawAdminCalc:    prog.maxDealerAdminFeeCalculation ?? null,
+    parsedMaxWarranty, parsedMaxGap, parsedMaxAdmin,
+    adminFeeInclusion,
+    aftermarketBase,
+  }, "Lender sync: program fee caps");
+
   return {
     programId:              prog.id,
     programTitle:           prog.title ?? "Unknown",
@@ -234,9 +248,9 @@ function mapProgramGuide(prog: any): LenderProgramGuide {
     vehicleTermMatrix,
     vehicleConditionMatrix,
     maxTerm,
-    maxWarrantyPrice: parseCalcNumber(prog.maxExtendedWarrantyFeeCalculation),
-    maxGapPrice:      parseCalcNumber(prog.maxGapInsuranceFeeCalculation),
-    maxAdminFee:      parseCalcNumber(prog.maxDealerAdminFeeCalculation),
+    maxWarrantyPrice: parsedMaxWarranty,
+    maxGapPrice:      parsedMaxGap,
+    maxAdminFee:      parsedMaxAdmin,
     backendLtvCalculation,
     allInLtvCalculation,
     backendRemainingCalculation,
