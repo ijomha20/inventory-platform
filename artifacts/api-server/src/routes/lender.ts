@@ -225,9 +225,8 @@ router.post("/lender-calculate", requireOwnerOrViewer, async (req, res) => {
 
   const adminInclusion = guide.adminFeeInclusion ?? "unknown";
 
-  // For lenders with separate advance/aftermarket LTVs, use CreditApp caps
-  const capWarranty = (hasAftermarketCap && guide.maxWarrantyPrice != null) ? guide.maxWarrantyPrice : undefined;
-  const capGap      = (hasAftermarketCap && guide.maxGapPrice != null)      ? guide.maxGapPrice      : undefined;
+  const capWarranty = (guide.maxWarrantyPrice != null && guide.maxWarrantyPrice > 0) ? guide.maxWarrantyPrice : undefined;
+  const capGap      = (guide.maxGapPrice != null)      ? guide.maxGapPrice      : undefined;
   const capAdmin    = (guide.maxAdminFee != null && guide.maxAdminFee > 0)  ? guide.maxAdminFee      : undefined;
   const gapAllowed  = capGap == null || capGap > 0;
 
