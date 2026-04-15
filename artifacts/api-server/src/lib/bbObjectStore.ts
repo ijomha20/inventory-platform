@@ -141,17 +141,38 @@ export async function saveLenderSessionToStore(cookies: any[]): Promise<void> {
 // ---------------------------------------------------------------------------
 
 export interface LenderProgramTier {
-  tierName:     string;
-  minRate:      number;
-  maxRate:      number;
-  maxPayment:   number;
+  tierName:         string;
+  minRate:          number;
+  maxRate:          number;
+  maxPayment:       number;
+  maxAdvanceLTV:    number;
+  maxAftermarketLTV: number;
+  maxAllInLTV:      number;
+  creditorFee:      number;
+  dealerReserve:    number;
+}
+
+export interface VehicleTermMatrixEntry {
+  year: number;
+  data: { term: number; kmFrom: number; kmTo: number }[];
+}
+
+export interface VehicleConditionMatrixEntry {
+  year: number;
+  extraClean: { kmFrom: number; kmTo: number };
+  clean:      { kmFrom: number; kmTo: number };
+  average:    { kmFrom: number; kmTo: number };
+  rough:      { kmFrom: number; kmTo: number };
 }
 
 export interface LenderProgramGuide {
-  programId:    string;
-  programTitle: string;
-  programType:  string;
-  tiers:        LenderProgramTier[];
+  programId:              string;
+  programTitle:           string;
+  programType:            string;
+  tiers:                  LenderProgramTier[];
+  vehicleTermMatrix:      VehicleTermMatrixEntry[];
+  vehicleConditionMatrix: VehicleConditionMatrixEntry[];
+  maxTerm?:               number;
 }
 
 export interface LenderProgram {

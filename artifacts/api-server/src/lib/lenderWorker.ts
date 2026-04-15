@@ -6,6 +6,8 @@ import {
   type LenderProgramGuide,
   type LenderProgramTier,
   type LenderProgramsBlob,
+  type VehicleTermMatrixEntry,
+  type VehicleConditionMatrixEntry,
 } from "./bbObjectStore.js";
 import { getLenderAuthCookies, callGraphQL, LENDER_ENABLED } from "./lenderAuth.js";
 
@@ -74,6 +76,25 @@ const CREDITORS_PROGRAMS_QUERY = `{
         name
         maxPayment { amount currency }
         interestRate { from to }
+        maxAdvanceLTV
+        maxAftermarketLTV
+        maxAllInLTV
+        creditorFee { amount currency }
+        dealerReserve { amount currency }
+      }
+      vehicleTermMatrix {
+        year
+        data {
+          term
+          milage { from to }
+        }
+      }
+      vehicleConditionMatrix {
+        year
+        extraClean { milage { from to } }
+        clean { milage { from to } }
+        average { milage { from to } }
+        rough { milage { from to } }
       }
     }
   }
@@ -119,19 +140,52 @@ function mapCreditorToLenderPrograms(creditor: any): LenderProgram[] {
   }];
 }
 
+function mapMilageRange(m: any): { kmFrom: number; kmTo: number } {
+  return { kmFrom: m?.milage?.from ?? 0, kmTo: m?.milage?.to ?? 0 };
+}
+
 function mapProgramGuide(prog: any): LenderProgramGuide {
   const tiers: LenderProgramTier[] = (prog.tiers ?? []).map((t: any) => ({
-    tierName:   t.name ?? "Unknown",
-    minRate:    t.interestRate?.from ?? 0,
-    maxRate:    t.interestRate?.to ?? 0,
-    maxPayment: t.maxPayment?.amount ?? 0,
+    tierName:          t.name ?? "Unknown",
+    minRate:           t.interestRate?.from ?? 0,
+    maxRate:           t.interestRate?.to ?? 0,
+    maxPayment:        t.maxPayment?.amount ?? 0,
+    maxAdvanceLTV:     t.maxAdvanceLTV ?? 0,
+    maxAftermarketLTV: t.maxAftermarketLTV ?? 0,
+    maxAllInLTV:       t.maxAllInLTV ?? 0,
+    creditorFee:       t.creditorFee?.amount ?? 0,
+    dealerReserve:     t.dealerReserve?.amount ?? 0,
   }));
 
+  const vehicleTermMatrix: VehicleTermMatrixEntry[] = (prog.vehicleTermMatrix ?? []).map((entry: any) => ({
+    year: entry.year,
+    data: (entry.data ?? []).map((d: any) => ({
+      term:   d.term,
+      kmFrom: d.milage?.from ?? 0,
+      kmTo:   d.milage?.to ?? 0,
+    })),
+  }));
+
+  const vehicleConditionMatrix: VehicleConditionMatrixEntry[] = (prog.vehicleConditionMatrix ?? []).map((entry: any) => ({
+    year:       entry.year,
+    extraClean: mapMilageRange(entry.extraClean),
+    clean:      mapMilageRange(entry.clean),
+    average:    mapMilageRange(entry.average),
+    rough:      mapMilageRange(entry.rough),
+  }));
+
+  const maxTerm = vehicleTermMatrix.length > 0
+    ? Math.max(...vehicleTermMatrix.flatMap(e => e.data.map(d => d.term)))
+    : undefined;
+
   return {
-    programId:    prog.id,
-    programTitle: prog.title ?? "Unknown",
-    programType:  prog.type ?? "FINANCE",
+    programId:              prog.id,
+    programTitle:           prog.title ?? "Unknown",
+    programType:            prog.type ?? "FINANCE",
     tiers,
+    vehicleTermMatrix,
+    vehicleConditionMatrix,
+    maxTerm,
   };
 }
 
@@ -160,6 +214,8 @@ async function syncLenderPrograms(): Promise<void> {
   }
 
   const totalTiers = programs.reduce((s, p) => s + p.programs.reduce((s2, g) => s2 + g.tiers.length, 0), 0);
+  const totalTermMatrices = programs.reduce((s, p) => s + p.programs.reduce((s2, g) => s2 + g.vehicleTermMatrix.length, 0), 0);
+  const totalCondMatrices = programs.reduce((s, p) => s + p.programs.reduce((s2, g) => s2 + g.vehicleConditionMatrix.length, 0), 0);
 
   const blob: LenderProgramsBlob = {
     programs,
@@ -170,7 +226,7 @@ async function syncLenderPrograms(): Promise<void> {
   cachedPrograms = blob;
 
   logger.info(
-    { lenderCount: programs.length, totalTiers },
+    { lenderCount: programs.length, totalTiers, totalTermMatrices, totalCondMatrices },
     "Lender sync: programs saved to object storage",
   );
 }

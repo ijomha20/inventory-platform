@@ -139,8 +139,47 @@ export const GetLenderProgramsResponse = zod.object({
               minRate: zod.number(),
               maxRate: zod.number(),
               maxPayment: zod.number(),
+              maxAdvanceLTV: zod.number(),
+              maxAftermarketLTV: zod.number(),
+              maxAllInLTV: zod.number(),
+              creditorFee: zod.number(),
+              dealerReserve: zod.number(),
             }),
           ),
+          vehicleTermMatrix: zod.array(
+            zod.object({
+              year: zod.number(),
+              data: zod.array(
+                zod.object({
+                  term: zod.number(),
+                  kmFrom: zod.number(),
+                  kmTo: zod.number(),
+                }),
+              ),
+            }),
+          ),
+          vehicleConditionMatrix: zod.array(
+            zod.object({
+              year: zod.number(),
+              extraClean: zod.object({
+                kmFrom: zod.number(),
+                kmTo: zod.number(),
+              }),
+              clean: zod.object({
+                kmFrom: zod.number(),
+                kmTo: zod.number(),
+              }),
+              average: zod.object({
+                kmFrom: zod.number(),
+                kmTo: zod.number(),
+              }),
+              rough: zod.object({
+                kmFrom: zod.number(),
+                kmTo: zod.number(),
+              }),
+            }),
+          ),
+          maxTerm: zod.number().optional(),
         }),
       ),
     }),
@@ -192,6 +231,11 @@ export const LenderCalculateResponse = zod.object({
     minRate: zod.number(),
     maxRate: zod.number(),
     maxPayment: zod.number(),
+    maxAdvanceLTV: zod.number(),
+    maxAftermarketLTV: zod.number(),
+    maxAllInLTV: zod.number(),
+    creditorFee: zod.number(),
+    dealerReserve: zod.number(),
   }),
   resultCount: zod.number(),
   results: zod.array(

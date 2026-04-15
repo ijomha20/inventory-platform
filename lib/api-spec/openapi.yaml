@@ -527,11 +527,72 @@ components:
           type: number
         maxPayment:
           type: number
+        maxAdvanceLTV:
+          type: number
+        maxAftermarketLTV:
+          type: number
+        maxAllInLTV:
+          type: number
+        creditorFee:
+          type: number
+        dealerReserve:
+          type: number
       required:
         - tierName
         - minRate
         - maxRate
         - maxPayment
+        - maxAdvanceLTV
+        - maxAftermarketLTV
+        - maxAllInLTV
+        - creditorFee
+        - dealerReserve
+
+    VehicleTermMatrixData:
+      type: object
+      properties:
+        term:
+          type: integer
+        kmFrom:
+          type: integer
+        kmTo:
+          type: integer
+      required: [term, kmFrom, kmTo]
+
+    VehicleTermMatrixEntry:
+      type: object
+      properties:
+        year:
+          type: integer
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/VehicleTermMatrixData"
+      required: [year, data]
+
+    KmRange:
+      type: object
+      properties:
+        kmFrom:
+          type: integer
+        kmTo:
+          type: integer
+      required: [kmFrom, kmTo]
+
+    VehicleConditionMatrixEntry:
+      type: object
+      properties:
+        year:
+          type: integer
+        extraClean:
+          $ref: "#/components/schemas/KmRange"
+        clean:
+          $ref: "#/components/schemas/KmRange"
+        average:
+          $ref: "#/components/schemas/KmRange"
+        rough:
+          $ref: "#/components/schemas/KmRange"
+      required: [year, extraClean, clean, average, rough]
 
     LenderProgramGuide:
       type: object
@@ -546,11 +607,23 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/LenderProgramTier"
+        vehicleTermMatrix:
+          type: array
+          items:
+            $ref: "#/components/schemas/VehicleTermMatrixEntry"
+        vehicleConditionMatrix:
+          type: array
+          items:
+            $ref: "#/components/schemas/VehicleConditionMatrixEntry"
+        maxTerm:
+          type: integer
       required:
         - programId
         - programTitle
         - programType
         - tiers
+        - vehicleTermMatrix
+        - vehicleConditionMatrix
 
     LenderProgram:
       type: object

@@ -81,6 +81,35 @@ export interface LenderProgramTier {
   minRate: number;
   maxRate: number;
   maxPayment: number;
+  maxAdvanceLTV: number;
+  maxAftermarketLTV: number;
+  maxAllInLTV: number;
+  creditorFee: number;
+  dealerReserve: number;
+}
+
+export interface VehicleTermMatrixData {
+  term: number;
+  kmFrom: number;
+  kmTo: number;
+}
+
+export interface VehicleTermMatrixEntry {
+  year: number;
+  data: VehicleTermMatrixData[];
+}
+
+export interface KmRange {
+  kmFrom: number;
+  kmTo: number;
+}
+
+export interface VehicleConditionMatrixEntry {
+  year: number;
+  extraClean: KmRange;
+  clean: KmRange;
+  average: KmRange;
+  rough: KmRange;
 }
 
 export interface LenderProgramGuide {
@@ -88,6 +117,9 @@ export interface LenderProgramGuide {
   programTitle: string;
   programType: string;
   tiers: LenderProgramTier[];
+  vehicleTermMatrix: VehicleTermMatrixEntry[];
+  vehicleConditionMatrix: VehicleConditionMatrixEntry[];
+  maxTerm?: number;
 }
 
 export interface LenderProgram {

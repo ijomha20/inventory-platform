@@ -6,10 +6,15 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { LenderProgramTier } from "./lenderProgramTier";
+import type { VehicleConditionMatrixEntry } from "./vehicleConditionMatrixEntry";
+import type { VehicleTermMatrixEntry } from "./vehicleTermMatrixEntry";
 
 export interface LenderProgramGuide {
   programId: string;
   programTitle: string;
   programType: string;
   tiers: LenderProgramTier[];
+  vehicleTermMatrix: VehicleTermMatrixEntry[];
+  vehicleConditionMatrix: VehicleConditionMatrixEntry[];
+  maxTerm?: number;
 }
