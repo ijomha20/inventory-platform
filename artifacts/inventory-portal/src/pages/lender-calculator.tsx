@@ -387,7 +387,7 @@ export default function LenderCalculator() {
                         />
                       </div>
                     </div>
-                    <p className="text-xs text-gray-500">Warranty &amp; GAP are auto-optimized per vehicle (150% markup, min $600/$550 cost) to maximize profit within LTV limits.</p>
+                    <p className="text-xs text-gray-500">Warranty &amp; GAP are auto-optimized per vehicle (150% markup = cost × 2.5, min $600/$550 cost) to maximize profit within LTV limits.</p>
                   </div>
                 )}
 

@@ -197,7 +197,7 @@ router.post("/lender-calculate", requireOwner, async (req, res) => {
   const creditorFee    = tier.creditorFee ?? 0;
   const dealerReserve  = tier.dealerReserve ?? 0;
 
-  const MARKUP           = 1.5;
+  const MARKUP           = 2.5;
   const MIN_WARRANTY_COST = 600;
   const MIN_GAP_COST     = 550;
 
