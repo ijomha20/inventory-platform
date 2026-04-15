@@ -60,20 +60,19 @@ function conditionLabel(c: string): string {
 function ResultRow({ item, rank }: { item: LenderCalcResultItem; rank: number }) {
   return (
     <tr className="hover:bg-gray-50 border-b border-gray-100 last:border-0">
-      <td className="px-3 py-2.5 text-sm text-gray-500 font-medium">{rank}</td>
-      <td className="px-3 py-2.5">
-        <div className="text-sm font-medium text-gray-900">{item.vehicle}</div>
-        <div className="text-xs text-gray-400 font-mono">{item.vin}</div>
+      <td className="px-2 py-2 text-xs text-gray-400 font-medium">{rank}</td>
+      <td className="px-2 py-2">
+        <div className="text-sm font-medium text-gray-900 whitespace-nowrap">{item.vehicle}</div>
+        <div className="text-xs text-gray-400">{item.location}</div>
       </td>
-      <td className="px-3 py-2.5 text-sm text-gray-600">{item.location}</td>
-      <td className="px-3 py-2.5 text-sm text-center text-gray-700">{item.term}mo</td>
-      <td className="px-3 py-2.5 text-sm text-center">
-        <Badge variant="outline" className="text-xs">{conditionLabel(item.conditionUsed)}</Badge>
+      <td className="px-2 py-2 text-center">
+        <div className="text-sm font-medium text-gray-700">{item.term}mo</div>
+        <div className="text-xs text-gray-400">{conditionLabel(item.conditionUsed)}</div>
       </td>
-      <td className="px-3 py-2.5 text-sm text-right font-medium text-gray-700">{formatCurrency(item.bbWholesale)}</td>
-      <td className="px-3 py-2.5 text-sm text-right font-medium text-gray-700">{formatCurrency(item.totalFinanced)}</td>
-      <td className="px-3 py-2.5 text-sm text-right font-semibold text-green-700">{formatPayment(item.monthlyPayment)}</td>
-      <td className="px-3 py-2.5 text-sm text-right text-gray-500">{formatCurrency(item.costOfBorrowing)}</td>
+      <td className="px-2 py-2 text-right text-sm font-medium text-gray-700">{formatCurrency(item.bbWholesale)}</td>
+      <td className="px-2 py-2 text-right text-sm font-medium text-gray-700">{formatCurrency(item.totalFinanced)}</td>
+      <td className="px-2 py-2 text-right text-sm font-semibold text-green-700">{formatPayment(item.monthlyPayment)}</td>
+      <td className="px-2 py-2 text-right text-sm text-gray-500">{formatCurrency(item.costOfBorrowing)}</td>
     </tr>
   );
 }
@@ -213,8 +212,8 @@ export default function LenderCalculator() {
       )}
 
       {programs.length > 0 && (
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          <div className="lg:col-span-1 space-y-4">
+        <div className="space-y-6">
+          <div className="max-w-md">
             <Card>
               <CardHeader className="pb-4">
                 <CardTitle className="text-base flex items-center gap-2">
@@ -382,7 +381,7 @@ export default function LenderCalculator() {
             </Card>
           </div>
 
-          <div className="lg:col-span-2">
+          <div>
             {calcMutation.isError && (
               <Card className="border-red-200 bg-red-50 mb-4">
                 <CardContent className="pt-6">
@@ -420,18 +419,16 @@ export default function LenderCalculator() {
                     </div>
                   ) : (
                     <div className="overflow-x-auto -mx-6">
-                      <table className="w-full text-left min-w-[600px]">
+                      <table className="w-full text-left">
                         <thead>
                           <tr className="border-b border-gray-200 text-xs text-gray-500 uppercase tracking-wider">
-                            <th className="px-3 py-2">#</th>
-                            <th className="px-3 py-2">Vehicle</th>
-                            <th className="px-3 py-2">Location</th>
-                            <th className="px-3 py-2 text-center">Term</th>
-                            <th className="px-3 py-2 text-center">Condition</th>
-                            <th className="px-3 py-2 text-right">BB Wholesale</th>
-                            <th className="px-3 py-2 text-right">Financed</th>
-                            <th className="px-3 py-2 text-right">Payment</th>
-                            <th className="px-3 py-2 text-right">COB</th>
+                            <th className="px-2 py-2">#</th>
+                            <th className="px-2 py-2">Vehicle</th>
+                            <th className="px-2 py-2 text-center">Term / Cond.</th>
+                            <th className="px-2 py-2 text-right">BB Value</th>
+                            <th className="px-2 py-2 text-right">Financed</th>
+                            <th className="px-2 py-2 text-right">Payment</th>
+                            <th className="px-2 py-2 text-right">COB</th>
                           </tr>
                         </thead>
                         <tbody>
