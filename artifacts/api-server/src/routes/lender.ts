@@ -246,7 +246,8 @@ router.post("/lender-calculate", requireOwner, async (req, res) => {
     const taxes = amountBeforeTax * taxRate;
     const totalFinanced = amountBeforeTax + taxes;
 
-    if (totalFinanced < sellingPrice) continue;
+    const totalDealValue = totalFinanced + downPayment + netTrade;
+    if (totalDealValue < sellingPrice) continue;
 
     const monthlyPayment = pmt(rateDecimal, termMonths, totalFinanced);
     if (maxPmt < Infinity && monthlyPayment > maxPmt) continue;
