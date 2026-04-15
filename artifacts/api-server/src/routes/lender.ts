@@ -229,6 +229,9 @@ router.post("/lender-calculate", requireOwnerOrViewer, async (req, res) => {
   const capWarranty = (guide.maxWarrantyPrice != null && guide.maxWarrantyPrice > 0) ? guide.maxWarrantyPrice : undefined;
   const capGap      = (guide.maxGapPrice != null && guide.maxGapPrice > 0)           ? guide.maxGapPrice      : undefined;
   const capAdmin    = (guide.maxAdminFee != null && guide.maxAdminFee > 0)            ? guide.maxAdminFee      : undefined;
+  const desiredAdmin = requestedAdmin > 0
+    ? Math.round(requestedAdmin)
+    : (capAdmin ?? 0);
   const gapAllowed  = capGap == null || capGap > 0;
 
   interface Result {
@@ -295,7 +298,7 @@ router.post("/lender-calculate", requireOwnerOrViewer, async (req, res) => {
       if (isFinite(maxAdvance) && lenderExposure > maxAdvance) { debugCounts.ltvAdvance++; continue; }
 
       const allInRoom = isFinite(maxAllIn) ? maxAllIn - lenderExposure - creditorFee : Infinity;
-      if (isFinite(allInRoom) && allInRoom <= 0) { debugCounts.ltvAllIn++; continue; }
+      if (isFinite(allInRoom) && allInRoom < 0) { debugCounts.ltvAllIn++; continue; }
 
       // Product room: limited by aftermarket LTV and/or all-in room
       const aftermarketBaseValue = guide.aftermarketBase === "salePrice" ? sellingPrice : bbWholesale;
@@ -307,18 +310,20 @@ router.post("/lender-calculate", requireOwnerOrViewer, async (req, res) => {
         productRoom = 0;
       }
 
-      // Room for warranty+GAP: when admin is excluded from backend bucket it still counts toward all-in LTV
+      // Room for warranty+GAP after admin takes priority
       let warGapRoom = productRoom;
-      if (adminInclusion === "excluded" && isFinite(allInRoom)) {
-        const adminReserve = capAdmin ?? 0;
-        warGapRoom = Math.min(warGapRoom, Math.max(0, allInRoom - adminReserve));
-      }
 
       // Admin fee (first priority)
       if (adminInclusion === "excluded") {
-        effectiveAdmin = capAdmin ?? 0;
+        const adminFromCap = capAdmin != null ? Math.min(desiredAdmin, capAdmin) : desiredAdmin;
+        const allInAdminRoom = isFinite(allInRoom) ? Math.max(0, Math.floor(allInRoom)) : adminFromCap;
+        effectiveAdmin = Math.min(adminFromCap, allInAdminRoom);
+        if (isFinite(allInRoom)) {
+          warGapRoom = Math.min(warGapRoom, Math.max(0, allInRoom - effectiveAdmin));
+        }
       } else {
-        effectiveAdmin = capAdmin != null ? Math.min(capAdmin, Math.floor(productRoom)) : 0;
+        const adminFromCap = capAdmin != null ? Math.min(desiredAdmin, capAdmin) : desiredAdmin;
+        effectiveAdmin = Math.min(adminFromCap, Math.floor(productRoom));
         productRoom -= effectiveAdmin;
         if (productRoom < 0) productRoom = 0;
         warGapRoom = productRoom;
@@ -351,13 +356,25 @@ router.post("/lender-calculate", requireOwnerOrViewer, async (req, res) => {
     } else if (hasAdvanceCap) {
       // --- PATH B: no online price, lender has advance cap ---
       const advCeiling = Math.round(maxAdvance + downPayment + netTrade);
-      if (advCeiling < pacCost) { debugCounts.ltvAdvance++; continue; }
-      sellingPrice = advCeiling;
+      const allInSellCeiling = isFinite(maxAllIn)
+        ? Math.round(maxAllIn - creditorFee + downPayment + netTrade)
+        : Infinity;
+      const effectiveSellCeiling = isFinite(allInSellCeiling)
+        ? Math.min(advCeiling, allInSellCeiling)
+        : advCeiling;
+
+      if (effectiveSellCeiling < pacCost) {
+        if (isFinite(allInSellCeiling) && allInSellCeiling < advCeiling) debugCounts.ltvAllIn++;
+        else debugCounts.ltvAdvance++;
+        continue;
+      }
+
+      sellingPrice = effectiveSellCeiling;
       priceSource  = "maximized";
 
       const lenderExposure = sellingPrice - downPayment - netTrade;
       const allInRoom = isFinite(maxAllIn) ? maxAllIn - lenderExposure - creditorFee : Infinity;
-      if (isFinite(allInRoom) && allInRoom <= 0) { debugCounts.ltvAllIn++; continue; }
+      if (isFinite(allInRoom) && allInRoom < 0) { debugCounts.ltvAllIn++; continue; }
 
       const aftermarketBaseValue = guide.aftermarketBase === "salePrice" ? sellingPrice : bbWholesale;
       const aftermarketCap = hasAftermarketCap ? aftermarketBaseValue * maxAftermarketLTV : Infinity;
@@ -368,18 +385,20 @@ router.post("/lender-calculate", requireOwnerOrViewer, async (req, res) => {
         productRoom = 0;
       }
 
-      // Room for warranty+GAP: excluded admin still counts toward all-in LTV (PATH B)
+      // Room for warranty+GAP after admin takes priority
       let warGapRoom = productRoom;
-      if (adminInclusion === "excluded" && isFinite(allInRoom)) {
-        const adminReserve = capAdmin ?? 0;
-        warGapRoom = Math.min(warGapRoom, Math.max(0, allInRoom - adminReserve));
-      }
 
       // Admin fee
       if (adminInclusion === "excluded") {
-        effectiveAdmin = capAdmin ?? 0;
+        const adminFromCap = capAdmin != null ? Math.min(desiredAdmin, capAdmin) : desiredAdmin;
+        const allInAdminRoom = isFinite(allInRoom) ? Math.max(0, Math.floor(allInRoom)) : adminFromCap;
+        effectiveAdmin = Math.min(adminFromCap, allInAdminRoom);
+        if (isFinite(allInRoom)) {
+          warGapRoom = Math.min(warGapRoom, Math.max(0, allInRoom - effectiveAdmin));
+        }
       } else {
-        effectiveAdmin = capAdmin != null ? Math.min(capAdmin, Math.floor(productRoom)) : 0;
+        const adminFromCap = capAdmin != null ? Math.min(desiredAdmin, capAdmin) : desiredAdmin;
+        effectiveAdmin = Math.min(adminFromCap, Math.floor(productRoom));
         productRoom -= effectiveAdmin;
         if (productRoom < 0) productRoom = 0;
         warGapRoom = productRoom;

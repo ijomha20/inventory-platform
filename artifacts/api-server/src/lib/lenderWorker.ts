@@ -240,13 +240,32 @@ function mapProgramGuide(prog: any): LenderProgramGuide {
       ? prog.autoWorksheetPreferences.gapInsuranceTarget
       : null;
 
-  /** When GAP is routed to AH field, use AH cap if present; else no numeric cap (do not use misleading gap field). */
+  let resolvedMaxWarranty = parsedMaxWarranty != null && parsedMaxWarranty > 0
+    ? parsedMaxWarranty
+    : undefined;
+
+  // GAP cap source tracked for debug visibility.
+  let gapCapSource = "none";
   let resolvedMaxGap: number | undefined;
   if (gapTarget === "AH_INSURANCE") {
-    if (parsedMaxAh != null && parsedMaxAh > 0) resolvedMaxGap = parsedMaxAh;
-    else resolvedMaxGap = undefined;
+    if (parsedMaxAh != null && parsedMaxAh > 0) {
+      resolvedMaxGap = parsedMaxAh;
+      gapCapSource = "maxAhInsuranceFeeCalculation";
+    } else if (parsedMaxGap != null && parsedMaxGap > 0) {
+      resolvedMaxGap = parsedMaxGap;
+      gapCapSource = "maxGapInsuranceFeeCalculation";
+    } else if (resolvedMaxWarranty != null) {
+      // CreditApp sometimes stores AH-routed GAP cap in the warranty calc field.
+      resolvedMaxGap = resolvedMaxWarranty;
+      resolvedMaxWarranty = undefined;
+      gapCapSource = "warrantyFallbackForAhTarget";
+    } else {
+      resolvedMaxGap = undefined;
+      gapCapSource = "none";
+    }
   } else {
     resolvedMaxGap = parsedMaxGap != null && parsedMaxGap > 0 ? parsedMaxGap : undefined;
+    gapCapSource = resolvedMaxGap != null ? "maxGapInsuranceFeeCalculation" : "none";
   }
 
   const feeCalculationsRaw = {
@@ -262,6 +281,7 @@ function mapProgramGuide(prog: any): LenderProgramGuide {
     maxAhInsuranceFeeCalculation: typeof prog.maxAhInsuranceFeeCalculation === "string"
       ? prog.maxAhInsuranceFeeCalculation
       : undefined,
+    resolvedGapCapSource: gapCapSource,
   };
 
   logger.info({
@@ -274,6 +294,8 @@ function mapProgramGuide(prog: any): LenderProgramGuide {
     parsedMaxWarranty,
     parsedMaxGapFromField: parsedMaxGap,
     resolvedMaxGap,
+    resolvedMaxWarranty,
+    gapCapSource,
     parsedMaxAh,
     parsedMaxAdmin,
     adminFeeInclusion,
@@ -288,7 +310,7 @@ function mapProgramGuide(prog: any): LenderProgramGuide {
     vehicleTermMatrix,
     vehicleConditionMatrix,
     maxTerm,
-    maxWarrantyPrice: parsedMaxWarranty != null && parsedMaxWarranty > 0 ? parsedMaxWarranty : undefined,
+    maxWarrantyPrice: resolvedMaxWarranty,
     maxGapPrice:      resolvedMaxGap,
     maxAdminFee:      parsedMaxAdmin != null && parsedMaxAdmin > 0 ? parsedMaxAdmin : undefined,
     gapInsuranceTarget: gapTarget,
