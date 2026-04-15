@@ -100,9 +100,13 @@ const CREDITORS_PROGRAMS_QUERY = `{
       allInLtvCalculation
       maxExtendedWarrantyFeeCalculation
       maxGapInsuranceFeeCalculation
+      maxAhInsuranceFeeCalculation
       maxDealerAdminFeeCalculation
       backendRemainingCalculation
       allInRemainingCalculation
+      autoWorksheetPreferences {
+        gapInsuranceTarget
+      }
     }
   }
 }`;
@@ -227,15 +231,51 @@ function mapProgramGuide(prog: any): LenderProgramGuide {
   const adminFeeInclusion = inferAdminFeeInclusion(backendLtvCalculation, allInLtvCalculation);
 
   const parsedMaxWarranty = parseCalcNumber(prog.maxExtendedWarrantyFeeCalculation);
-  const parsedMaxGap     = parseCalcNumber(prog.maxGapInsuranceFeeCalculation);
-  const parsedMaxAdmin   = parseCalcNumber(prog.maxDealerAdminFeeCalculation);
+  const parsedMaxGap      = parseCalcNumber(prog.maxGapInsuranceFeeCalculation);
+  const parsedMaxAh       = parseCalcNumber(prog.maxAhInsuranceFeeCalculation);
+  const parsedMaxAdmin    = parseCalcNumber(prog.maxDealerAdminFeeCalculation);
+
+  const gapTarget: string | null =
+    typeof prog.autoWorksheetPreferences?.gapInsuranceTarget === "string"
+      ? prog.autoWorksheetPreferences.gapInsuranceTarget
+      : null;
+
+  /** When GAP is routed to AH field, use AH cap if present; else no numeric cap (do not use misleading gap field). */
+  let resolvedMaxGap: number | undefined;
+  if (gapTarget === "AH_INSURANCE") {
+    if (parsedMaxAh != null && parsedMaxAh > 0) resolvedMaxGap = parsedMaxAh;
+    else resolvedMaxGap = undefined;
+  } else {
+    resolvedMaxGap = parsedMaxGap != null && parsedMaxGap > 0 ? parsedMaxGap : undefined;
+  }
+
+  const feeCalculationsRaw = {
+    maxExtendedWarrantyFeeCalculation: typeof prog.maxExtendedWarrantyFeeCalculation === "string"
+      ? prog.maxExtendedWarrantyFeeCalculation
+      : undefined,
+    maxGapInsuranceFeeCalculation: typeof prog.maxGapInsuranceFeeCalculation === "string"
+      ? prog.maxGapInsuranceFeeCalculation
+      : undefined,
+    maxDealerAdminFeeCalculation: typeof prog.maxDealerAdminFeeCalculation === "string"
+      ? prog.maxDealerAdminFeeCalculation
+      : undefined,
+    maxAhInsuranceFeeCalculation: typeof prog.maxAhInsuranceFeeCalculation === "string"
+      ? prog.maxAhInsuranceFeeCalculation
+      : undefined,
+  };
 
   logger.info({
     program: prog.title,
     rawWarrantyCalc: prog.maxExtendedWarrantyFeeCalculation ?? null,
     rawGapCalc:      prog.maxGapInsuranceFeeCalculation ?? null,
+    rawAhCalc:       prog.maxAhInsuranceFeeCalculation ?? null,
     rawAdminCalc:    prog.maxDealerAdminFeeCalculation ?? null,
-    parsedMaxWarranty, parsedMaxGap, parsedMaxAdmin,
+    gapInsuranceTarget: gapTarget,
+    parsedMaxWarranty,
+    parsedMaxGapFromField: parsedMaxGap,
+    resolvedMaxGap,
+    parsedMaxAh,
+    parsedMaxAdmin,
     adminFeeInclusion,
     aftermarketBase,
   }, "Lender sync: program fee caps");
@@ -248,9 +288,11 @@ function mapProgramGuide(prog: any): LenderProgramGuide {
     vehicleTermMatrix,
     vehicleConditionMatrix,
     maxTerm,
-    maxWarrantyPrice: parsedMaxWarranty,
-    maxGapPrice:      parsedMaxGap,
-    maxAdminFee:      parsedMaxAdmin,
+    maxWarrantyPrice: parsedMaxWarranty != null && parsedMaxWarranty > 0 ? parsedMaxWarranty : undefined,
+    maxGapPrice:      resolvedMaxGap,
+    maxAdminFee:      parsedMaxAdmin != null && parsedMaxAdmin > 0 ? parsedMaxAdmin : undefined,
+    gapInsuranceTarget: gapTarget,
+    feeCalculationsRaw,
     backendLtvCalculation,
     allInLtvCalculation,
     backendRemainingCalculation,

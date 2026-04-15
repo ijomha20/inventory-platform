@@ -307,6 +307,13 @@ router.post("/lender-calculate", requireOwnerOrViewer, async (req, res) => {
         productRoom = 0;
       }
 
+      // Room for warranty+GAP: when admin is excluded from backend bucket it still counts toward all-in LTV
+      let warGapRoom = productRoom;
+      if (adminInclusion === "excluded" && isFinite(allInRoom)) {
+        const adminReserve = capAdmin ?? 0;
+        warGapRoom = Math.min(warGapRoom, Math.max(0, allInRoom - adminReserve));
+      }
+
       // Admin fee (first priority)
       if (adminInclusion === "excluded") {
         effectiveAdmin = capAdmin ?? 0;
@@ -314,29 +321,30 @@ router.post("/lender-calculate", requireOwnerOrViewer, async (req, res) => {
         effectiveAdmin = capAdmin != null ? Math.min(capAdmin, Math.floor(productRoom)) : 0;
         productRoom -= effectiveAdmin;
         if (productRoom < 0) productRoom = 0;
+        warGapRoom = productRoom;
       }
 
       // Warranty (second priority)
-      if (productRoom >= Math.round(MIN_WARRANTY_COST * MARKUP)) {
-        warPrice = capWarranty != null ? Math.min(productRoom, capWarranty) : productRoom;
+      if (warGapRoom >= Math.round(MIN_WARRANTY_COST * MARKUP)) {
+        warPrice = capWarranty != null ? Math.min(warGapRoom, capWarranty) : warGapRoom;
         if (gapAllowed) {
           const gapReserve = Math.min(MAX_GAP_PRICE, capGap ?? MAX_GAP_PRICE);
-          if (warPrice > productRoom - gapReserve && productRoom > gapReserve) {
-            warPrice = productRoom - gapReserve;
+          if (warPrice > warGapRoom - gapReserve && warGapRoom > gapReserve) {
+            warPrice = warGapRoom - gapReserve;
           }
         }
         warPrice = Math.max(warPrice, Math.round(MIN_WARRANTY_COST * MARKUP));
-        if (warPrice > productRoom) warPrice = 0;
+        if (warPrice > warGapRoom) warPrice = 0;
       }
       warCost = warPrice > 0 ? Math.round(warPrice / MARKUP) : 0;
-      productRoom -= warPrice;
+      warGapRoom -= warPrice;
 
       // GAP (third priority, max $1500 markup)
-      if (gapAllowed && productRoom >= Math.round(MIN_GAP_COST * MARKUP)) {
+      if (gapAllowed && warGapRoom >= Math.round(MIN_GAP_COST * MARKUP)) {
         const gapCeiling = Math.min(MAX_GAP_PRICE, capGap ?? MAX_GAP_PRICE);
-        gapPr = Math.min(productRoom, gapCeiling);
+        gapPr = Math.min(warGapRoom, gapCeiling);
         gapPr = Math.max(gapPr, Math.round(MIN_GAP_COST * MARKUP));
-        if (gapPr > productRoom) gapPr = 0;
+        if (gapPr > warGapRoom) gapPr = 0;
       }
       gCost = gapPr > 0 ? Math.round(gapPr / MARKUP) : 0;
 
@@ -360,6 +368,13 @@ router.post("/lender-calculate", requireOwnerOrViewer, async (req, res) => {
         productRoom = 0;
       }
 
+      // Room for warranty+GAP: excluded admin still counts toward all-in LTV (PATH B)
+      let warGapRoom = productRoom;
+      if (adminInclusion === "excluded" && isFinite(allInRoom)) {
+        const adminReserve = capAdmin ?? 0;
+        warGapRoom = Math.min(warGapRoom, Math.max(0, allInRoom - adminReserve));
+      }
+
       // Admin fee
       if (adminInclusion === "excluded") {
         effectiveAdmin = capAdmin ?? 0;
@@ -367,29 +382,30 @@ router.post("/lender-calculate", requireOwnerOrViewer, async (req, res) => {
         effectiveAdmin = capAdmin != null ? Math.min(capAdmin, Math.floor(productRoom)) : 0;
         productRoom -= effectiveAdmin;
         if (productRoom < 0) productRoom = 0;
+        warGapRoom = productRoom;
       }
 
       // Warranty
-      if (productRoom >= Math.round(MIN_WARRANTY_COST * MARKUP)) {
-        warPrice = capWarranty != null ? Math.min(productRoom, capWarranty) : productRoom;
+      if (warGapRoom >= Math.round(MIN_WARRANTY_COST * MARKUP)) {
+        warPrice = capWarranty != null ? Math.min(warGapRoom, capWarranty) : warGapRoom;
         if (gapAllowed) {
           const gapReserve = Math.min(MAX_GAP_PRICE, capGap ?? MAX_GAP_PRICE);
-          if (warPrice > productRoom - gapReserve && productRoom > gapReserve) {
-            warPrice = productRoom - gapReserve;
+          if (warPrice > warGapRoom - gapReserve && warGapRoom > gapReserve) {
+            warPrice = warGapRoom - gapReserve;
           }
         }
         warPrice = Math.max(warPrice, Math.round(MIN_WARRANTY_COST * MARKUP));
-        if (warPrice > productRoom) warPrice = 0;
+        if (warPrice > warGapRoom) warPrice = 0;
       }
       warCost = warPrice > 0 ? Math.round(warPrice / MARKUP) : 0;
-      productRoom -= warPrice;
+      warGapRoom -= warPrice;
 
       // GAP
-      if (gapAllowed && productRoom >= Math.round(MIN_GAP_COST * MARKUP)) {
+      if (gapAllowed && warGapRoom >= Math.round(MIN_GAP_COST * MARKUP)) {
         const gapCeiling = Math.min(MAX_GAP_PRICE, capGap ?? MAX_GAP_PRICE);
-        gapPr = Math.min(productRoom, gapCeiling);
+        gapPr = Math.min(warGapRoom, gapCeiling);
         gapPr = Math.max(gapPr, Math.round(MIN_GAP_COST * MARKUP));
-        if (gapPr > productRoom) gapPr = 0;
+        if (gapPr > warGapRoom) gapPr = 0;
       }
       gCost = gapPr > 0 ? Math.round(gapPr / MARKUP) : 0;
 
@@ -504,11 +520,18 @@ router.get("/lender-debug", requireOwner, async (_req, res) => {
       maxWarrantyPrice: g.maxWarrantyPrice ?? null,
       maxGapPrice: g.maxGapPrice ?? null,
       maxAdminFee: g.maxAdminFee ?? null,
+      gapInsuranceTarget: g.gapInsuranceTarget ?? null,
+      feeCalculationsRaw: g.feeCalculationsRaw ?? null,
       aftermarketBase: g.aftermarketBase ?? "unknown",
       allInOnlyRules: g.allInOnlyRules ?? false,
       adminFeeInclusion: g.adminFeeInclusion ?? "unknown",
       backendLtvCalculation: g.backendLtvCalculation ?? null,
       allInLtvCalculation: g.allInLtvCalculation ?? null,
+      backendRemainingCalculation: g.backendRemainingCalculation ?? null,
+      allInRemainingCalculation: g.allInRemainingCalculation ?? null,
+      configuredOk: g.tiers.length > 0 && (
+        g.tiers.some(t => t.maxAdvanceLTV > 0 || t.maxAftermarketLTV > 0 || t.maxAllInLTV > 0)
+      ),
     })),
   }));
   res.json({ updatedAt: programs.updatedAt, lenders: summary });

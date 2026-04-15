@@ -176,6 +176,14 @@ export interface LenderProgramGuide {
   maxWarrantyPrice?:      number;
   maxGapPrice?:           number;
   maxAdminFee?:           number;
+  /** CreditApp routing: when AH_INSURANCE, GAP sells in AH field; cap may be maxAhInsuranceFeeCalculation */
+  gapInsuranceTarget?:    string | null;
+  feeCalculationsRaw?: {
+    maxExtendedWarrantyFeeCalculation?: string;
+    maxGapInsuranceFeeCalculation?:     string;
+    maxDealerAdminFeeCalculation?:       string;
+    maxAhInsuranceFeeCalculation?:      string;
+  };
   backendLtvCalculation?: string;
   allInLtvCalculation?: string;
   backendRemainingCalculation?: string;
