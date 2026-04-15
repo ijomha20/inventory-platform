@@ -2,7 +2,7 @@ import { Link } from "wouter";
 import { useGetMe } from "@workspace/api-client-react";
 import { Car, LogOut, Settings, Calculator } from "lucide-react";
 
-export function Layout({ children }: { children: React.ReactNode }) {
+export function Layout({ children, wide }: { children: React.ReactNode; wide?: boolean }) {
   const { data: user } = useGetMe({ query: { retry: false } });
 
   return (
@@ -69,7 +69,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
         </div>
       </header>
 
-      <main className="flex-1 w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <main className={`flex-1 w-full mx-auto px-4 sm:px-6 lg:px-8 py-8 ${wide ? "max-w-[1880px]" : "max-w-7xl"}`}>
         {children}
       </main>
     </div>

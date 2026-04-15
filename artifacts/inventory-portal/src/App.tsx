@@ -59,7 +59,7 @@ function Router() {
 
       <Route path="/calculator">
         <RequireAuth>
-          <Layout>
+          <Layout wide>
             <LenderCalculator />
           </Layout>
         </RequireAuth>

@@ -72,7 +72,7 @@ function ResultRow({ item, rank }: { item: LenderCalcResultItem; rank: number })
       <td className="px-3 py-2.5 text-sm text-right font-medium text-gray-700">{formatCurrency(item.bbWholesale)}</td>
       <td className="px-3 py-2.5 text-sm text-right font-medium text-gray-700">
         {item.sellingPrice > 0 ? formatCurrency(item.sellingPrice) : "—"}
-        {item.priceSource && <span className="text-xs text-gray-400 ml-1">({item.priceSource === "online" ? "Online" : "PAC"})</span>}
+        {item.priceSource && <span className="text-xs text-gray-400 ml-1">({item.priceSource === "online" ? "Online" : item.priceSource === "maximized" ? "Max LTV" : "PAC"})</span>}
       </td>
       <td className="px-3 py-2.5 text-sm text-right font-medium text-indigo-700">{formatCurrency(item.adminFeeUsed)}</td>
       <td className="px-3 py-2.5 text-sm text-right text-gray-700">
@@ -496,8 +496,8 @@ export default function LenderCalculator() {
                       <p className="text-xs mt-1">Try adjusting the max payment or rate</p>
                     </div>
                   ) : (
-                    <div className="overflow-x-auto rounded-md border border-gray-200">
-                      <table className="text-left w-full" style={{ minWidth: "1560px" }}>
+                    <div className="rounded-md border border-gray-200">
+                      <table className="text-left w-full">
                         <thead className="bg-gray-50 sticky top-0 z-10">
                           <tr className="border-b border-gray-200 text-xs text-gray-600 uppercase tracking-wide">
                             <th className="w-10 px-3 py-2.5 text-center">#</th>

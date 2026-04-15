@@ -215,7 +215,11 @@ router.post("/lender-calculate", requireOwnerOrViewer, async (req, res) => {
   const programMaxWarranty = guide.maxWarrantyPrice;
   const programMaxGap      = guide.maxGapPrice;
   const programMaxAdmin    = guide.maxAdminFee;
-  const allInOnlyRules     = !!guide.allInOnlyRules || (tier.maxAftermarketLTV <= 0 && tier.maxAllInLTV > 0);
+  const hasIndividualCaps  = (programMaxWarranty != null && programMaxWarranty > 0)
+                          || (programMaxGap != null && programMaxGap > 0)
+                          || (programMaxAdmin != null && programMaxAdmin > 0);
+  const allInOnlyRules     = !!guide.allInOnlyRules
+                          || (!hasIndividualCaps && tier.maxAftermarketLTV <= 0 && tier.maxAllInLTV > 0);
   const capWarranty        = allInOnlyRules ? undefined : programMaxWarranty;
   const capGap             = allInOnlyRules ? undefined : programMaxGap;
   const capAdmin           = allInOnlyRules ? undefined : programMaxAdmin;
@@ -270,24 +274,37 @@ router.post("/lender-calculate", requireOwnerOrViewer, async (req, res) => {
     if (!bbWholesale || bbWholesale <= 0) { debugCounts.noBBVal++; continue; }
 
     const rawOnline = parseFloat(item.onlinePrice?.replace(/[^0-9.]/g, "") || "0");
-    const rawMatrix = parseFloat(item.matrixPrice?.replace(/[^0-9.]/g, "") || "0");
+    const pacCost   = parseFloat(item.cost?.replace(/[^0-9.]/g, "") || "0");
+
     let sellingPrice = 0;
     let priceSource  = "";
+    const maxAdvance = bbWholesale * maxAdvanceLTV;
+
     if (rawOnline > 0) {
       sellingPrice = rawOnline;
       priceSource  = "online";
-    } else if (rawMatrix > 0) {
-      sellingPrice = rawMatrix;
-      priceSource  = "pac";
     } else {
+      // No online price: maximize selling price to the advance LTV ceiling
+      const maxSellingFromLTV = maxAdvance + downPayment + netTrade;
+      if (pacCost > 0 && maxSellingFromLTV >= pacCost) {
+        sellingPrice = Math.round(maxSellingFromLTV);
+        priceSource  = "maximized";
+      } else if (pacCost <= 0) {
+        debugCounts.noPrice++;
+        continue;
+      } else {
+        // LTV ceiling can't even cover PAC cost
+        debugCounts.ltvAdvance++;
+        continue;
+      }
+    }
+
+    if (pacCost > 0 && sellingPrice < pacCost) {
       debugCounts.noPrice++;
       continue;
     }
 
-    const pacCost = parseFloat(item.cost?.replace(/[^0-9.]/g, "") || "0");
-
     const aftermarketBaseValue = guide.aftermarketBase === "salePrice" ? sellingPrice : bbWholesale;
-    const maxAdvance     = bbWholesale * maxAdvanceLTV;
     const maxAftermarket = aftermarketBaseValue * maxAftermarketLTV;
     const maxAllIn       = bbWholesale * maxAllInLTV;
 
@@ -311,28 +328,32 @@ router.post("/lender-calculate", requireOwnerOrViewer, async (req, res) => {
     const allInRoom = maxAllIn - lenderExposure - creditorFee;
     if (allInRoom <= 0) { debugCounts.ltvAllIn++; continue; }
 
-    // Step 1: Determine admin fee (capped by lender max if applicable)
+    // Step 1: Determine admin fee — maximize first in profit priority
     let effectiveAdmin: number;
-    if (capAdmin != null) {
+    if (capAdmin != null && capAdmin > 0) {
       effectiveAdmin = Math.min(requestedAdmin > 0 ? requestedAdmin : capAdmin, capAdmin);
-    } else {
+    } else if (requestedAdmin > 0) {
       effectiveAdmin = requestedAdmin;
+    } else if (adminInclusion === "backend") {
+      const backendBudget = Math.min(maxAftermarket, allInRoom);
+      effectiveAdmin = Math.max(0, Math.floor(backendBudget - minWarPriceCapped - minGapPriceCapped));
+    } else if (adminInclusion === "allIn" || adminInclusion === "unknown") {
+      effectiveAdmin = Math.max(0, Math.floor(allInRoom - minWarPriceCapped - minGapPriceCapped));
+    } else {
+      effectiveAdmin = 0;
     }
 
     // Constrain admin based on where it sits in the LTV calculation
     if (adminInclusion === "backend") {
-      // Admin eats from aftermarket budget — constrain by min(maxAftermarket, allInRoom)
       const backendBudget = Math.min(maxAftermarket, allInRoom);
       const adminMaxBackend = backendBudget - minWarPriceCapped;
       if (adminMaxBackend < 0) { debugCounts.ltvAllIn++; continue; }
       if (effectiveAdmin > adminMaxBackend) effectiveAdmin = Math.max(0, Math.floor(adminMaxBackend));
     } else if (adminInclusion === "allIn" || adminInclusion === "unknown") {
-      // Admin eats from all-in room but NOT from aftermarket LTV
       const adminCeiling = allInRoom - minWarPriceCapped;
       if (adminCeiling < 0) { debugCounts.ltvAllIn++; continue; }
       if (effectiveAdmin > adminCeiling) effectiveAdmin = Math.max(0, Math.floor(adminCeiling));
     }
-    // "excluded" — admin doesn't count against any LTV, only constrained by capAdmin
 
     // Step 2: Aftermarket budget (warranty + GAP)
     let aftermarketBudget: number;
