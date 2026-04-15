@@ -722,6 +722,10 @@ components:
           type: string
         bbWholesale:
           type: number
+        sellingPrice:
+          type: number
+        priceSource:
+          type: string
         totalFinanced:
           type: number
         monthlyPayment:
@@ -739,6 +743,8 @@ components:
         - term
         - conditionUsed
         - bbWholesale
+        - sellingPrice
+        - priceSource
         - totalFinanced
         - monthlyPayment
         - costOfBorrowing

@@ -162,6 +162,8 @@ export interface LenderCalcResultItem {
   term: number;
   conditionUsed: string;
   bbWholesale: number;
+  sellingPrice: number;
+  priceSource: string;
   totalFinanced: number;
   monthlyPayment: number;
   costOfBorrowing: number;

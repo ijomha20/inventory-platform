@@ -196,6 +196,8 @@ router.post("/lender-calculate", requireOwner, async (req, res) => {
     term:            number;
     conditionUsed:   string;
     bbWholesale:     number;
+    sellingPrice:    number;
+    priceSource:     string;
     totalFinanced:   number;
     monthlyPayment:  number;
     costOfBorrowing: number;
@@ -223,12 +225,26 @@ router.post("/lender-calculate", requireOwner, async (req, res) => {
     const bbWholesale = item.bbValues[bbField];
     if (!bbWholesale || bbWholesale <= 0) continue;
 
+    const rawOnline = parseFloat(item.onlinePrice?.replace(/[^0-9.]/g, "") || "0");
+    const rawMatrix = parseFloat(item.matrixPrice?.replace(/[^0-9.]/g, "") || "0");
+    let sellingPrice = 0;
+    let priceSource  = "";
+    if (rawOnline > 0) {
+      sellingPrice = rawOnline;
+      priceSource  = "online";
+    } else if (rawMatrix > 0) {
+      sellingPrice = rawMatrix;
+      priceSource  = "pac";
+    }
+
     const vehicleCost = bbWholesale;
     const amountBeforeTax = vehicleCost - downPayment - netTrade;
     if (amountBeforeTax <= 0) continue;
 
     const taxes = amountBeforeTax * taxRate;
     const totalFinanced = amountBeforeTax + taxes;
+
+    if (sellingPrice > 0 && totalFinanced < sellingPrice) continue;
 
     const monthlyPayment = pmt(rateDecimal, termMonths, totalFinanced);
     if (maxPmt < Infinity && monthlyPayment > maxPmt) continue;
@@ -242,6 +258,8 @@ router.post("/lender-calculate", requireOwner, async (req, res) => {
       term:            termMonths,
       conditionUsed:   condition,
       bbWholesale,
+      sellingPrice:    Math.round(sellingPrice),
+      priceSource,
       totalFinanced:   Math.round(totalFinanced),
       monthlyPayment:  Math.round(monthlyPayment * 100) / 100,
       costOfBorrowing: Math.round(costOfBorrowing),
