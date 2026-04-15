@@ -11,6 +11,12 @@ import {
   runLenderSync,
 } from "../lib/lenderWorker.js";
 import type { VehicleTermMatrixEntry, VehicleConditionMatrixEntry } from "../lib/bbObjectStore.js";
+import {
+  resolveCapProfile,
+  resolveNoOnlineSellingPrice,
+  NO_ONLINE_STRATEGY_BY_PROFILE,
+} from "../lib/lenderCalcEngine.js";
+import { getRuntimeFingerprint } from "../lib/runtimeFingerprint.js";
 
 const router = Router();
 
@@ -214,10 +220,16 @@ router.post("/lender-calculate", requireOwnerOrViewer, async (req, res) => {
   const MAX_GAP_MARKUP    = 1500;
   const MAX_GAP_PRICE     = Math.round(MAX_GAP_MARKUP / (1 - 1 / MARKUP));
 
-  const hasAdvanceCap    = tier.maxAdvanceLTV > 0;
-  const hasAftermarketCap = tier.maxAftermarketLTV > 0;
-  const hasAllInCap       = tier.maxAllInLTV > 0;
-  const allInOnly         = !hasAdvanceCap && !hasAftermarketCap && hasAllInCap;
+  const capProfile = resolveCapProfile({
+    maxAdvanceLTV: tier.maxAdvanceLTV,
+    maxAftermarketLTV: tier.maxAftermarketLTV,
+    maxAllInLTV: tier.maxAllInLTV,
+    capModelResolved: guide.capModelResolved ?? "unknown",
+  });
+  const hasAdvanceCap = capProfile.hasAdvanceCap;
+  const hasAftermarketCap = capProfile.hasAftermarketCap;
+  const hasAllInCap = capProfile.hasAllInCap;
+  const allInOnly = capProfile.allInOnly;
 
   const maxAdvanceLTV     = hasAdvanceCap    ? tier.maxAdvanceLTV / 100    : Infinity;
   const maxAftermarketLTV = hasAftermarketCap ? tier.maxAftermarketLTV / 100 : Infinity;
@@ -353,24 +365,27 @@ router.post("/lender-calculate", requireOwnerOrViewer, async (req, res) => {
       }
       gCost = gapPr > 0 ? Math.round(gapPr / MARKUP) : 0;
 
-    } else if (hasAdvanceCap) {
-      // --- PATH B: no online price, lender has advance cap ---
-      const advCeiling = Math.round(maxAdvance + downPayment + netTrade);
-      const allInSellCeiling = isFinite(maxAllIn)
-        ? Math.round(maxAllIn - creditorFee + downPayment + netTrade)
-        : Infinity;
-      const effectiveSellCeiling = isFinite(allInSellCeiling)
-        ? Math.min(advCeiling, allInSellCeiling)
-        : advCeiling;
+    } else {
+      // --- PATH B/C/PROFILED: no online price ---
+      const noOnlineResolution = resolveNoOnlineSellingPrice({
+        pacCost,
+        downPayment,
+        netTrade,
+        creditorFee,
+        maxAdvance,
+        maxAllIn,
+        profile: capProfile,
+      });
 
-      if (effectiveSellCeiling < pacCost) {
-        if (isFinite(allInSellCeiling) && allInSellCeiling < advCeiling) debugCounts.ltvAllIn++;
-        else debugCounts.ltvAdvance++;
-        continue;
+      if (noOnlineResolution.rejection === "ltvAllIn") { debugCounts.ltvAllIn++; continue; }
+      if (noOnlineResolution.rejection === "ltvAdvance") { debugCounts.ltvAdvance++; continue; }
+
+      sellingPrice = noOnlineResolution.price;
+      priceSource = noOnlineResolution.source;
+
+      if (priceSource === "pac") {
+        // No sell-price LTV ceiling exists in this cap profile; keep PAC floor path.
       }
-
-      sellingPrice = effectiveSellCeiling;
-      priceSource  = "maximized";
 
       const lenderExposure = sellingPrice - downPayment - netTrade;
       const allInRoom = isFinite(maxAllIn) ? maxAllIn - lenderExposure - creditorFee : Infinity;
@@ -427,18 +442,6 @@ router.post("/lender-calculate", requireOwnerOrViewer, async (req, res) => {
         if (gapPr > warGapRoom) gapPr = 0;
       }
       gCost = gapPr > 0 ? Math.round(gapPr / MARKUP) : 0;
-
-    } else if (allInOnly) {
-      // --- PATH C: all-in only, no online price — max out selling price, no products ---
-      const allInCeiling = Math.round(maxAllIn - creditorFee + downPayment + netTrade);
-      if (allInCeiling < pacCost) { debugCounts.ltvAllIn++; continue; }
-      sellingPrice = allInCeiling;
-      priceSource  = "maximized";
-
-    } else {
-      // No meaningful LTV constraints at all — use PAC cost
-      sellingPrice = pacCost;
-      priceSource  = "pac";
     }
 
     if (sellingPrice < pacCost) { debugCounts.noPrice++; continue; }
@@ -488,13 +491,32 @@ router.post("/lender-calculate", requireOwnerOrViewer, async (req, res) => {
 
   results.sort((a, b) => b.profit - a.profit);
 
-  logger.info({ debugCounts, lender: params.lenderCode, program: guide.programTitle, tier: params.tierName, allInOnly, hasAdvanceCap, hasAftermarketCap, adminInclusion, capAdmin, capWarranty, capGap }, "Lender calculate debug");
+  const runtime = getRuntimeFingerprint();
+
+  logger.info({
+    debugCounts,
+    lender: params.lenderCode,
+    program: guide.programTitle,
+    tier: params.tierName,
+    allInOnly,
+    hasAdvanceCap,
+    hasAftermarketCap,
+    adminInclusion,
+    capAdmin,
+    capWarranty,
+    capGap,
+    capModelResolved: guide.capModelResolved ?? "unknown",
+    capProfileKey: capProfile.key,
+    noOnlineStrategy: NO_ONLINE_STRATEGY_BY_PROFILE[capProfile.key],
+    ...runtime,
+  }, "Lender calculate debug");
 
   res.set("Cache-Control", "no-store");
   res.json({
     lender:     params.lenderCode,
     program:    guide.programTitle,
     tier:       params.tierName,
+    ...runtime,
     tierConfig: tier,
     programLimits: {
       maxWarrantyPrice: capWarranty ?? null,
@@ -507,6 +529,9 @@ router.post("/lender-calculate", requireOwnerOrViewer, async (req, res) => {
       hasAftermarketCap,
       aftermarketBase:    guide.aftermarketBase ?? "unknown",
       adminFeeInclusion:  adminInclusion,
+      capModelResolved:   guide.capModelResolved ?? "unknown",
+      capProfileKey:      capProfile.key,
+      noOnlineStrategy:   NO_ONLINE_STRATEGY_BY_PROFILE[capProfile.key],
     },
     debugCounts,
     resultCount: results.length,
@@ -516,9 +541,10 @@ router.post("/lender-calculate", requireOwnerOrViewer, async (req, res) => {
 
 // Diagnostic endpoint — dumps cached program metadata for debugging
 router.get("/lender-debug", requireOwner, async (_req, res) => {
+  const runtime = getRuntimeFingerprint();
   const programs = getCachedLenderPrograms();
   if (!programs) {
-    res.json({ error: "No cached programs", programs: [] });
+    res.json({ error: "No cached programs", programs: [], ...runtime });
     return;
   }
   const summary = programs.programs.map(lender => ({
@@ -529,6 +555,18 @@ router.get("/lender-debug", requireOwner, async (_req, res) => {
       programTitle: g.programTitle,
       tiersCount: g.tiers.length,
       tiers: g.tiers.map(t => ({
+        capProfileKey: resolveCapProfile({
+          maxAdvanceLTV: t.maxAdvanceLTV,
+          maxAftermarketLTV: t.maxAftermarketLTV,
+          maxAllInLTV: t.maxAllInLTV,
+          capModelResolved: g.capModelResolved ?? "unknown",
+        }).key,
+        noOnlineStrategy: NO_ONLINE_STRATEGY_BY_PROFILE[resolveCapProfile({
+          maxAdvanceLTV: t.maxAdvanceLTV,
+          maxAftermarketLTV: t.maxAftermarketLTV,
+          maxAllInLTV: t.maxAllInLTV,
+          capModelResolved: g.capModelResolved ?? "unknown",
+        }).key],
         tierName: t.tierName,
         maxAdvanceLTV: t.maxAdvanceLTV,
         maxAftermarketLTV: t.maxAftermarketLTV,
@@ -543,6 +581,7 @@ router.get("/lender-debug", requireOwner, async (_req, res) => {
       feeCalculationsRaw: g.feeCalculationsRaw ?? null,
       aftermarketBase: g.aftermarketBase ?? "unknown",
       allInOnlyRules: g.allInOnlyRules ?? false,
+      capModelResolved: g.capModelResolved ?? "unknown",
       adminFeeInclusion: g.adminFeeInclusion ?? "unknown",
       backendLtvCalculation: g.backendLtvCalculation ?? null,
       allInLtvCalculation: g.allInLtvCalculation ?? null,
@@ -553,7 +592,7 @@ router.get("/lender-debug", requireOwner, async (_req, res) => {
       ),
     })),
   }));
-  res.json({ updatedAt: programs.updatedAt, lenders: summary });
+  res.json({ updatedAt: programs.updatedAt, lenders: summary, ...runtime });
 });
 
 export default router;

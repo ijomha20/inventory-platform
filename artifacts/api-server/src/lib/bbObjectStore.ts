@@ -183,7 +183,9 @@ export interface LenderProgramGuide {
     maxGapInsuranceFeeCalculation?:     string;
     maxDealerAdminFeeCalculation?:       string;
     maxAhInsuranceFeeCalculation?:      string;
+    resolvedGapCapSource?:             string;
   };
+  capModelResolved?: "allInOnly" | "split" | "backendOnly" | "unknown";
   backendLtvCalculation?: string;
   allInLtvCalculation?: string;
   backendRemainingCalculation?: string;

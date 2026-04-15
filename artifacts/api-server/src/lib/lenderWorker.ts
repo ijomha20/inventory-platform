@@ -142,6 +142,12 @@ function mapCreditorToLenderPrograms(creditor: any): LenderProgram[] {
   }
 
   const guides: LenderProgramGuide[] = (creditor.programs ?? []).map(mapProgramGuide);
+  if (mapping.code === "SAN") {
+    for (const g of guides) {
+      // Santander uses all-in constraint in practice; do not force synthetic split aftermarket caps.
+      g.capModelResolved = "allInOnly";
+    }
+  }
 
   return [{
     lenderCode: mapping.code,
@@ -223,12 +229,42 @@ function mapProgramGuide(prog: any): LenderProgramGuide {
     return "unknown";
   }
 
+  function inferCapModelResolved(
+    backendRemaining?: string,
+    allInRemaining?: string,
+    backendLtv?: string,
+    allInLtv?: string,
+  ): "allInOnly" | "split" | "backendOnly" | "unknown" {
+    const backendExpr = `${backendRemaining ?? ""} ${backendLtv ?? ""}`.toLowerCase();
+    const allInExpr = `${allInRemaining ?? ""} ${allInLtv ?? ""}`.toLowerCase();
+    const productRegex = /(extendedwarrantyfee|gapinsurancefee|ahinsurancefee|dealeradminfee)/i;
+
+    const hasBackendRemaining = !!backendRemaining;
+    const hasAllInRemaining = !!allInRemaining;
+    const backendMentionsProducts = productRegex.test(backendExpr);
+    const allInMentionsProducts = productRegex.test(allInExpr);
+
+    if (!hasBackendRemaining && hasAllInRemaining) return "allInOnly";
+    if (hasBackendRemaining && !hasAllInRemaining) return "backendOnly";
+    if (hasBackendRemaining && hasAllInRemaining) {
+      if (!backendMentionsProducts && allInMentionsProducts) return "allInOnly";
+      return "split";
+    }
+    return "unknown";
+  }
+
   const backendLtvCalculation = parseCalcString(prog.backendLtvCalculation);
   const allInLtvCalculation = parseCalcString(prog.allInLtvCalculation);
   const backendRemainingCalculation = parseCalcString(prog.backendRemainingCalculation);
   const allInRemainingCalculation = parseCalcString(prog.allInRemainingCalculation);
   const aftermarketBase = inferAftermarketBase(backendRemainingCalculation);
   const adminFeeInclusion = inferAdminFeeInclusion(backendLtvCalculation, allInLtvCalculation);
+  const capModelResolved = inferCapModelResolved(
+    backendRemainingCalculation,
+    allInRemainingCalculation,
+    backendLtvCalculation,
+    allInLtvCalculation,
+  );
 
   const parsedMaxWarranty = parseCalcNumber(prog.maxExtendedWarrantyFeeCalculation);
   const parsedMaxGap      = parseCalcNumber(prog.maxGapInsuranceFeeCalculation);
@@ -300,6 +336,7 @@ function mapProgramGuide(prog: any): LenderProgramGuide {
     parsedMaxAdmin,
     adminFeeInclusion,
     aftermarketBase,
+    capModelResolved,
   }, "Lender sync: program fee caps");
 
   return {
@@ -315,6 +352,7 @@ function mapProgramGuide(prog: any): LenderProgramGuide {
     maxAdminFee:      parsedMaxAdmin != null && parsedMaxAdmin > 0 ? parsedMaxAdmin : undefined,
     gapInsuranceTarget: gapTarget,
     feeCalculationsRaw,
+    capModelResolved,
     backendLtvCalculation,
     allInLtvCalculation,
     backendRemainingCalculation,

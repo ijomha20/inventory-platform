@@ -5,7 +5,9 @@
   "type": "module",
   "scripts": {
     "hello": "tsx ./src/hello.ts",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test:lender-golden": "tsx --test ./src/lender-engine.golden.test.ts",
+    "smoke:lender": "tsx ./src/lender-smoke.ts"
   },
   "devDependencies": {
     "@types/node": "catalog:",
