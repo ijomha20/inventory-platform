@@ -135,6 +135,7 @@ export interface LenderProgram {
 export interface LenderProgramsResponse {
   programs: LenderProgram[];
   updatedAt?: string | null;
+  role?: string;
 }
 
 export interface LenderStatus {

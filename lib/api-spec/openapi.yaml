@@ -663,6 +663,8 @@ components:
         updatedAt:
           type: string
           nullable: true
+        role:
+          type: string
       required:
         - programs
 

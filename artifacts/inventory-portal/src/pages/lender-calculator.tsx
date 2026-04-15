@@ -112,7 +112,7 @@ export default function LenderCalculator() {
   const [adminFee, setAdminFee] = useState("0");
   const [showAdvanced, setShowAdvanced] = useState(false);
 
-  const userRole: string = (programsData as any)?.role ?? "";
+  const userRole: string = programsData?.role ?? "";
   const isUserOwner = userRole === "owner";
 
   const programs: LenderProgram[] = programsData?.programs ?? [];
