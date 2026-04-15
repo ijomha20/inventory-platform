@@ -224,23 +224,26 @@ router.post("/lender-calculate", requireOwner, async (req, res) => {
 
   const results: Result[] = [];
 
+  const debugCounts = { total: 0, noYear: 0, noKm: 0, noTerm: 0, noCondition: 0, noBB: 0, noBBVal: 0, noPrice: 0, ltvAdvance: 0, ltvAftermarket: 0, ltvAllIn: 0, negFinanced: 0, dealValue: 0, maxPmtFilter: 0, passed: 0 };
+
   for (const item of inventory) {
+    debugCounts.total++;
     const vehicleYear = parseVehicleYear(item.vehicle);
-    if (!vehicleYear) continue;
+    if (!vehicleYear) { debugCounts.noYear++; continue; }
 
     const km = parseInt(item.km?.replace(/[^0-9]/g, "") || "0", 10);
-    if (!km || km <= 0) continue;
+    if (!km || km <= 0) { debugCounts.noKm++; continue; }
 
     const termMonths = lookupTerm(guide.vehicleTermMatrix, vehicleYear, km);
-    if (!termMonths) continue;
+    if (!termMonths) { debugCounts.noTerm++; continue; }
 
     const condition = lookupCondition(guide.vehicleConditionMatrix, vehicleYear, km);
-    if (!condition) continue;
+    if (!condition) { debugCounts.noCondition++; continue; }
 
-    if (!item.bbValues) continue;
+    if (!item.bbValues) { debugCounts.noBB++; continue; }
     const bbField = conditionToBBField[condition];
     const bbWholesale = item.bbValues[bbField];
-    if (!bbWholesale || bbWholesale <= 0) continue;
+    if (!bbWholesale || bbWholesale <= 0) { debugCounts.noBBVal++; continue; }
 
     const rawOnline = parseFloat(item.onlinePrice?.replace(/[^0-9.]/g, "") || "0");
     const rawMatrix = parseFloat(item.matrixPrice?.replace(/[^0-9.]/g, "") || "0");
@@ -253,6 +256,7 @@ router.post("/lender-calculate", requireOwner, async (req, res) => {
       sellingPrice = rawMatrix;
       priceSource  = "pac";
     } else {
+      debugCounts.noPrice++;
       continue;
     }
 
@@ -263,25 +267,25 @@ router.post("/lender-calculate", requireOwner, async (req, res) => {
     const maxAllIn       = bbWholesale * maxAllInLTV;
 
     const vehicleAdvance = sellingPrice;
-    if (vehicleAdvance > maxAdvance) continue;
+    if (vehicleAdvance > maxAdvance) { debugCounts.ltvAdvance++; continue; }
 
-    const withAftermarket = vehicleAdvance + aftermarketRevenue;
-    if (withAftermarket > maxAftermarket) continue;
+    if (aftermarketRevenue > maxAftermarket) { debugCounts.ltvAftermarket++; continue; }
 
-    const allInTotal = withAftermarket + adminFee + creditorFee;
-    if (allInTotal > maxAllIn) continue;
+    const allInTotal = vehicleAdvance + aftermarketRevenue + adminFee + creditorFee;
+    if (allInTotal > maxAllIn) { debugCounts.ltvAllIn++; continue; }
 
     const amountBeforeTax = allInTotal - downPayment - netTrade;
-    if (amountBeforeTax <= 0) continue;
+    if (amountBeforeTax <= 0) { debugCounts.negFinanced++; continue; }
 
     const taxes = amountBeforeTax * taxRate;
     const totalFinanced = amountBeforeTax + taxes;
 
     const totalDealValue = totalFinanced + downPayment + netTrade;
-    if (totalDealValue < sellingPrice) continue;
+    if (totalDealValue < sellingPrice) { debugCounts.dealValue++; continue; }
 
     const monthlyPayment = pmt(rateDecimal, termMonths, totalFinanced);
-    if (maxPmt < Infinity && monthlyPayment > maxPmt) continue;
+    if (maxPmt < Infinity && monthlyPayment > maxPmt) { debugCounts.maxPmtFilter++; continue; }
+    debugCounts.passed++;
 
     const frontEndGross   = sellingPrice - (rawCost > 0 ? rawCost : bbWholesale);
     const warrantyProfit  = warrantyPrice - warrantyCost;
@@ -304,6 +308,8 @@ router.post("/lender-calculate", requireOwner, async (req, res) => {
       website:         item.website,
     });
   }
+
+  console.log("[DEBUG calc]", JSON.stringify({ debugCounts, maxAdvanceLTV, maxAftermarketLTV, maxAllInLTV, downPayment, netTrade, aftermarketRevenue, adminFee, creditorFee, taxRate }));
 
   results.sort((a, b) => a.monthlyPayment - b.monthlyPayment);
 
