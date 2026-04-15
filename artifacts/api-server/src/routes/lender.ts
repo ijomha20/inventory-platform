@@ -234,12 +234,24 @@ router.post("/lender-calculate", requireOwnerOrViewer, async (req, res) => {
   const maxAdvanceLTV     = hasAdvanceCap    ? tier.maxAdvanceLTV / 100    : Infinity;
   const maxAftermarketLTV = hasAftermarketCap ? tier.maxAftermarketLTV / 100 : Infinity;
   const maxAllInLTV       = hasAllInCap       ? tier.maxAllInLTV / 100       : Infinity;
+  const allInTaxMultiplier = 1 + taxRate;
 
   const adminInclusion = guide.adminFeeInclusion ?? "unknown";
 
   // CreditApp fee calculation fields: positive numbers are real caps, 0 means "no cap set"
-  const capWarranty = (guide.maxWarrantyPrice != null && guide.maxWarrantyPrice > 0) ? guide.maxWarrantyPrice : undefined;
-  const capGap      = (guide.maxGapPrice != null && guide.maxGapPrice > 0)           ? guide.maxGapPrice      : undefined;
+  let capWarranty = (guide.maxWarrantyPrice != null && guide.maxWarrantyPrice > 0) ? guide.maxWarrantyPrice : undefined;
+  let capGap      = (guide.maxGapPrice != null && guide.maxGapPrice > 0)           ? guide.maxGapPrice      : undefined;
+  // ACC-style AH routing fallback: when GAP target is AH and gap field resolves to 0/not-set,
+  // treat warranty cap as GAP cap to avoid known mis-mapping.
+  if (
+    guide.gapInsuranceTarget === "AH_INSURANCE" &&
+    capGap == null &&
+    capWarranty != null &&
+    (guide.maxGapPrice == null || guide.maxGapPrice <= 0)
+  ) {
+    capGap = capWarranty;
+    capWarranty = undefined;
+  }
   const capAdmin    = (guide.maxAdminFee != null && guide.maxAdminFee > 0)            ? guide.maxAdminFee      : undefined;
   const desiredAdmin = requestedAdmin > 0
     ? Math.round(requestedAdmin)
@@ -282,7 +294,8 @@ router.post("/lender-calculate", requireOwnerOrViewer, async (req, res) => {
     if (pacCost <= 0) { debugCounts.noPrice++; continue; }
 
     const maxAdvance = hasAdvanceCap ? bbWholesale * maxAdvanceLTV : Infinity;
-    const maxAllIn   = hasAllInCap   ? bbWholesale * maxAllInLTV   : Infinity;
+    const maxAllInWithTax = hasAllInCap ? bbWholesale * maxAllInLTV : Infinity;
+    const maxAllInPreTax = isFinite(maxAllInWithTax) ? (maxAllInWithTax / allInTaxMultiplier) : Infinity;
 
     // ============================================================
     //  PATH A: Online price exists — price is fixed, stack products
@@ -309,7 +322,7 @@ router.post("/lender-calculate", requireOwnerOrViewer, async (req, res) => {
       const lenderExposure = sellingPrice - downPayment - netTrade;
       if (isFinite(maxAdvance) && lenderExposure > maxAdvance) { debugCounts.ltvAdvance++; continue; }
 
-      const allInRoom = isFinite(maxAllIn) ? maxAllIn - lenderExposure - creditorFee : Infinity;
+      const allInRoom = isFinite(maxAllInPreTax) ? maxAllInPreTax - lenderExposure - creditorFee : Infinity;
       if (isFinite(allInRoom) && allInRoom < 0) { debugCounts.ltvAllIn++; continue; }
 
       // Product room: limited by aftermarket LTV and/or all-in room
@@ -344,12 +357,6 @@ router.post("/lender-calculate", requireOwnerOrViewer, async (req, res) => {
       // Warranty (second priority)
       if (warGapRoom >= Math.round(MIN_WARRANTY_COST * MARKUP)) {
         warPrice = capWarranty != null ? Math.min(warGapRoom, capWarranty) : warGapRoom;
-        if (gapAllowed) {
-          const gapReserve = Math.min(MAX_GAP_PRICE, capGap ?? MAX_GAP_PRICE);
-          if (warPrice > warGapRoom - gapReserve && warGapRoom > gapReserve) {
-            warPrice = warGapRoom - gapReserve;
-          }
-        }
         warPrice = Math.max(warPrice, Math.round(MIN_WARRANTY_COST * MARKUP));
         if (warPrice > warGapRoom) warPrice = 0;
       }
@@ -373,7 +380,7 @@ router.post("/lender-calculate", requireOwnerOrViewer, async (req, res) => {
         netTrade,
         creditorFee,
         maxAdvance,
-        maxAllIn,
+        maxAllInPreTax,
         profile: capProfile,
       });
 
@@ -388,7 +395,7 @@ router.post("/lender-calculate", requireOwnerOrViewer, async (req, res) => {
       }
 
       const lenderExposure = sellingPrice - downPayment - netTrade;
-      const allInRoom = isFinite(maxAllIn) ? maxAllIn - lenderExposure - creditorFee : Infinity;
+      const allInRoom = isFinite(maxAllInPreTax) ? maxAllInPreTax - lenderExposure - creditorFee : Infinity;
       if (isFinite(allInRoom) && allInRoom < 0) { debugCounts.ltvAllIn++; continue; }
 
       const aftermarketBaseValue = guide.aftermarketBase === "salePrice" ? sellingPrice : bbWholesale;
@@ -422,12 +429,6 @@ router.post("/lender-calculate", requireOwnerOrViewer, async (req, res) => {
       // Warranty
       if (warGapRoom >= Math.round(MIN_WARRANTY_COST * MARKUP)) {
         warPrice = capWarranty != null ? Math.min(warGapRoom, capWarranty) : warGapRoom;
-        if (gapAllowed) {
-          const gapReserve = Math.min(MAX_GAP_PRICE, capGap ?? MAX_GAP_PRICE);
-          if (warPrice > warGapRoom - gapReserve && warGapRoom > gapReserve) {
-            warPrice = warGapRoom - gapReserve;
-          }
-        }
         warPrice = Math.max(warPrice, Math.round(MIN_WARRANTY_COST * MARKUP));
         if (warPrice > warGapRoom) warPrice = 0;
       }
@@ -451,12 +452,12 @@ router.post("/lender-calculate", requireOwnerOrViewer, async (req, res) => {
 
     const lenderExposure = sellingPrice - downPayment - netTrade;
     const aftermarketRevenue = warPrice + gapPr;
-    const allInTotal = lenderExposure + aftermarketRevenue + effectiveAdmin + creditorFee;
+    const allInSubtotal = lenderExposure + aftermarketRevenue + effectiveAdmin + creditorFee;
+    if (isFinite(maxAllInPreTax) && allInSubtotal > maxAllInPreTax) { debugCounts.ltvAllIn++; continue; }
+    if (allInSubtotal <= 0) { debugCounts.negFinanced++; continue; }
 
-    if (allInTotal <= 0) { debugCounts.negFinanced++; continue; }
-
-    const taxes = allInTotal * taxRate;
-    const totalFinanced = allInTotal + taxes;
+    const taxes = allInSubtotal * taxRate;
+    const totalFinanced = allInSubtotal + taxes;
 
     const monthlyPayment = pmt(rateDecimal, termMonths, totalFinanced);
     if (maxPmt < Infinity && monthlyPayment > maxPmt) { debugCounts.maxPmtFilter++; continue; }

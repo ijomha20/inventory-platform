@@ -22,7 +22,7 @@ export interface NoOnlineSellContext {
   netTrade: number;
   creditorFee: number;
   maxAdvance: number;
-  maxAllIn: number;
+  maxAllInPreTax: number;
   profile: CapProfile;
 }
 
@@ -77,7 +77,7 @@ export function resolveNoOnlineSellingPrice(ctx: NoOnlineSellContext): NoOnlineS
   }
   if (ctx.profile.hasAllInCap) {
     ceilings.push({
-      value: Math.round(ctx.maxAllIn - ctx.creditorFee + ctx.downPayment + ctx.netTrade),
+      value: Math.round(ctx.maxAllInPreTax - ctx.creditorFee + ctx.downPayment + ctx.netTrade),
       reason: "ltvAllIn",
     });
   }
