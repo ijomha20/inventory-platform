@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect } from "react";
 import {
   useGetLenderPrograms,
   useGetLenderStatus,
@@ -60,31 +60,32 @@ function conditionLabel(c: string): string {
 function ResultRow({ item, rank }: { item: LenderCalcResultItem; rank: number }) {
   return (
     <tr className="border-b border-gray-100 last:border-0 odd:bg-white even:bg-slate-50/40 hover:bg-blue-50/50">
-      <td className="w-12 px-3 py-2.5 text-xs text-gray-500 font-semibold text-center">{rank}</td>
-      <td className="w-[320px] px-3 py-2.5 text-sm font-semibold text-gray-900">
+      <td className="px-3 py-2.5 text-xs text-gray-500 font-semibold text-center">{rank}</td>
+      <td className="px-3 py-2.5 text-sm font-semibold text-gray-900">
         <div className="truncate" title={item.vehicle}>{item.vehicle}</div>
       </td>
-      <td className="w-28 px-3 py-2.5 text-sm text-gray-700">{item.location}</td>
-      <td className="w-20 px-3 py-2.5 text-sm text-center text-gray-700">{item.term}mo</td>
-      <td className="w-28 px-3 py-2.5 text-sm text-center">
+      <td className="px-3 py-2.5 text-sm text-gray-700">{item.location}</td>
+      <td className="px-3 py-2.5 text-sm text-center text-gray-700">{item.term}mo</td>
+      <td className="px-3 py-2.5 text-sm text-center">
         <Badge variant="outline" className="text-xs">{conditionLabel(item.conditionUsed)}</Badge>
       </td>
-      <td className="w-28 px-3 py-2.5 text-sm text-right font-medium text-gray-700">{formatCurrency(item.bbWholesale)}</td>
-      <td className="w-36 px-3 py-2.5 text-sm text-right font-medium text-gray-700">
+      <td className="px-3 py-2.5 text-sm text-right font-medium text-gray-700">{formatCurrency(item.bbWholesale)}</td>
+      <td className="px-3 py-2.5 text-sm text-right font-medium text-gray-700">
         {item.sellingPrice > 0 ? formatCurrency(item.sellingPrice) : "—"}
         {item.priceSource && <span className="text-xs text-gray-400 ml-1">({item.priceSource === "online" ? "Online" : "PAC"})</span>}
       </td>
-      <td className="w-36 px-3 py-2.5 text-sm text-right text-gray-700">
+      <td className="px-3 py-2.5 text-sm text-right font-medium text-indigo-700">{formatCurrency(item.adminFeeUsed)}</td>
+      <td className="px-3 py-2.5 text-sm text-right text-gray-700">
         {formatCurrency(item.warrantyPrice)}
         <span className="text-xs text-gray-400 ml-0.5">/{formatCurrency(item.warrantyCost)}</span>
       </td>
-      <td className="w-32 px-3 py-2.5 text-sm text-right text-gray-700">
+      <td className="px-3 py-2.5 text-sm text-right text-gray-700">
         {formatCurrency(item.gapPrice)}
         <span className="text-xs text-gray-400 ml-0.5">/{formatCurrency(item.gapCost)}</span>
       </td>
-      <td className="w-36 px-3 py-2.5 text-sm text-right font-medium text-gray-700">{formatCurrency(item.totalFinanced)}</td>
-      <td className="w-32 px-3 py-2.5 text-sm text-right font-semibold text-green-700">{formatPayment(item.monthlyPayment)}</td>
-      <td className="w-32 px-3 py-2.5 text-sm text-right font-semibold text-emerald-700">{formatCurrency(item.profit)}</td>
+      <td className="px-3 py-2.5 text-sm text-right font-medium text-gray-700">{formatCurrency(item.totalFinanced)}</td>
+      <td className="px-3 py-2.5 text-sm text-right font-semibold text-green-700">{formatPayment(item.monthlyPayment)}</td>
+      <td className="px-3 py-2.5 text-sm text-right font-semibold text-emerald-700">{formatCurrency(item.profit)}</td>
     </tr>
   );
 }
@@ -111,6 +112,9 @@ export default function LenderCalculator() {
   const [adminFee, setAdminFee] = useState("0");
   const [showAdvanced, setShowAdvanced] = useState(false);
 
+  const userRole: string = (programsData as any)?.role ?? "";
+  const isUserOwner = userRole === "owner";
+
   const programs: LenderProgram[] = programsData?.programs ?? [];
 
   const selectedLenderObj = useMemo(
@@ -129,6 +133,20 @@ export default function LenderCalculator() {
   );
 
   const calcResults: LenderCalculateResponse | null = calcMutation.data ?? null;
+
+  // Auto-select program when lender has exactly one program
+  useEffect(() => {
+    if (selectedLenderObj && selectedLenderObj.programs.length === 1 && !selectedProgram) {
+      setSelectedProgram(selectedLenderObj.programs[0].programId);
+    }
+  }, [selectedLenderObj, selectedProgram]);
+
+  // Auto-fill approved rate with tier's minimum rate when tier is selected
+  useEffect(() => {
+    if (selectedTierObj) {
+      setApprovedRate(String(selectedTierObj.minRate));
+    }
+  }, [selectedTierObj]);
 
   const handleRefresh = () => {
     refreshMutation.mutate(undefined as any, {
@@ -177,7 +195,7 @@ export default function LenderCalculator() {
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Lender Deal Calculator</h1>
+          <h1 className="text-2xl font-bold text-gray-900">Inventory Selector</h1>
           <p className="text-sm text-gray-500 mt-1">
             Filter inventory by customer approval parameters using cached lender program matrices
           </p>
@@ -197,15 +215,17 @@ export default function LenderCalculator() {
               )}
             </div>
           )}
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={handleRefresh}
-            disabled={refreshMutation.isPending || statusData?.running}
-          >
-            <RefreshCw className={`w-4 h-4 mr-1.5 ${statusData?.running ? "animate-spin" : ""}`} />
-            Sync Programs
-          </Button>
+          {isUserOwner && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleRefresh}
+              disabled={refreshMutation.isPending || statusData?.running}
+            >
+              <RefreshCw className={`w-4 h-4 mr-1.5 ${statusData?.running ? "animate-spin" : ""}`} />
+              Sync Programs
+            </Button>
+          )}
         </div>
       </div>
 
@@ -217,7 +237,9 @@ export default function LenderCalculator() {
               <div>
                 <p className="text-sm font-medium text-amber-800">No lender programs cached</p>
                 <p className="text-sm text-amber-700 mt-1">
-                  Click "Sync Programs" to fetch the latest lender program matrices from CreditApp.
+                  {isUserOwner
+                    ? 'Click "Sync Programs" to fetch the latest lender program matrices from CreditApp.'
+                    : "No lender programs available. Ask an admin to sync programs."}
                 </p>
               </div>
             </div>
@@ -242,12 +264,12 @@ export default function LenderCalculator() {
                 <div className="space-y-2">
                   <Label className="text-xs font-semibold tracking-wide text-gray-700 uppercase">Lender</Label>
                   <Select value={selectedLender} onValueChange={handleLenderChange}>
-                    <SelectTrigger className="h-10 text-sm font-medium bg-white">
+                    <SelectTrigger className="h-10 text-sm font-medium bg-white border-gray-300 shadow-sm">
                       <SelectValue placeholder="Select a lender" />
                     </SelectTrigger>
-                    <SelectContent className="max-h-80">
+                    <SelectContent className="max-h-80 bg-white border border-gray-200 shadow-lg">
                       {programs.map(p => (
-                        <SelectItem key={p.lenderCode} value={p.lenderCode} className="text-sm py-2">
+                        <SelectItem key={p.lenderCode} value={p.lenderCode} className="text-sm py-2.5 px-3 cursor-pointer hover:bg-gray-100 focus:bg-gray-100">
                           {p.lenderName} ({p.lenderCode})
                         </SelectItem>
                       ))}
@@ -255,16 +277,16 @@ export default function LenderCalculator() {
                   </Select>
                 </div>
 
-                {selectedLenderObj && (
+                {selectedLenderObj && selectedLenderObj.programs.length > 1 && (
                   <div className="space-y-2">
                     <Label className="text-xs font-semibold tracking-wide text-gray-700 uppercase">Program</Label>
                     <Select value={selectedProgram} onValueChange={handleProgramChange}>
-                      <SelectTrigger className="h-10 text-sm font-medium bg-white">
+                      <SelectTrigger className="h-10 text-sm font-medium bg-white border-gray-300 shadow-sm">
                         <SelectValue placeholder="Select a program" />
                       </SelectTrigger>
-                      <SelectContent className="max-h-80">
+                      <SelectContent className="max-h-80 bg-white border border-gray-200 shadow-lg">
                         {selectedLenderObj.programs.map(g => (
-                          <SelectItem key={g.programId} value={g.programId} className="text-sm py-2">
+                          <SelectItem key={g.programId} value={g.programId} className="text-sm py-2.5 px-3 cursor-pointer hover:bg-gray-100 focus:bg-gray-100">
                             {g.programTitle} ({g.tiers.length} tier{g.tiers.length !== 1 ? "s" : ""})
                           </SelectItem>
                         ))}
@@ -273,16 +295,25 @@ export default function LenderCalculator() {
                   </div>
                 )}
 
+                {selectedLenderObj && selectedLenderObj.programs.length === 1 && selectedProgram && (
+                  <div className="space-y-1">
+                    <Label className="text-xs font-semibold tracking-wide text-gray-700 uppercase">Program</Label>
+                    <div className="h-10 flex items-center px-3 bg-gray-50 border border-gray-200 rounded-md text-sm font-medium text-gray-700">
+                      {selectedLenderObj.programs[0].programTitle} ({selectedLenderObj.programs[0].tiers.length} tier{selectedLenderObj.programs[0].tiers.length !== 1 ? "s" : ""})
+                    </div>
+                  </div>
+                )}
+
                 {selectedGuide && (
                   <div className="space-y-2">
                     <Label className="text-xs font-semibold tracking-wide text-gray-700 uppercase">Tier</Label>
                     <Select value={selectedTier} onValueChange={setSelectedTier}>
-                      <SelectTrigger className="h-10 text-sm font-medium bg-white">
+                      <SelectTrigger className="h-10 text-sm font-medium bg-white border-gray-300 shadow-sm">
                         <SelectValue placeholder="Select a tier" />
                       </SelectTrigger>
-                      <SelectContent className="max-h-80">
+                      <SelectContent className="max-h-80 bg-white border border-gray-200 shadow-lg">
                         {selectedGuide.tiers.map(t => (
-                          <SelectItem key={t.tierName} value={t.tierName} className="text-sm py-2">
+                          <SelectItem key={t.tierName} value={t.tierName} className="text-sm py-2.5 px-3 cursor-pointer hover:bg-gray-100 focus:bg-gray-100">
                             {t.tierName} ({t.minRate}–{t.maxRate}%)
                           </SelectItem>
                         ))}
@@ -299,7 +330,7 @@ export default function LenderCalculator() {
 
                 <div className="space-y-1.5">
                   <Label className="text-xs font-semibold tracking-wide text-gray-700 uppercase flex items-center gap-1">
-                    <Percent className="w-3 h-3" /> Rate (%)
+                    <Percent className="w-3 h-3" /> Approved Rate (%)
                   </Label>
                   <Input
                     type="number"
@@ -308,6 +339,11 @@ export default function LenderCalculator() {
                     onChange={e => setApprovedRate(e.target.value)}
                     className="h-9"
                   />
+                  {selectedTierObj && (
+                    <p className="text-xs text-gray-400">
+                      Tier range: {selectedTierObj.minRate}%–{selectedTierObj.maxRate}% (auto-filled with lowest)
+                    </p>
+                  )}
                 </div>
 
                 <div className="space-y-1.5">
@@ -390,7 +426,7 @@ export default function LenderCalculator() {
                       </div>
                     </div>
                     <p className="text-xs text-gray-500">
-                      Warranty &amp; GAP are auto-optimized per vehicle (150% markup = cost × 2.5, min $600/$550 cost) to maximize profit within LTV limits.
+                      Profit maximized in order: dealer admin fee, then warranty (cost × 2.5, min $600 cost), then GAP (cost × 2.5, min $550 cost).
                       {selectedGuide?.maxWarrantyPrice != null && <span className="block mt-1">Max warranty selling price: {formatCurrency(selectedGuide.maxWarrantyPrice)}</span>}
                       {selectedGuide?.maxGapPrice != null && selectedGuide.maxGapPrice === 0 && <span className="block mt-1 text-amber-600 font-medium">GAP not allowed by this lender</span>}
                       {selectedGuide?.maxGapPrice != null && selectedGuide.maxGapPrice > 0 && <span className="block mt-1">Max GAP selling price: {formatCurrency(selectedGuide.maxGapPrice)}</span>}
@@ -461,21 +497,22 @@ export default function LenderCalculator() {
                     </div>
                   ) : (
                     <div className="overflow-x-auto rounded-md border border-gray-200">
-                      <table className="text-left min-w-[1520px] w-full table-fixed">
+                      <table className="text-left w-full" style={{ minWidth: "1560px" }}>
                         <thead className="bg-gray-50 sticky top-0 z-10">
                           <tr className="border-b border-gray-200 text-xs text-gray-600 uppercase tracking-wide">
-                            <th className="w-12 px-3 py-2 text-center">#</th>
-                            <th className="w-[320px] px-3 py-2">Vehicle</th>
-                            <th className="w-28 px-3 py-2">Location</th>
-                            <th className="w-20 px-3 py-2 text-center">Term</th>
-                            <th className="w-28 px-3 py-2 text-center">Condition</th>
-                            <th className="w-28 px-3 py-2 text-right">BB Value</th>
-                            <th className="w-36 px-3 py-2 text-right">Sell Price</th>
-                            <th className="w-36 px-3 py-2 text-right">Warranty</th>
-                            <th className="w-32 px-3 py-2 text-right">GAP</th>
-                            <th className="w-36 px-3 py-2 text-right">Financed</th>
-                            <th className="w-32 px-3 py-2 text-right">Payment</th>
-                            <th className="w-32 px-3 py-2 text-right">Profit</th>
+                            <th className="w-10 px-3 py-2.5 text-center">#</th>
+                            <th className="px-3 py-2.5" style={{ width: "280px" }}>Vehicle</th>
+                            <th className="px-3 py-2.5" style={{ width: "100px" }}>Location</th>
+                            <th className="px-3 py-2.5 text-center" style={{ width: "70px" }}>Term</th>
+                            <th className="px-3 py-2.5 text-center" style={{ width: "100px" }}>Condition</th>
+                            <th className="px-3 py-2.5 text-right" style={{ width: "110px" }}>BB Value</th>
+                            <th className="px-3 py-2.5 text-right" style={{ width: "120px" }}>Sell Price</th>
+                            <th className="px-3 py-2.5 text-right" style={{ width: "100px" }}>Admin Fee</th>
+                            <th className="px-3 py-2.5 text-right" style={{ width: "130px" }}>Warranty</th>
+                            <th className="px-3 py-2.5 text-right" style={{ width: "120px" }}>GAP</th>
+                            <th className="px-3 py-2.5 text-right" style={{ width: "120px" }}>Financed</th>
+                            <th className="px-3 py-2.5 text-right" style={{ width: "100px" }}>Payment</th>
+                            <th className="px-3 py-2.5 text-right" style={{ width: "100px" }}>Profit</th>
                           </tr>
                         </thead>
                         <tbody>
@@ -497,7 +534,7 @@ export default function LenderCalculator() {
                     <Calculator className="w-10 h-10 mx-auto mb-3 opacity-40" />
                     <p className="text-sm font-medium">Select a lender, program, and tier, then click View Inventory</p>
                     <p className="text-xs mt-1">
-                      The calculator will filter your inventory by the customer's approval parameters
+                      The Inventory Selector filters your inventory by the customer's approval parameters
                     </p>
                   </div>
                 </CardContent>

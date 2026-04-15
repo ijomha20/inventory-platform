@@ -208,11 +208,23 @@ function mapProgramGuide(prog: any): LenderProgramGuide {
     return "unknown";
   }
 
+  function inferAdminFeeInclusion(
+    backendLtv?: string, allInLtv?: string
+  ): "backend" | "allIn" | "excluded" | "unknown" {
+    const inBackend = backendLtv?.includes("dealerAdminFee") ?? false;
+    const inAllIn   = allInLtv?.includes("dealerAdminFee") ?? false;
+    if (inBackend) return "backend";
+    if (inAllIn)   return "allIn";
+    if (backendLtv || allInLtv) return "excluded";
+    return "unknown";
+  }
+
   const backendLtvCalculation = parseCalcString(prog.backendLtvCalculation);
   const allInLtvCalculation = parseCalcString(prog.allInLtvCalculation);
   const backendRemainingCalculation = parseCalcString(prog.backendRemainingCalculation);
   const allInRemainingCalculation = parseCalcString(prog.allInRemainingCalculation);
   const aftermarketBase = inferAftermarketBase(backendRemainingCalculation);
+  const adminFeeInclusion = inferAdminFeeInclusion(backendLtvCalculation, allInLtvCalculation);
 
   return {
     programId:              prog.id,
@@ -231,6 +243,7 @@ function mapProgramGuide(prog: any): LenderProgramGuide {
     allInRemainingCalculation,
     aftermarketBase,
     allInOnlyRules: !!allInRemainingCalculation && !backendRemainingCalculation,
+    adminFeeInclusion,
   };
 }
 

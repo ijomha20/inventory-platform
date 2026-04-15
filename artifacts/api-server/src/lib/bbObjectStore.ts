@@ -182,6 +182,7 @@ export interface LenderProgramGuide {
   allInRemainingCalculation?: string;
   aftermarketBase?: "bbWholesale" | "salePrice" | "unknown";
   allInOnlyRules?: boolean;
+  adminFeeInclusion?: "backend" | "allIn" | "excluded" | "unknown";
 }
 
 export interface LenderProgram {

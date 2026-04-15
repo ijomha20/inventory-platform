@@ -39,17 +39,31 @@ async function requireOwner(req: any, res: any, next: any) {
   next();
 }
 
-router.get("/lender-programs", requireOwner, async (_req, res) => {
+async function requireOwnerOrViewer(req: any, res: any, next: any) {
+  if (!req.isAuthenticated || !req.isAuthenticated()) {
+    res.status(401).json({ error: "Not authenticated" });
+    return;
+  }
+  const role = await getUserRole(req);
+  if (role !== "owner" && role !== "viewer") {
+    res.status(403).json({ error: "Access denied" });
+    return;
+  }
+  (req as any)._role = role;
+  next();
+}
+
+router.get("/lender-programs", requireOwnerOrViewer, async (req, res) => {
   const programs = getCachedLenderPrograms();
   if (!programs) {
-    res.json({ programs: [], updatedAt: null });
+    res.json({ programs: [], updatedAt: null, role: (req as any)._role });
     return;
   }
   res.set("Cache-Control", "no-store");
-  res.json(programs);
+  res.json({ ...programs, role: (req as any)._role });
 });
 
-router.get("/lender-status", requireOwner, async (_req, res) => {
+router.get("/lender-status", requireOwnerOrViewer, async (req, res) => {
   const s = getLenderSyncStatus();
   const programs = getCachedLenderPrograms();
   res.set("Cache-Control", "no-store");
@@ -60,6 +74,7 @@ router.get("/lender-status", requireOwner, async (_req, res) => {
     lenderCount:  s.lastCount,
     error:        s.error ?? null,
     programsAge:  programs?.updatedAt ?? null,
+    role:         (req as any)._role,
   });
 });
 
@@ -90,10 +105,6 @@ interface CalcParams {
   tradeValue?:   number;
   tradeLien?:    number;
   taxRate?:      number;
-  warrantyPrice?:  number;
-  warrantyCost?:   number;
-  gapPrice?:       number;
-  gapCost?:        number;
   adminFee?:       number;
 }
 
@@ -142,7 +153,7 @@ function lookupCondition(
   return null;
 }
 
-router.post("/lender-calculate", requireOwner, async (req, res) => {
+router.post("/lender-calculate", requireOwnerOrViewer, async (req, res) => {
   const params = req.body as CalcParams;
 
   if (!params.lenderCode || !params.tierName || !params.programId) {
@@ -193,7 +204,7 @@ router.post("/lender-calculate", requireOwner, async (req, res) => {
   const tradeLien      = params.tradeLien ?? 0;
   const taxRate        = (params.taxRate ?? 5) / 100;
   const netTrade       = tradeValue - tradeLien;
-  const adminFee       = params.adminFee ?? 0;
+  const requestedAdmin = params.adminFee ?? 0;
   const creditorFee    = tier.creditorFee ?? 0;
   const dealerReserve  = tier.dealerReserve ?? 0;
 
@@ -208,7 +219,6 @@ router.post("/lender-calculate", requireOwner, async (req, res) => {
   const capWarranty        = allInOnlyRules ? undefined : programMaxWarranty;
   const capGap             = allInOnlyRules ? undefined : programMaxGap;
   const capAdmin           = allInOnlyRules ? undefined : programMaxAdmin;
-  const effectiveAdmin     = (capAdmin != null && adminFee > capAdmin) ? capAdmin : adminFee;
   const gapAllowed         = capGap == null || capGap > 0;
 
   const maxAdvanceLTV      = tier.maxAdvanceLTV > 0 ? tier.maxAdvanceLTV / 100 : Infinity;
@@ -224,6 +234,7 @@ router.post("/lender-calculate", requireOwner, async (req, res) => {
     bbWholesale:     number;
     sellingPrice:    number;
     priceSource:     string;
+    adminFeeUsed:    number;
     warrantyPrice:   number;
     warrantyCost:    number;
     gapPrice:        number;
@@ -273,7 +284,7 @@ router.post("/lender-calculate", requireOwner, async (req, res) => {
       continue;
     }
 
-    const rawCost = parseFloat(item.cost?.replace(/[^0-9.]/g, "") || "0");
+    const pacCost = parseFloat(item.cost?.replace(/[^0-9.]/g, "") || "0");
 
     const aftermarketBaseValue = guide.aftermarketBase === "salePrice" ? sellingPrice : bbWholesale;
     const maxAdvance     = bbWholesale * maxAdvanceLTV;
@@ -283,69 +294,90 @@ router.post("/lender-calculate", requireOwner, async (req, res) => {
     const lenderExposure = sellingPrice - downPayment - netTrade;
     if (lenderExposure > maxAdvance) { debugCounts.ltvAdvance++; continue; }
 
+    // --- Maximize profit: admin -> warranty -> gap ---
+    // Admin fee treatment varies by lender based on their LTV formula:
+    //   "backend"  — admin counts against backend (aftermarket) LTV
+    //   "allIn"    — admin counts against all-in LTV only (not aftermarket)
+    //   "excluded" — admin is outside both LTV calculations entirely (e.g. Eden Park)
+    //   "unknown"  — fallback: treat as all-in for safety
+
+    const adminInclusion = guide.adminFeeInclusion ?? "unknown";
+
     const minWarPrice = Math.round(MIN_WARRANTY_COST * MARKUP);
     const minGapPrice = Math.round(MIN_GAP_COST * MARKUP);
     const minWarPriceCapped = (capWarranty != null) ? Math.min(minWarPrice, capWarranty) : minWarPrice;
     const minGapPriceCapped = gapAllowed ? ((capGap != null) ? Math.min(minGapPrice, capGap) : minGapPrice) : 0;
-    const minAftermarketTotal = minWarPriceCapped + minGapPriceCapped;
 
-    if (minAftermarketTotal > maxAftermarket) { debugCounts.ltvMinAftermarket++; continue; }
+    const allInRoom = maxAllIn - lenderExposure - creditorFee;
+    if (allInRoom <= 0) { debugCounts.ltvAllIn++; continue; }
 
-    const allInRoomForAftermarket = maxAllIn - lenderExposure - effectiveAdmin - creditorFee;
-    if (allInRoomForAftermarket < minAftermarketTotal) { debugCounts.ltvAllIn++; continue; }
-
-    const maxAftermarketAmount = Math.min(maxAftermarket, allInRoomForAftermarket);
-
-    let warPrice: number, warCost: number, gapPr: number, gCost: number;
-
-    if (!gapAllowed) {
-      let wp = maxAftermarketAmount;
-      if (capWarranty != null && wp > capWarranty) wp = capWarranty;
-      wp = Math.max(wp, minWarPriceCapped);
-      warPrice = Math.round(wp);
-      warCost  = Math.round(warPrice / MARKUP);
-      gapPr    = 0;
-      gCost    = 0;
+    // Step 1: Determine admin fee (capped by lender max if applicable)
+    let effectiveAdmin: number;
+    if (capAdmin != null) {
+      effectiveAdmin = Math.min(requestedAdmin > 0 ? requestedAdmin : capAdmin, capAdmin);
     } else {
-      let maxWarPr = maxAftermarketAmount;
-      if (capWarranty != null) maxWarPr = Math.min(maxWarPr, capWarranty);
-      let maxGapPr = maxAftermarketAmount;
-      if (capGap != null) maxGapPr = Math.min(maxGapPr, capGap);
-
-      const warrantyCostShare = MIN_WARRANTY_COST / (MIN_WARRANTY_COST + MIN_GAP_COST);
-      const gapCostShare      = MIN_GAP_COST / (MIN_WARRANTY_COST + MIN_GAP_COST);
-      let targetWarPr = Math.round(maxAftermarketAmount * warrantyCostShare);
-      let targetGapPr = Math.round(maxAftermarketAmount * gapCostShare);
-
-      if (targetWarPr > maxWarPr) targetWarPr = maxWarPr;
-      if (targetGapPr > maxGapPr) targetGapPr = maxGapPr;
-      if (targetWarPr < minWarPriceCapped) targetWarPr = minWarPriceCapped;
-      if (targetGapPr < minGapPriceCapped) targetGapPr = minGapPriceCapped;
-
-      const totalAfterTarget = targetWarPr + targetGapPr;
-      if (totalAfterTarget > maxAftermarketAmount) {
-        const scale = maxAftermarketAmount / totalAfterTarget;
-        targetWarPr = Math.round(targetWarPr * scale);
-        targetGapPr = Math.round(targetGapPr * scale);
-      } else if (totalAfterTarget < maxAftermarketAmount) {
-        const slack = maxAftermarketAmount - totalAfterTarget;
-        const warRoom = maxWarPr - targetWarPr;
-        const gapRoom = maxGapPr - targetGapPr;
-        const totalRoom = warRoom + gapRoom;
-        if (totalRoom > 0) {
-          targetWarPr += Math.round(slack * (warRoom / totalRoom));
-          targetGapPr = Math.min(maxGapPr, Math.round(maxAftermarketAmount - targetWarPr));
-        }
-      }
-
-      warPrice = Math.round(targetWarPr);
-      warCost  = Math.round(warPrice / MARKUP);
-      gapPr    = Math.round(targetGapPr);
-      gCost    = Math.round(gapPr / MARKUP);
+      effectiveAdmin = requestedAdmin;
     }
 
-    const aftermarketRevenue = warPrice + gapPr;
+    // Constrain admin based on where it sits in the LTV calculation
+    if (adminInclusion === "backend") {
+      // Admin eats from aftermarket budget — constrain by min(maxAftermarket, allInRoom)
+      const backendBudget = Math.min(maxAftermarket, allInRoom);
+      const adminMaxBackend = backendBudget - minWarPriceCapped;
+      if (adminMaxBackend < 0) { debugCounts.ltvAllIn++; continue; }
+      if (effectiveAdmin > adminMaxBackend) effectiveAdmin = Math.max(0, Math.floor(adminMaxBackend));
+    } else if (adminInclusion === "allIn" || adminInclusion === "unknown") {
+      // Admin eats from all-in room but NOT from aftermarket LTV
+      const adminCeiling = allInRoom - minWarPriceCapped;
+      if (adminCeiling < 0) { debugCounts.ltvAllIn++; continue; }
+      if (effectiveAdmin > adminCeiling) effectiveAdmin = Math.max(0, Math.floor(adminCeiling));
+    }
+    // "excluded" — admin doesn't count against any LTV, only constrained by capAdmin
 
+    // Step 2: Aftermarket budget (warranty + GAP)
+    let aftermarketBudget: number;
+    if (adminInclusion === "backend") {
+      // Admin already consumed from the shared backend budget
+      aftermarketBudget = Math.min(maxAftermarket, allInRoom) - effectiveAdmin;
+    } else if (adminInclusion === "excluded") {
+      // Admin is outside LTV — aftermarket gets full min(maxAftermarket, allInRoom)
+      aftermarketBudget = Math.min(maxAftermarket, allInRoom);
+    } else {
+      // "allIn" or "unknown" — admin consumed from all-in only, not aftermarket
+      aftermarketBudget = Math.min(maxAftermarket, allInRoom - effectiveAdmin);
+    }
+    if (aftermarketBudget < minWarPriceCapped) { debugCounts.ltvMinAftermarket++; continue; }
+
+    // Step 2a: Maximize warranty
+    let warPrice: number;
+    if (capWarranty != null) {
+      warPrice = Math.min(aftermarketBudget, capWarranty);
+    } else {
+      warPrice = aftermarketBudget;
+    }
+    warPrice = Math.max(warPrice, minWarPriceCapped);
+    if (warPrice > aftermarketBudget) { debugCounts.ltvMinAftermarket++; continue; }
+    const warCost = Math.round(warPrice / MARKUP);
+    let remainingAftermarket = aftermarketBudget - warPrice;
+
+    // Step 3: Maximize GAP with whatever aftermarket room is left
+    let gapPr = 0;
+    let gCost = 0;
+    if (gapAllowed && remainingAftermarket >= minGapPriceCapped && minGapPriceCapped > 0) {
+      if (capGap != null) {
+        gapPr = Math.min(remainingAftermarket, capGap);
+      } else {
+        gapPr = remainingAftermarket;
+      }
+      gapPr = Math.max(gapPr, minGapPriceCapped);
+      if (gapPr > remainingAftermarket) gapPr = 0;
+      gCost = Math.round(gapPr / MARKUP);
+    }
+
+    warPrice = Math.round(warPrice);
+    gapPr    = Math.round(gapPr);
+
+    const aftermarketRevenue = warPrice + gapPr;
     const allInTotal = lenderExposure + aftermarketRevenue + effectiveAdmin + creditorFee;
 
     const amountBeforeTax = allInTotal;
@@ -361,7 +393,7 @@ router.post("/lender-calculate", requireOwner, async (req, res) => {
     if (maxPmt < Infinity && monthlyPayment > maxPmt) { debugCounts.maxPmtFilter++; continue; }
     debugCounts.passed++;
 
-    const frontEndGross   = sellingPrice - (rawCost > 0 ? rawCost : bbWholesale);
+    const frontEndGross   = sellingPrice - (pacCost > 0 ? pacCost : bbWholesale);
     const warrantyProfit  = warPrice - warCost;
     const gapProfit       = gapPr - gCost;
     const profit = frontEndGross + warrantyProfit + gapProfit + effectiveAdmin + dealerReserve - creditorFee;
@@ -375,6 +407,7 @@ router.post("/lender-calculate", requireOwner, async (req, res) => {
       bbWholesale,
       sellingPrice:    Math.round(sellingPrice),
       priceSource,
+      adminFeeUsed:    Math.round(effectiveAdmin),
       warrantyPrice:   warPrice,
       warrantyCost:    warCost,
       gapPrice:        gapPr,
@@ -387,7 +420,7 @@ router.post("/lender-calculate", requireOwner, async (req, res) => {
     });
   }
 
-  results.sort((a, b) => a.monthlyPayment - b.monthlyPayment);
+  results.sort((a, b) => b.profit - a.profit);
 
   res.set("Cache-Control", "no-store");
   res.json({
@@ -400,8 +433,9 @@ router.post("/lender-calculate", requireOwner, async (req, res) => {
       maxGapPrice:      programMaxGap ?? null,
       maxAdminFee:      programMaxAdmin ?? null,
       gapAllowed,
-      aftermarketBase:  guide.aftermarketBase ?? "unknown",
+      aftermarketBase:    guide.aftermarketBase ?? "unknown",
       allInOnlyRules,
+      adminFeeInclusion:  guide.adminFeeInclusion ?? "unknown",
     },
     resultCount: results.length,
     results,

@@ -19,7 +19,7 @@ tags:
   - name: audit
     description: Audit log
   - name: lender
-    description: Lender deal calculator
+    description: Inventory Selector (lender program calculator)
 paths:
   /healthz:
     get:
@@ -244,7 +244,7 @@ paths:
     get:
       operationId: getLenderPrograms
       tags: [lender]
-      summary: Get cached lender program matrices (owner only)
+      summary: Get cached lender program matrices (owner or viewer)
       responses:
         "200":
           description: Lender programs
@@ -263,7 +263,7 @@ paths:
     get:
       operationId: getLenderStatus
       tags: [lender]
-      summary: Get lender sync status (owner only)
+      summary: Get lender sync status (owner or viewer)
       responses:
         "200":
           description: Sync status
@@ -301,7 +301,7 @@ paths:
     post:
       operationId: lenderCalculate
       tags: [lender]
-      summary: Calculate inventory affordability by lender/tier (owner only)
+      summary: Calculate inventory affordability by lender/tier (owner or viewer)
       requestBody:
         required: true
         content:
@@ -710,14 +710,6 @@ components:
           type: number
         taxRate:
           type: number
-        warrantyPrice:
-          type: number
-        warrantyCost:
-          type: number
-        gapPrice:
-          type: number
-        gapCost:
-          type: number
         adminFee:
           type: number
       required:
@@ -745,6 +737,16 @@ components:
           type: number
         priceSource:
           type: string
+        adminFeeUsed:
+          type: number
+        warrantyPrice:
+          type: number
+        warrantyCost:
+          type: number
+        gapPrice:
+          type: number
+        gapCost:
+          type: number
         totalFinanced:
           type: number
         monthlyPayment:
@@ -764,6 +766,11 @@ components:
         - bbWholesale
         - sellingPrice
         - priceSource
+        - adminFeeUsed
+        - warrantyPrice
+        - warrantyCost
+        - gapPrice
+        - gapCost
         - totalFinanced
         - monthlyPayment
         - profit

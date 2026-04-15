@@ -22,23 +22,23 @@ export function Layout({ children }: { children: React.ReactNode }) {
 
             {user && (
               <div className="flex items-center gap-3">
+                {(user.isOwner || user.role === "viewer") && (
+                  <Link
+                    href="/calculator"
+                    className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-900 transition-colors px-3 py-1.5 rounded-lg hover:bg-gray-100"
+                  >
+                    <Calculator className="w-4 h-4" />
+                    <span className="hidden sm:inline">Inventory Selector</span>
+                  </Link>
+                )}
                 {user.isOwner && (
-                  <>
-                    <Link
-                      href="/calculator"
-                      className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-900 transition-colors px-3 py-1.5 rounded-lg hover:bg-gray-100"
-                    >
-                      <Calculator className="w-4 h-4" />
-                      <span className="hidden sm:inline">Deal Calculator</span>
-                    </Link>
-                    <Link
-                      href="/admin"
-                      className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-900 transition-colors px-3 py-1.5 rounded-lg hover:bg-gray-100"
-                    >
-                      <Settings className="w-4 h-4" />
-                      <span className="hidden sm:inline">Manage Access</span>
-                    </Link>
-                  </>
+                  <Link
+                    href="/admin"
+                    className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-900 transition-colors px-3 py-1.5 rounded-lg hover:bg-gray-100"
+                  >
+                    <Settings className="w-4 h-4" />
+                    <span className="hidden sm:inline">Manage Access</span>
+                  </Link>
                 )}
 
                 <div className="h-5 w-px bg-gray-200 hidden sm:block" />
