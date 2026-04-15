@@ -201,6 +201,12 @@ router.post("/lender-calculate", requireOwner, async (req, res) => {
   const MIN_WARRANTY_COST = 600;
   const MIN_GAP_COST     = 550;
 
+  const programMaxWarranty = guide.maxWarrantyPrice;
+  const programMaxGap      = guide.maxGapPrice;
+  const programMaxAdmin    = guide.maxAdminFee;
+  const effectiveAdmin     = (programMaxAdmin != null && adminFee > programMaxAdmin) ? programMaxAdmin : adminFee;
+  const gapAllowed         = programMaxGap == null || programMaxGap > 0;
+
   const maxAdvanceLTV      = tier.maxAdvanceLTV > 0 ? tier.maxAdvanceLTV / 100 : Infinity;
   const maxAftermarketLTV  = tier.maxAftermarketLTV > 0 ? tier.maxAftermarketLTV / 100 : Infinity;
   const maxAllInLTV        = tier.maxAllInLTV > 0 ? tier.maxAllInLTV / 100 : Infinity;
@@ -266,39 +272,76 @@ router.post("/lender-calculate", requireOwner, async (req, res) => {
     const rawCost = parseFloat(item.cost?.replace(/[^0-9.]/g, "") || "0");
 
     const maxAdvance     = bbWholesale * maxAdvanceLTV;
-    const maxAftermarket = bbWholesale * maxAftermarketLTV;
+    const maxAftermarket = sellingPrice * maxAftermarketLTV;
     const maxAllIn       = bbWholesale * maxAllInLTV;
 
     const lenderExposure = sellingPrice - downPayment - netTrade;
     if (lenderExposure > maxAdvance) { debugCounts.ltvAdvance++; continue; }
 
-    const minAftermarketTotal = (MIN_WARRANTY_COST + MIN_GAP_COST) * MARKUP;
+    const minWarPrice = Math.round(MIN_WARRANTY_COST * MARKUP);
+    const minGapPrice = Math.round(MIN_GAP_COST * MARKUP);
+    const minWarPriceCapped = (programMaxWarranty != null) ? Math.min(minWarPrice, programMaxWarranty) : minWarPrice;
+    const minGapPriceCapped = gapAllowed ? ((programMaxGap != null) ? Math.min(minGapPrice, programMaxGap) : minGapPrice) : 0;
+    const minAftermarketTotal = minWarPriceCapped + minGapPriceCapped;
+
     if (minAftermarketTotal > maxAftermarket) { debugCounts.ltvMinAftermarket++; continue; }
 
-    const allInRoomForAftermarket = maxAllIn - lenderExposure - adminFee - creditorFee;
+    const allInRoomForAftermarket = maxAllIn - lenderExposure - effectiveAdmin - creditorFee;
     if (allInRoomForAftermarket < minAftermarketTotal) { debugCounts.ltvAllIn++; continue; }
 
     const maxAftermarketAmount = Math.min(maxAftermarket, allInRoomForAftermarket);
-    const maxTotalCost = maxAftermarketAmount / MARKUP;
-    const warrantyCostShare = MIN_WARRANTY_COST / (MIN_WARRANTY_COST + MIN_GAP_COST);
-    const gapCostShare      = MIN_GAP_COST / (MIN_WARRANTY_COST + MIN_GAP_COST);
 
-    let warCost: number, gCost: number;
-    if (maxTotalCost >= MIN_WARRANTY_COST + MIN_GAP_COST) {
-      warCost = Math.floor(maxTotalCost * warrantyCostShare);
-      gCost   = Math.floor(maxTotalCost * gapCostShare);
-      if (warCost < MIN_WARRANTY_COST) warCost = MIN_WARRANTY_COST;
-      if (gCost < MIN_GAP_COST) gCost = MIN_GAP_COST;
+    let warPrice: number, warCost: number, gapPr: number, gCost: number;
+
+    if (!gapAllowed) {
+      let wp = maxAftermarketAmount;
+      if (programMaxWarranty != null && wp > programMaxWarranty) wp = programMaxWarranty;
+      wp = Math.max(wp, minWarPriceCapped);
+      warPrice = Math.round(wp);
+      warCost  = Math.round(warPrice / MARKUP);
+      gapPr    = 0;
+      gCost    = 0;
     } else {
-      warCost = MIN_WARRANTY_COST;
-      gCost   = MIN_GAP_COST;
+      let maxWarPr = maxAftermarketAmount;
+      if (programMaxWarranty != null) maxWarPr = Math.min(maxWarPr, programMaxWarranty);
+      let maxGapPr = maxAftermarketAmount;
+      if (programMaxGap != null) maxGapPr = Math.min(maxGapPr, programMaxGap);
+
+      const warrantyCostShare = MIN_WARRANTY_COST / (MIN_WARRANTY_COST + MIN_GAP_COST);
+      const gapCostShare      = MIN_GAP_COST / (MIN_WARRANTY_COST + MIN_GAP_COST);
+      let targetWarPr = Math.round(maxAftermarketAmount * warrantyCostShare);
+      let targetGapPr = Math.round(maxAftermarketAmount * gapCostShare);
+
+      if (targetWarPr > maxWarPr) targetWarPr = maxWarPr;
+      if (targetGapPr > maxGapPr) targetGapPr = maxGapPr;
+      if (targetWarPr < minWarPriceCapped) targetWarPr = minWarPriceCapped;
+      if (targetGapPr < minGapPriceCapped) targetGapPr = minGapPriceCapped;
+
+      const totalAfterTarget = targetWarPr + targetGapPr;
+      if (totalAfterTarget > maxAftermarketAmount) {
+        const scale = maxAftermarketAmount / totalAfterTarget;
+        targetWarPr = Math.round(targetWarPr * scale);
+        targetGapPr = Math.round(targetGapPr * scale);
+      } else if (totalAfterTarget < maxAftermarketAmount) {
+        const slack = maxAftermarketAmount - totalAfterTarget;
+        const warRoom = maxWarPr - targetWarPr;
+        const gapRoom = maxGapPr - targetGapPr;
+        const totalRoom = warRoom + gapRoom;
+        if (totalRoom > 0) {
+          targetWarPr += Math.round(slack * (warRoom / totalRoom));
+          targetGapPr = Math.min(maxGapPr, Math.round(maxAftermarketAmount - targetWarPr));
+        }
+      }
+
+      warPrice = Math.round(targetWarPr);
+      warCost  = Math.round(warPrice / MARKUP);
+      gapPr    = Math.round(targetGapPr);
+      gCost    = Math.round(gapPr / MARKUP);
     }
 
-    const warPrice = Math.round(warCost * MARKUP);
-    const gapPr    = Math.round(gCost * MARKUP);
     const aftermarketRevenue = warPrice + gapPr;
 
-    const allInTotal = lenderExposure + aftermarketRevenue + adminFee + creditorFee;
+    const allInTotal = lenderExposure + aftermarketRevenue + effectiveAdmin + creditorFee;
 
     const amountBeforeTax = allInTotal;
     if (amountBeforeTax <= 0) { debugCounts.negFinanced++; continue; }
@@ -316,7 +359,7 @@ router.post("/lender-calculate", requireOwner, async (req, res) => {
     const frontEndGross   = sellingPrice - (rawCost > 0 ? rawCost : bbWholesale);
     const warrantyProfit  = warPrice - warCost;
     const gapProfit       = gapPr - gCost;
-    const profit = frontEndGross + warrantyProfit + gapProfit + adminFee + dealerReserve - creditorFee;
+    const profit = frontEndGross + warrantyProfit + gapProfit + effectiveAdmin + dealerReserve - creditorFee;
 
     results.push({
       vin:             item.vin,
@@ -339,8 +382,6 @@ router.post("/lender-calculate", requireOwner, async (req, res) => {
     });
   }
 
-  console.log("[DEBUG calc]", JSON.stringify({ debugCounts, maxAdvanceLTV, maxAftermarketLTV, maxAllInLTV, downPayment, netTrade, adminFee, creditorFee, taxRate }));
-
   results.sort((a, b) => a.monthlyPayment - b.monthlyPayment);
 
   res.set("Cache-Control", "no-store");
@@ -349,6 +390,12 @@ router.post("/lender-calculate", requireOwner, async (req, res) => {
     program:    guide.programTitle,
     tier:       params.tierName,
     tierConfig: tier,
+    programLimits: {
+      maxWarrantyPrice: programMaxWarranty ?? null,
+      maxGapPrice:      programMaxGap ?? null,
+      maxAdminFee:      programMaxAdmin ?? null,
+      gapAllowed,
+    },
     resultCount: results.length,
     results,
   });

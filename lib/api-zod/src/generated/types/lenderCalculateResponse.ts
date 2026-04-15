@@ -7,12 +7,14 @@
  */
 import type { LenderCalcResultItem } from "./lenderCalcResultItem";
 import type { LenderProgramTier } from "./lenderProgramTier";
+import type { ProgramLimits } from "./programLimits";
 
 export interface LenderCalculateResponse {
   lender: string;
   program: string;
   tier: string;
   tierConfig: LenderProgramTier;
+  programLimits?: ProgramLimits;
   resultCount: number;
   results: LenderCalcResultItem[];
 }

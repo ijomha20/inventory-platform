@@ -387,7 +387,13 @@ export default function LenderCalculator() {
                         />
                       </div>
                     </div>
-                    <p className="text-xs text-gray-500">Warranty &amp; GAP are auto-optimized per vehicle (150% markup = cost × 2.5, min $600/$550 cost) to maximize profit within LTV limits.</p>
+                    <p className="text-xs text-gray-500">
+                      Warranty &amp; GAP are auto-optimized per vehicle (150% markup = cost × 2.5, min $600/$550 cost) to maximize profit within LTV limits.
+                      {selectedGuide?.maxWarrantyPrice != null && <span className="block mt-1">Max warranty selling price: {formatCurrency(selectedGuide.maxWarrantyPrice)}</span>}
+                      {selectedGuide?.maxGapPrice != null && selectedGuide.maxGapPrice === 0 && <span className="block mt-1 text-amber-600 font-medium">GAP not allowed by this lender</span>}
+                      {selectedGuide?.maxGapPrice != null && selectedGuide.maxGapPrice > 0 && <span className="block mt-1">Max GAP selling price: {formatCurrency(selectedGuide.maxGapPrice)}</span>}
+                      {selectedGuide?.maxAdminFee != null && <span className="block mt-1">Max admin fee: {formatCurrency(selectedGuide.maxAdminFee)}</span>}
+                    </p>
                   </div>
                 )}
 

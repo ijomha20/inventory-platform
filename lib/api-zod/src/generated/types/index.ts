@@ -23,6 +23,7 @@ export * from "./lenderProgramGuide";
 export * from "./lenderProgramsResponse";
 export * from "./lenderProgramTier";
 export * from "./lenderStatus";
+export * from "./programLimits";
 export * from "./successResponse";
 export * from "./updateAccessRoleRequest";
 export * from "./user";

@@ -173,6 +173,9 @@ export interface LenderProgramGuide {
   vehicleTermMatrix:      VehicleTermMatrixEntry[];
   vehicleConditionMatrix: VehicleConditionMatrixEntry[];
   maxTerm?:               number;
+  maxWarrantyPrice?:      number;
+  maxGapPrice?:           number;
+  maxAdminFee?:           number;
 }
 
 export interface LenderProgram {

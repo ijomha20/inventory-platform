@@ -180,6 +180,9 @@ export const GetLenderProgramsResponse = zod.object({
             }),
           ),
           maxTerm: zod.number().optional(),
+          maxWarrantyPrice: zod.number().nullish(),
+          maxGapPrice: zod.number().nullish(),
+          maxAdminFee: zod.number().nullish(),
         }),
       ),
     }),
@@ -219,6 +222,11 @@ export const LenderCalculateBody = zod.object({
   tradeValue: zod.number().optional(),
   tradeLien: zod.number().optional(),
   taxRate: zod.number().optional(),
+  warrantyPrice: zod.number().optional(),
+  warrantyCost: zod.number().optional(),
+  gapPrice: zod.number().optional(),
+  gapCost: zod.number().optional(),
+  adminFee: zod.number().optional(),
 });
 
 export const LenderCalculateResponse = zod.object({
@@ -236,6 +244,14 @@ export const LenderCalculateResponse = zod.object({
     creditorFee: zod.number(),
     dealerReserve: zod.number(),
   }),
+  programLimits: zod
+    .object({
+      maxWarrantyPrice: zod.number().nullish(),
+      maxGapPrice: zod.number().nullish(),
+      maxAdminFee: zod.number().nullish(),
+      gapAllowed: zod.boolean(),
+    })
+    .optional(),
   resultCount: zod.number(),
   results: zod.array(
     zod.object({
@@ -245,9 +261,11 @@ export const LenderCalculateResponse = zod.object({
       term: zod.number(),
       conditionUsed: zod.string(),
       bbWholesale: zod.number(),
+      sellingPrice: zod.number(),
+      priceSource: zod.string(),
       totalFinanced: zod.number(),
       monthlyPayment: zod.number(),
-      costOfBorrowing: zod.number(),
+      profit: zod.number(),
       hasPhotos: zod.boolean().optional(),
       website: zod.string().optional(),
     }),

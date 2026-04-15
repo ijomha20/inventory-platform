@@ -120,6 +120,9 @@ export interface LenderProgramGuide {
   vehicleTermMatrix: VehicleTermMatrixEntry[];
   vehicleConditionMatrix: VehicleConditionMatrixEntry[];
   maxTerm?: number;
+  maxWarrantyPrice?: number | null;
+  maxGapPrice?: number | null;
+  maxAdminFee?: number | null;
 }
 
 export interface LenderProgram {
@@ -153,6 +156,10 @@ export interface LenderCalculateRequest {
   tradeValue?: number;
   tradeLien?: number;
   taxRate?: number;
+  warrantyPrice?: number;
+  warrantyCost?: number;
+  gapPrice?: number;
+  gapCost?: number;
   adminFee?: number;
 }
 
@@ -165,10 +172,6 @@ export interface LenderCalcResultItem {
   bbWholesale: number;
   sellingPrice: number;
   priceSource: string;
-  warrantyPrice: number;
-  warrantyCost: number;
-  gapPrice: number;
-  gapCost: number;
   totalFinanced: number;
   monthlyPayment: number;
   profit: number;
@@ -176,11 +179,19 @@ export interface LenderCalcResultItem {
   website?: string;
 }
 
+export interface ProgramLimits {
+  maxWarrantyPrice?: number | null;
+  maxGapPrice?: number | null;
+  maxAdminFee?: number | null;
+  gapAllowed: boolean;
+}
+
 export interface LenderCalculateResponse {
   lender: string;
   program: string;
   tier: string;
   tierConfig: LenderProgramTier;
+  programLimits?: ProgramLimits;
   resultCount: number;
   results: LenderCalcResultItem[];
 }

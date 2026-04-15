@@ -617,6 +617,15 @@ components:
             $ref: "#/components/schemas/VehicleConditionMatrixEntry"
         maxTerm:
           type: integer
+        maxWarrantyPrice:
+          type: number
+          nullable: true
+        maxGapPrice:
+          type: number
+          nullable: true
+        maxAdminFee:
+          type: number
+          nullable: true
       required:
         - programId
         - programTitle
@@ -759,6 +768,23 @@ components:
         - monthlyPayment
         - profit
 
+    ProgramLimits:
+      type: object
+      properties:
+        maxWarrantyPrice:
+          type: number
+          nullable: true
+        maxGapPrice:
+          type: number
+          nullable: true
+        maxAdminFee:
+          type: number
+          nullable: true
+        gapAllowed:
+          type: boolean
+      required:
+        - gapAllowed
+
     LenderCalculateResponse:
       type: object
       properties:
@@ -770,6 +796,8 @@ components:
           type: string
         tierConfig:
           $ref: "#/components/schemas/LenderProgramTier"
+        programLimits:
+          $ref: "#/components/schemas/ProgramLimits"
         resultCount:
           type: integer
         results:

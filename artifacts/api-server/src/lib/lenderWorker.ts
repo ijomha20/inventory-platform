@@ -96,6 +96,9 @@ const CREDITORS_PROGRAMS_QUERY = `{
         average { milage { from to } }
         rough { milage { from to } }
       }
+      maxExtendedWarrantyFeeCalculation
+      maxGapInsuranceFeeCalculation
+      maxDealerAdminFeeCalculation
     }
   }
 }`;
@@ -178,6 +181,14 @@ function mapProgramGuide(prog: any): LenderProgramGuide {
     ? Math.max(...vehicleTermMatrix.flatMap(e => e.data.map(d => d.term)))
     : undefined;
 
+  function parseCalcNumber(val: unknown): number | undefined {
+    if (val == null) return undefined;
+    const s = String(val).trim();
+    if (s === "") return undefined;
+    const n = Number(s);
+    return isFinite(n) ? n : undefined;
+  }
+
   return {
     programId:              prog.id,
     programTitle:           prog.title ?? "Unknown",
@@ -186,6 +197,9 @@ function mapProgramGuide(prog: any): LenderProgramGuide {
     vehicleTermMatrix,
     vehicleConditionMatrix,
     maxTerm,
+    maxWarrantyPrice: parseCalcNumber(prog.maxExtendedWarrantyFeeCalculation),
+    maxGapPrice:      parseCalcNumber(prog.maxGapInsuranceFeeCalculation),
+    maxAdminFee:      parseCalcNumber(prog.maxDealerAdminFeeCalculation),
   };
 }
 
