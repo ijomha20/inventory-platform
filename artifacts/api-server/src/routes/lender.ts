@@ -235,6 +235,8 @@ router.post("/lender-calculate", requireOwner, async (req, res) => {
     } else if (rawMatrix > 0) {
       sellingPrice = rawMatrix;
       priceSource  = "pac";
+    } else {
+      continue;
     }
 
     const vehicleCost = bbWholesale;
@@ -244,7 +246,7 @@ router.post("/lender-calculate", requireOwner, async (req, res) => {
     const taxes = amountBeforeTax * taxRate;
     const totalFinanced = amountBeforeTax + taxes;
 
-    if (sellingPrice > 0 && totalFinanced < sellingPrice) continue;
+    if (totalFinanced < sellingPrice) continue;
 
     const monthlyPayment = pmt(rateDecimal, termMonths, totalFinanced);
     if (maxPmt < Infinity && monthlyPayment > maxPmt) continue;
