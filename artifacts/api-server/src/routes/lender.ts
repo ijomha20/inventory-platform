@@ -282,25 +282,29 @@ router.post("/lender-calculate", requireOwnerOrViewer, async (req, res) => {
     let priceSource  = "";
     const maxAdvance = isFinite(maxAdvanceLTV) ? bbWholesale * maxAdvanceLTV : Infinity;
 
+    const maxAllIn = isFinite(maxAllInLTV) ? bbWholesale * maxAllInLTV : Infinity;
+
     if (rawOnline > 0) {
       sellingPrice = rawOnline;
       priceSource  = "online";
     } else {
+      // No online price: maximize selling price within LTV constraints
+      let ceiling = Infinity;
       if (isFinite(maxAdvance)) {
-        // No online price: maximize selling price to the advance LTV ceiling
-        const maxSellingFromLTV = maxAdvance + downPayment + netTrade;
-        if (pacCost > 0 && maxSellingFromLTV >= pacCost) {
-          sellingPrice = Math.round(maxSellingFromLTV);
-          priceSource  = "maximized";
-        } else if (pacCost <= 0) {
-          debugCounts.noPrice++;
-          continue;
-        } else {
-          debugCounts.ltvAdvance++;
-          continue;
-        }
+        ceiling = maxAdvance + downPayment + netTrade;
+      }
+      if (isFinite(maxAllIn)) {
+        // All-in ceiling: total financed must fit within maxAllIn, so selling
+        // price (the advance portion) can be at most maxAllIn minus room
+        // needed for creditor fee, plus down payment and trade equity.
+        const allInCeiling = maxAllIn - creditorFee + downPayment + netTrade;
+        ceiling = Math.min(ceiling, allInCeiling);
+      }
+
+      if (isFinite(ceiling) && pacCost > 0 && ceiling >= pacCost) {
+        sellingPrice = Math.round(ceiling);
+        priceSource  = "maximized";
       } else if (pacCost > 0) {
-        // Advance LTV is unlimited — use PAC cost as the selling price floor
         sellingPrice = pacCost;
         priceSource  = "pac";
       } else {
@@ -316,7 +320,6 @@ router.post("/lender-calculate", requireOwnerOrViewer, async (req, res) => {
 
     const aftermarketBaseValue = guide.aftermarketBase === "salePrice" ? sellingPrice : bbWholesale;
     const maxAftermarket = isFinite(maxAftermarketLTV) ? aftermarketBaseValue * maxAftermarketLTV : Infinity;
-    const maxAllIn       = isFinite(maxAllInLTV) ? bbWholesale * maxAllInLTV : Infinity;
 
     const lenderExposure = sellingPrice - downPayment - netTrade;
     if (isFinite(maxAdvance) && lenderExposure > maxAdvance) { debugCounts.ltvAdvance++; continue; }

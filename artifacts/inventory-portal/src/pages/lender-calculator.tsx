@@ -1,5 +1,6 @@
 import React, { useState, useMemo, useEffect } from "react";
 import {
+  useGetMe,
   useGetLenderPrograms,
   useGetLenderStatus,
   useRefreshLender,
@@ -85,6 +86,7 @@ export default function LenderCalculator() {
   const { data: statusData, refetch: refetchStatus } = useGetLenderStatus({
     query: { retry: false, refetchInterval: 10_000 },
   });
+  const { data: meData } = useGetMe({ query: { retry: false } });
   const refreshMutation = useRefreshLender();
   const calcMutation = useLenderCalculate();
 
@@ -100,8 +102,7 @@ export default function LenderCalculator() {
   const [adminFee, setAdminFee] = useState("0");
   const [showAdvanced, setShowAdvanced] = useState(false);
 
-  const userRole: string = programsData?.role ?? "";
-  const isUserOwner = userRole === "owner";
+  const isUserOwner = !!meData?.isOwner;
 
   const programs: LenderProgram[] = programsData?.programs ?? [];
 
