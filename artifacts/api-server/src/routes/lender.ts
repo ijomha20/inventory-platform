@@ -262,7 +262,7 @@ router.post("/lender-calculate", requireOwner, async (req, res) => {
     const maxAftermarket = bbWholesale * maxAftermarketLTV;
     const maxAllIn       = bbWholesale * maxAllInLTV;
 
-    const vehicleAdvance = bbWholesale;
+    const vehicleAdvance = sellingPrice;
     if (vehicleAdvance > maxAdvance) continue;
 
     const withAftermarket = vehicleAdvance + aftermarketRevenue;
