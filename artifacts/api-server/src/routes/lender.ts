@@ -269,22 +269,13 @@ router.post("/lender-calculate", requireOwner, async (req, res) => {
     const maxAftermarket = bbWholesale * maxAftermarketLTV;
     const maxAllIn       = bbWholesale * maxAllInLTV;
 
-    const vehicleAdvance = sellingPrice;
-    const isSantaFe = item.vehicle.toLowerCase().includes("santa fe");
-    if (isSantaFe) {
-      console.log("[DEBUG Santa Fe]", JSON.stringify({
-        vin: item.vin, vehicle: item.vehicle, sellingPrice, bbWholesale, condition, term: termMonths,
-        maxAdvance, maxAftermarket, maxAllIn, vehicleAdvance,
-        ltvAdvancePass: vehicleAdvance <= maxAdvance,
-        maxPmt, creditorFee, adminFee,
-      }));
-    }
-    if (vehicleAdvance > maxAdvance) { debugCounts.ltvAdvance++; continue; }
+    const lenderExposure = sellingPrice - downPayment - netTrade;
+    if (lenderExposure > maxAdvance) { debugCounts.ltvAdvance++; continue; }
 
     const minAftermarketTotal = (MIN_WARRANTY_COST + MIN_GAP_COST) * MARKUP;
     if (minAftermarketTotal > maxAftermarket) { debugCounts.ltvMinAftermarket++; continue; }
 
-    const allInRoomForAftermarket = maxAllIn - vehicleAdvance - adminFee - creditorFee;
+    const allInRoomForAftermarket = maxAllIn - lenderExposure - adminFee - creditorFee;
     if (allInRoomForAftermarket < minAftermarketTotal) { debugCounts.ltvAllIn++; continue; }
 
     const maxAftermarketAmount = Math.min(maxAftermarket, allInRoomForAftermarket);
@@ -307,9 +298,9 @@ router.post("/lender-calculate", requireOwner, async (req, res) => {
     const gapPr    = Math.round(gCost * MARKUP);
     const aftermarketRevenue = warPrice + gapPr;
 
-    const allInTotal = vehicleAdvance + aftermarketRevenue + adminFee + creditorFee;
+    const allInTotal = lenderExposure + aftermarketRevenue + adminFee + creditorFee;
 
-    const amountBeforeTax = allInTotal - downPayment - netTrade;
+    const amountBeforeTax = allInTotal;
     if (amountBeforeTax <= 0) { debugCounts.negFinanced++; continue; }
 
     const taxes = amountBeforeTax * taxRate;
@@ -319,12 +310,6 @@ router.post("/lender-calculate", requireOwner, async (req, res) => {
     if (totalDealValue < sellingPrice) { debugCounts.dealValue++; continue; }
 
     const monthlyPayment = pmt(rateDecimal, termMonths, totalFinanced);
-    if (isSantaFe) {
-      console.log("[DEBUG Santa Fe payment]", JSON.stringify({
-        vin: item.vin, totalFinanced: Math.round(totalFinanced), monthlyPayment: Math.round(monthlyPayment * 100) / 100,
-        maxPmt, term: termMonths, passesPayment: !(maxPmt < Infinity && monthlyPayment > maxPmt),
-      }));
-    }
     if (maxPmt < Infinity && monthlyPayment > maxPmt) { debugCounts.maxPmtFilter++; continue; }
     debugCounts.passed++;
 
