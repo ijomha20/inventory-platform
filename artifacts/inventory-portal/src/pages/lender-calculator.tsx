@@ -72,6 +72,14 @@ function ResultRow({ item, rank }: { item: LenderCalcResultItem; rank: number })
         {item.sellingPrice > 0 ? formatCurrency(item.sellingPrice) : "—"}
         {item.priceSource && <span className="text-xs text-gray-400 ml-1">({item.priceSource === "online" ? "Online" : "PAC"})</span>}
       </td>
+      <td className="px-3 py-2.5 text-sm text-right text-gray-600">
+        {formatCurrency(item.warrantyPrice)}
+        <span className="text-xs text-gray-400 ml-0.5">/{formatCurrency(item.warrantyCost)}</span>
+      </td>
+      <td className="px-3 py-2.5 text-sm text-right text-gray-600">
+        {formatCurrency(item.gapPrice)}
+        <span className="text-xs text-gray-400 ml-0.5">/{formatCurrency(item.gapCost)}</span>
+      </td>
       <td className="px-3 py-2.5 text-sm text-right font-medium text-gray-700">{formatCurrency(item.totalFinanced)}</td>
       <td className="px-3 py-2.5 text-sm text-right font-semibold text-green-700">{formatPayment(item.monthlyPayment)}</td>
       <td className="px-3 py-2.5 text-sm text-right font-semibold text-emerald-700">{formatCurrency(item.profit)}</td>
@@ -98,10 +106,6 @@ export default function LenderCalculator() {
   const [tradeValue, setTradeValue] = useState("0");
   const [tradeLien, setTradeLien] = useState("0");
   const [taxRate, setTaxRate] = useState("5");
-  const [warrantyPrice, setWarrantyPrice] = useState("0");
-  const [warrantyCost, setWarrantyCost] = useState("0");
-  const [gapPrice, setGapPrice] = useState("0");
-  const [gapCost, setGapCost] = useState("0");
   const [adminFee, setAdminFee] = useState("0");
   const [showAdvanced, setShowAdvanced] = useState(false);
 
@@ -143,10 +147,6 @@ export default function LenderCalculator() {
       tradeValue: parseFloat(tradeValue) || 0,
       tradeLien: parseFloat(tradeLien) || 0,
       taxRate: parseFloat(taxRate) || 5,
-      warrantyPrice: parseFloat(warrantyPrice) || 0,
-      warrantyCost: parseFloat(warrantyCost) || 0,
-      gapPrice: parseFloat(gapPrice) || 0,
-      gapCost: parseFloat(gapCost) || 0,
       adminFee: parseFloat(adminFee) || 0,
     };
     const pmtOverride = parseFloat(maxPaymentOverride);
@@ -366,70 +366,28 @@ export default function LenderCalculator() {
 
                 {showAdvanced && (
                   <div className="space-y-3 pt-1">
-                    <div className="space-y-1.5">
-                      <Label className="text-xs font-medium text-gray-600">Tax Rate (%)</Label>
-                      <Input
-                        type="number"
-                        step="0.5"
-                        value={taxRate}
-                        onChange={e => setTaxRate(e.target.value)}
-                        className="h-9"
-                      />
-                    </div>
-
-                    <Separator />
-
                     <div className="grid grid-cols-2 gap-3">
                       <div className="space-y-1.5">
-                        <Label className="text-xs font-medium text-gray-600">Warranty Price</Label>
+                        <Label className="text-xs font-medium text-gray-600">Tax Rate (%)</Label>
                         <Input
                           type="number"
-                          value={warrantyPrice}
-                          onChange={e => setWarrantyPrice(e.target.value)}
+                          step="0.5"
+                          value={taxRate}
+                          onChange={e => setTaxRate(e.target.value)}
                           className="h-9"
                         />
                       </div>
                       <div className="space-y-1.5">
-                        <Label className="text-xs font-medium text-gray-600">Warranty Cost</Label>
+                        <Label className="text-xs font-medium text-gray-600">Dealer Admin Fee</Label>
                         <Input
                           type="number"
-                          value={warrantyCost}
-                          onChange={e => setWarrantyCost(e.target.value)}
+                          value={adminFee}
+                          onChange={e => setAdminFee(e.target.value)}
                           className="h-9"
                         />
                       </div>
                     </div>
-
-                    <div className="grid grid-cols-2 gap-3">
-                      <div className="space-y-1.5">
-                        <Label className="text-xs font-medium text-gray-600">GAP Price</Label>
-                        <Input
-                          type="number"
-                          value={gapPrice}
-                          onChange={e => setGapPrice(e.target.value)}
-                          className="h-9"
-                        />
-                      </div>
-                      <div className="space-y-1.5">
-                        <Label className="text-xs font-medium text-gray-600">GAP Cost</Label>
-                        <Input
-                          type="number"
-                          value={gapCost}
-                          onChange={e => setGapCost(e.target.value)}
-                          className="h-9"
-                        />
-                      </div>
-                    </div>
-
-                    <div className="space-y-1.5">
-                      <Label className="text-xs font-medium text-gray-600">Dealer Admin Fee</Label>
-                      <Input
-                        type="number"
-                        value={adminFee}
-                        onChange={e => setAdminFee(e.target.value)}
-                        className="h-9"
-                      />
-                    </div>
+                    <p className="text-xs text-gray-500">Warranty &amp; GAP are auto-optimized per vehicle (150% markup, min $600/$550 cost) to maximize profit within LTV limits.</p>
                   </div>
                 )}
 
@@ -497,6 +455,8 @@ export default function LenderCalculator() {
                             <th className="px-3 py-2 text-center">Condition</th>
                             <th className="px-3 py-2 text-right">BB Value</th>
                             <th className="px-3 py-2 text-right">Sell Price</th>
+                            <th className="px-3 py-2 text-right">Warranty</th>
+                            <th className="px-3 py-2 text-right">GAP</th>
                             <th className="px-3 py-2 text-right">Financed</th>
                             <th className="px-3 py-2 text-right">Payment</th>
                             <th className="px-3 py-2 text-right">Profit</th>

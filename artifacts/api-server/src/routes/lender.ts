@@ -193,14 +193,13 @@ router.post("/lender-calculate", requireOwner, async (req, res) => {
   const tradeLien      = params.tradeLien ?? 0;
   const taxRate        = (params.taxRate ?? 5) / 100;
   const netTrade       = tradeValue - tradeLien;
-  const warrantyPrice  = params.warrantyPrice ?? 0;
-  const warrantyCost   = params.warrantyCost ?? 0;
-  const gapPrice       = params.gapPrice ?? 0;
-  const gapCost        = params.gapCost ?? 0;
   const adminFee       = params.adminFee ?? 0;
-  const aftermarketRevenue = warrantyPrice + gapPrice;
   const creditorFee    = tier.creditorFee ?? 0;
   const dealerReserve  = tier.dealerReserve ?? 0;
+
+  const MARKUP           = 1.5;
+  const MIN_WARRANTY_COST = 600;
+  const MIN_GAP_COST     = 550;
 
   const maxAdvanceLTV      = tier.maxAdvanceLTV > 0 ? tier.maxAdvanceLTV / 100 : Infinity;
   const maxAftermarketLTV  = tier.maxAftermarketLTV > 0 ? tier.maxAftermarketLTV / 100 : Infinity;
@@ -215,6 +214,10 @@ router.post("/lender-calculate", requireOwner, async (req, res) => {
     bbWholesale:     number;
     sellingPrice:    number;
     priceSource:     string;
+    warrantyPrice:   number;
+    warrantyCost:    number;
+    gapPrice:        number;
+    gapCost:         number;
     totalFinanced:   number;
     monthlyPayment:  number;
     profit:          number;
@@ -224,7 +227,7 @@ router.post("/lender-calculate", requireOwner, async (req, res) => {
 
   const results: Result[] = [];
 
-  const debugCounts = { total: 0, noYear: 0, noKm: 0, noTerm: 0, noCondition: 0, noBB: 0, noBBVal: 0, noPrice: 0, ltvAdvance: 0, ltvAftermarket: 0, ltvAllIn: 0, negFinanced: 0, dealValue: 0, maxPmtFilter: 0, passed: 0 };
+  const debugCounts = { total: 0, noYear: 0, noKm: 0, noTerm: 0, noCondition: 0, noBB: 0, noBBVal: 0, noPrice: 0, ltvAdvance: 0, ltvMinAftermarket: 0, ltvAllIn: 0, negFinanced: 0, dealValue: 0, maxPmtFilter: 0, passed: 0 };
 
   for (const item of inventory) {
     debugCounts.total++;
@@ -269,10 +272,33 @@ router.post("/lender-calculate", requireOwner, async (req, res) => {
     const vehicleAdvance = sellingPrice;
     if (vehicleAdvance > maxAdvance) { debugCounts.ltvAdvance++; continue; }
 
-    if (aftermarketRevenue > maxAftermarket) { debugCounts.ltvAftermarket++; continue; }
+    const minAftermarketTotal = (MIN_WARRANTY_COST + MIN_GAP_COST) * MARKUP;
+    if (minAftermarketTotal > maxAftermarket) { debugCounts.ltvMinAftermarket++; continue; }
+
+    const allInRoomForAftermarket = maxAllIn - vehicleAdvance - adminFee - creditorFee;
+    if (allInRoomForAftermarket < minAftermarketTotal) { debugCounts.ltvAllIn++; continue; }
+
+    const maxAftermarketAmount = Math.min(maxAftermarket, allInRoomForAftermarket);
+    const maxTotalCost = maxAftermarketAmount / MARKUP;
+    const warrantyCostShare = MIN_WARRANTY_COST / (MIN_WARRANTY_COST + MIN_GAP_COST);
+    const gapCostShare      = MIN_GAP_COST / (MIN_WARRANTY_COST + MIN_GAP_COST);
+
+    let warCost: number, gCost: number;
+    if (maxTotalCost >= MIN_WARRANTY_COST + MIN_GAP_COST) {
+      warCost = Math.floor(maxTotalCost * warrantyCostShare);
+      gCost   = Math.floor(maxTotalCost * gapCostShare);
+      if (warCost < MIN_WARRANTY_COST) warCost = MIN_WARRANTY_COST;
+      if (gCost < MIN_GAP_COST) gCost = MIN_GAP_COST;
+    } else {
+      warCost = MIN_WARRANTY_COST;
+      gCost   = MIN_GAP_COST;
+    }
+
+    const warPrice = Math.round(warCost * MARKUP);
+    const gapPr    = Math.round(gCost * MARKUP);
+    const aftermarketRevenue = warPrice + gapPr;
 
     const allInTotal = vehicleAdvance + aftermarketRevenue + adminFee + creditorFee;
-    if (allInTotal > maxAllIn) { debugCounts.ltvAllIn++; continue; }
 
     const amountBeforeTax = allInTotal - downPayment - netTrade;
     if (amountBeforeTax <= 0) { debugCounts.negFinanced++; continue; }
@@ -288,8 +314,8 @@ router.post("/lender-calculate", requireOwner, async (req, res) => {
     debugCounts.passed++;
 
     const frontEndGross   = sellingPrice - (rawCost > 0 ? rawCost : bbWholesale);
-    const warrantyProfit  = warrantyPrice - warrantyCost;
-    const gapProfit       = gapPrice - gapCost;
+    const warrantyProfit  = warPrice - warCost;
+    const gapProfit       = gapPr - gCost;
     const profit = frontEndGross + warrantyProfit + gapProfit + adminFee + dealerReserve - creditorFee;
 
     results.push({
@@ -301,6 +327,10 @@ router.post("/lender-calculate", requireOwner, async (req, res) => {
       bbWholesale,
       sellingPrice:    Math.round(sellingPrice),
       priceSource,
+      warrantyPrice:   warPrice,
+      warrantyCost:    warCost,
+      gapPrice:        gapPr,
+      gapCost:         gCost,
       totalFinanced:   Math.round(totalFinanced),
       monthlyPayment:  Math.round(monthlyPayment * 100) / 100,
       profit:          Math.round(profit),
@@ -309,7 +339,7 @@ router.post("/lender-calculate", requireOwner, async (req, res) => {
     });
   }
 
-  console.log("[DEBUG calc]", JSON.stringify({ debugCounts, maxAdvanceLTV, maxAftermarketLTV, maxAllInLTV, downPayment, netTrade, aftermarketRevenue, adminFee, creditorFee, taxRate }));
+  console.log("[DEBUG calc]", JSON.stringify({ debugCounts, maxAdvanceLTV, maxAftermarketLTV, maxAllInLTV, downPayment, netTrade, adminFee, creditorFee, taxRate }));
 
   results.sort((a, b) => a.monthlyPayment - b.monthlyPayment);
 
