@@ -272,7 +272,7 @@ router.post("/lender-calculate", requireOwner, async (req, res) => {
     const rawCost = parseFloat(item.cost?.replace(/[^0-9.]/g, "") || "0");
 
     const maxAdvance     = bbWholesale * maxAdvanceLTV;
-    const maxAftermarket = sellingPrice * maxAftermarketLTV;
+    const maxAftermarket = bbWholesale * maxAftermarketLTV;
     const maxAllIn       = bbWholesale * maxAllInLTV;
 
     const lenderExposure = sellingPrice - downPayment - netTrade;
