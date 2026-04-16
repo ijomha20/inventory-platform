@@ -158,6 +158,10 @@ export interface LenderCalculateRequest {
   tradeLien?: number;
   taxRate?: number;
   adminFee?: number;
+  /** 0, 6, or 12 — months added to matrix term */
+  termStretchMonths?: number;
+  /** When true, include vehicles that need extra cash down to meet LTV / max payment */
+  showAllWithDownPayment?: boolean;
 }
 
 export interface LenderCalcResultItem {
@@ -179,6 +183,9 @@ export interface LenderCalcResultItem {
   profit: number;
   hasPhotos?: boolean;
   website?: string;
+  termStretched?: boolean;
+  /** Extra cash down (beyond base downPayment) needed to fit program when showAllWithDownPayment is on */
+  requiredDownPayment?: number;
 }
 
 export interface ProgramLimits {
@@ -192,6 +199,8 @@ export interface LenderCalculateResponse {
   lender: string;
   program: string;
   tier: string;
+  /** Echo: server parsed show-all mode (see request `showAllWithDownPayment`) */
+  showAllWithDownPayment?: boolean;
   tierConfig: LenderProgramTier;
   programLimits?: ProgramLimits;
   resultCount: number;

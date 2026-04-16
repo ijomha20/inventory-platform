@@ -113,7 +113,19 @@ interface CalcParams {
   taxRate?:      number;
   adminFee?:     number;
   termStretchMonths?:      number;
+  /** When true, keep vehicles that fail LTV/payment and report required extra cash down */
   showAllWithDownPayment?: boolean;
+}
+
+/** Accepts boolean or common string/number serializations from proxies and clients */
+function truthyOptionalFlag(v: unknown): boolean {
+  if (v === true || v === 1) return true;
+  if (v === false || v === 0 || v == null) return false;
+  if (typeof v === "string") {
+    const s = v.trim().toLowerCase();
+    return s === "true" || s === "1" || s === "yes" || s === "on";
+  }
+  return false;
 }
 
 function pmt(rate: number, nper: number, pv: number): number {
@@ -269,7 +281,7 @@ router.post("/lender-calculate", requireOwnerOrViewer, async (req, res) => {
   const gapAllowed  = capGap == null || capGap > 0;
 
   const termStretch = [0, 6, 12].includes(params.termStretchMonths ?? 0) ? (params.termStretchMonths ?? 0) : 0;
-  const showAllDP = params.showAllWithDownPayment === true;
+  const showAllDP = truthyOptionalFlag((params as CalcParams & { showAllWithDownPayment?: unknown }).showAllWithDownPayment);
 
   interface Result {
     vin: string; vehicle: string; location: string; term: number;
@@ -285,30 +297,30 @@ router.post("/lender-calculate", requireOwnerOrViewer, async (req, res) => {
   const results: Result[] = [];
   const debugCounts = { total: 0, noYear: 0, noKm: 0, noTerm: 0, noCondition: 0, noBB: 0, noBBVal: 0, noPrice: 0, ltvAdvance: 0, ltvMinAftermarket: 0, ltvAllIn: 0, negFinanced: 0, dealValue: 0, maxPmtFilter: 0, passed: 0 };
 
-  for (const item of inventory) {
+  inventory: for (const item of inventory) {
     debugCounts.total++;
     const vehicleYear = parseVehicleYear(item.vehicle);
-    if (!vehicleYear) { debugCounts.noYear++; continue; }
+    if (!vehicleYear) { debugCounts.noYear++; continue inventory; }
 
     const km = parseInt(item.km?.replace(/[^0-9]/g, "") || "0", 10);
-    if (!km || km <= 0) { debugCounts.noKm++; continue; }
+    if (!km || km <= 0) { debugCounts.noKm++; continue inventory; }
 
     const baseTerm = lookupTerm(guide.vehicleTermMatrix, vehicleYear, km);
-    if (!baseTerm) { debugCounts.noTerm++; continue; }
+    if (!baseTerm) { debugCounts.noTerm++; continue inventory; }
     const termStretched = termStretch > 0;
     const termMonths = baseTerm + termStretch;
 
     const condition = lookupCondition(guide.vehicleConditionMatrix, vehicleYear, km);
-    if (!condition) { debugCounts.noCondition++; continue; }
+    if (!condition) { debugCounts.noCondition++; continue inventory; }
 
-    if (!item.bbValues) { debugCounts.noBB++; continue; }
+    if (!item.bbValues) { debugCounts.noBB++; continue inventory; }
     const bbField = conditionToBBField[condition];
     const bbWholesale = item.bbValues[bbField];
-    if (!bbWholesale || bbWholesale <= 0) { debugCounts.noBBVal++; continue; }
+    if (!bbWholesale || bbWholesale <= 0) { debugCounts.noBBVal++; continue inventory; }
 
     const rawOnline = parseFloat(item.onlinePrice?.replace(/[^0-9.]/g, "") || "0");
     const pacCost   = parseFloat(item.cost?.replace(/[^0-9.]/g, "") || "0");
-    if (pacCost <= 0) { debugCounts.noPrice++; continue; }
+    if (pacCost <= 0) { debugCounts.noPrice++; continue inventory; }
 
     const maxAdvance = hasAdvanceCap ? bbWholesale * maxAdvanceLTV : Infinity;
     const maxAllInWithTax = hasAllInCap ? bbWholesale * maxAllInLTV : Infinity;
@@ -336,11 +348,11 @@ router.post("/lender-calculate", requireOwnerOrViewer, async (req, res) => {
       // --- PATH A: online price is fixed ---
       sellingPrice = rawOnline;
       priceSource  = "online";
-      if (sellingPrice < pacCost) { debugCounts.noPrice++; continue; }
+      if (sellingPrice < pacCost) { debugCounts.noPrice++; continue inventory; }
 
       let lenderExposure = sellingPrice - downPayment - netTrade;
       if (isFinite(maxAdvance) && lenderExposure > maxAdvance) {
-        if (!showAllDP) { debugCounts.ltvAdvance++; continue; }
+        if (!showAllDP) { debugCounts.ltvAdvance++; continue inventory; }
         const needed = Math.ceil(lenderExposure - maxAdvance);
         reqDP = Math.max(reqDP, needed);
         lenderExposure = maxAdvance;
@@ -348,7 +360,7 @@ router.post("/lender-calculate", requireOwnerOrViewer, async (req, res) => {
 
       let allInRoom = isFinite(maxAllInPreTax) ? maxAllInPreTax - lenderExposure - creditorFee : Infinity;
       if (isFinite(allInRoom) && allInRoom < 0) {
-        if (!showAllDP) { debugCounts.ltvAllIn++; continue; }
+        if (!showAllDP) { debugCounts.ltvAllIn++; continue inventory; }
         const needed = Math.ceil(-allInRoom);
         reqDP = Math.max(reqDP, needed);
         allInRoom = 0;
@@ -415,12 +427,17 @@ router.post("/lender-calculate", requireOwnerOrViewer, async (req, res) => {
 
       if (noOnlineResolution.rejection) {
         if (!showAllDP) {
-          if (noOnlineResolution.rejection === "ltvAllIn") { debugCounts.ltvAllIn++; continue; }
-          if (noOnlineResolution.rejection === "ltvAdvance") { debugCounts.ltvAdvance++; continue; }
+          if (noOnlineResolution.rejection === "ltvAllIn") { debugCounts.ltvAllIn++; continue inventory; }
+          if (noOnlineResolution.rejection === "ltvAdvance") { debugCounts.ltvAdvance++; continue inventory; }
         }
-        const ceiling = noOnlineResolution.rejection === "ltvAdvance" ? maxAdvance : maxAllInPreTax - creditorFee;
-        const needed = Math.ceil(pacCost - ceiling - netTrade);
-        if (needed > 0) reqDP = Math.max(reqDP, needed);
+        if (noOnlineResolution.rejection === "ltvAdvance") {
+          const needed = Math.ceil(pacCost - downPayment - netTrade - maxAdvance);
+          if (needed > 0) reqDP = Math.max(reqDP, needed);
+        } else {
+          const maxSellAllIn = maxAllInPreTax - creditorFee + downPayment + netTrade;
+          const needed = Math.ceil(pacCost - maxSellAllIn);
+          if (needed > 0) reqDP = Math.max(reqDP, needed);
+        }
       }
 
       sellingPrice = noOnlineResolution.rejection ? pacCost : noOnlineResolution.price;
@@ -430,7 +447,7 @@ router.post("/lender-calculate", requireOwnerOrViewer, async (req, res) => {
       if (reqDP > 0) lenderExposure = sellingPrice - (downPayment + reqDP) - netTrade;
       let allInRoom = isFinite(maxAllInPreTax) ? maxAllInPreTax - lenderExposure - creditorFee : Infinity;
       if (isFinite(allInRoom) && allInRoom < 0) {
-        if (!showAllDP) { debugCounts.ltvAllIn++; continue; }
+        if (!showAllDP) { debugCounts.ltvAllIn++; continue inventory; }
         const needed = Math.ceil(-allInRoom);
         reqDP = Math.max(reqDP, needed);
         allInRoom = 0;
@@ -483,33 +500,69 @@ router.post("/lender-calculate", requireOwnerOrViewer, async (req, res) => {
       gCost = gapPr > 0 ? Math.round(gapPr / MARKUP) : 0;
     }
 
-    if (sellingPrice < pacCost) { debugCounts.noPrice++; continue; }
+    if (sellingPrice < pacCost) { debugCounts.noPrice++; continue inventory; }
 
     warPrice = Math.round(warPrice);
     gapPr    = Math.round(gapPr);
 
-    const finalExposure = sellingPrice - (downPayment + reqDP) - netTrade;
     const aftermarketRevenue = warPrice + gapPr;
-    const allInSubtotal = finalExposure + aftermarketRevenue + effectiveAdmin + creditorFee;
-    if (isFinite(maxAllInPreTax) && allInSubtotal > maxAllInPreTax) {
-      if (!showAllDP) { debugCounts.ltvAllIn++; continue; }
-      reqDP = Math.max(reqDP, Math.ceil(allInSubtotal - maxAllInPreTax));
-    }
-    if (allInSubtotal <= 0) { debugCounts.negFinanced++; continue; }
+    let reqAcc = reqDP;
 
-    const taxes = allInSubtotal * taxRate;
-    const totalFinanced = allInSubtotal + taxes;
+    let finalExposure: number;
+    let allInSubtotal: number;
+    let taxes: number;
+    let totalFinanced: number;
+    let monthlyPayment: number;
 
-    const monthlyPayment = pmt(rateDecimal, termMonths, totalFinanced);
-    if (maxPmt < Infinity && monthlyPayment > maxPmt) {
-      if (!showAllDP) { debugCounts.maxPmtFilter++; continue; }
-      // Compute extra DP to bring payment under maxPmt via PV reduction
-      const targetPV = maxPmt * ((Math.pow(1 + rateDecimal / 12, termMonths) - 1) / (rateDecimal / 12 * Math.pow(1 + rateDecimal / 12, termMonths)));
-      const excessPV = totalFinanced - targetPV;
-      if (excessPV > 0) {
-        reqDP = Math.max(reqDP, Math.ceil(excessPV / (1 + taxRate)));
+    settle: for (let pass = 0; pass < 24; pass++) {
+      finalExposure = sellingPrice - (downPayment + reqAcc) - netTrade;
+      allInSubtotal = finalExposure + aftermarketRevenue + effectiveAdmin + creditorFee;
+
+      if (allInSubtotal <= 0) {
+        debugCounts.negFinanced++;
+        continue inventory;
       }
+
+      if (isFinite(maxAllInPreTax) && allInSubtotal > maxAllInPreTax) {
+        if (!showAllDP) {
+          debugCounts.ltvAllIn++;
+          continue inventory;
+        }
+        reqAcc += Math.ceil(allInSubtotal - maxAllInPreTax);
+        continue settle;
+      }
+
+      taxes = allInSubtotal * taxRate;
+      totalFinanced = allInSubtotal + taxes;
+      monthlyPayment = pmt(rateDecimal, termMonths, totalFinanced);
+
+      if (maxPmt < Infinity && monthlyPayment > maxPmt) {
+        if (!showAllDP) {
+          debugCounts.maxPmtFilter++;
+          continue inventory;
+        }
+        const monthlyRate = rateDecimal / 12;
+        const targetPV =
+          rateDecimal === 0
+            ? maxPmt * termMonths
+            : maxPmt * ((Math.pow(1 + monthlyRate, termMonths) - 1) / (monthlyRate * Math.pow(1 + monthlyRate, termMonths)));
+        const excessPV = totalFinanced - targetPV;
+        if (excessPV > 0) {
+          reqAcc += Math.ceil(excessPV / (1 + taxRate));
+          continue settle;
+        }
+      }
+      break settle;
     }
+
+    reqDP = reqAcc;
+
+    finalExposure = sellingPrice - (downPayment + reqDP) - netTrade;
+    allInSubtotal = finalExposure + aftermarketRevenue + effectiveAdmin + creditorFee;
+    taxes = allInSubtotal * taxRate;
+    totalFinanced = allInSubtotal + taxes;
+    monthlyPayment = pmt(rateDecimal, termMonths, totalFinanced);
+
     debugCounts.passed++;
 
     const frontEndGross  = sellingPrice - pacCost;
@@ -550,6 +603,7 @@ router.post("/lender-calculate", requireOwnerOrViewer, async (req, res) => {
     lender: params.lenderCode,
     program: guide.programTitle,
     tier: params.tierName,
+    showAllWithDownPayment: showAllDP,
     allInOnly,
     hasAdvanceCap,
     hasAftermarketCap,
@@ -569,6 +623,7 @@ router.post("/lender-calculate", requireOwnerOrViewer, async (req, res) => {
     lender:     params.lenderCode,
     program:    guide.programTitle,
     tier:       params.tierName,
+    showAllWithDownPayment: showAllDP,
     ...runtime,
     tierConfig: tier,
     programLimits: {
