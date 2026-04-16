@@ -10,5 +10,15 @@ export interface ProgramLimits {
   maxWarrantyPrice?: number | null;
   maxGapPrice?: number | null;
   maxAdminFee?: number | null;
+  maxGapMarkup?: number;
   gapAllowed: boolean;
+  allInOnly: boolean;
+  hasAdvanceCap: boolean;
+  hasAftermarketCap: boolean;
+  aftermarketBudgetIsDynamic: boolean;
+  aftermarketBase: string;
+  adminFeeInclusion: string;
+  capModelResolved: string;
+  capProfileKey: string;
+  noOnlineStrategy: string;
 }

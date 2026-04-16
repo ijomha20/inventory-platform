@@ -1,9 +1,12 @@
 /**
  * Single source of truth for Typesense config, dealer collections, and URL helpers.
  * All Typesense consumers import from here — no duplication.
+ * API keys and collection IDs come from env.ts; rotate keys in the
+ * Typesense dashboard if they were ever committed to git history.
  */
+import { env } from "./env.js";
 
-export const TYPESENSE_HOST = "v6eba1srpfohj89dp-1.a1.typesense.net";
+export const TYPESENSE_HOST = env.TYPESENSE_HOST;
 
 export interface DealerCollection {
   name:       string;
@@ -15,14 +18,14 @@ export interface DealerCollection {
 export const DEALER_COLLECTIONS: readonly DealerCollection[] = [
   {
     name:       "Parkdale",
-    collection: "37042ac7ece3a217b1a41d6f54ba6855",
-    apiKey:     "bENlSmdIaVJWNGhTcjBnZ3BaN2JxajBINWcvdzREZ21hQnFMZWM3OWJBRT1oZmUweyJmaWx0ZXJfYnkiOiJzdGF0dXM6W0luc3RvY2tdICYmIHZpc2liaWxpdHk6PjAgJiYgZGVsZXRlZF9hdDo9MCJ9",
+    collection: env.TYPESENSE_COLLECTION_PARKDALE,
+    apiKey:     env.TYPESENSE_KEY_PARKDALE,
     siteUrl:    "https://www.parkdalemotors.ca",
   },
   {
     name:       "Matrix",
-    collection: "cebacbca97920d818d57c6f0526d7413",
-    apiKey:     "ZWoxa3NxVmJLWFBOK2dWcUFBM1V0aTJyb09wUDhFZ0R5Vnc1blc2RW9Kdz1oZmUweyJmaWx0ZXJfYnkiOiJzdGF0dXM6W0luc3RvY2ssIFNvbGRdICYmIHZpc2liaWxpdHk6PjAgJiYgZGVsZXRlZF9hdDo9MCJ9",
+    collection: env.TYPESENSE_COLLECTION_MATRIX,
+    apiKey:     env.TYPESENSE_KEY_MATRIX,
     siteUrl:    "https://www.matrixmotorsyeg.ca",
   },
 ];

@@ -15,6 +15,22 @@ export const HealthCheckResponse = zod.object({
 });
 
 /**
+ * @summary Google OAuth callback (redirects to app)
+ */
+export const AuthGoogleCallbackQueryParams = zod.object({
+  code: zod.coerce.string().optional(),
+  state: zod.coerce.string().optional(),
+});
+
+/**
+ * @summary Debug endpoint showing the computed OAuth callback URL
+ */
+export const AuthDebugCallbackResponse = zod.object({
+  callbackURL: zod.string(),
+  REPLIT_DOMAINS: zod.string(),
+});
+
+/**
  * @summary Get current authenticated user
  */
 export const GetMeResponse = zod.object({
@@ -40,6 +56,15 @@ export const GetInventoryResponseItem = zod.object({
   matrixPrice: zod.string().nullish(),
   cost: zod.string().nullish(),
   bbAvgWholesale: zod.string().nullish(),
+  hasPhotos: zod.boolean().optional(),
+  bbValues: zod
+    .object({
+      xclean: zod.number(),
+      clean: zod.number(),
+      avg: zod.number(),
+      rough: zod.number(),
+    })
+    .nullish(),
 });
 export const GetInventoryResponse = zod.array(GetInventoryResponseItem);
 
@@ -50,6 +75,29 @@ export const GetCacheStatusResponse = zod.object({
   lastUpdated: zod.string().nullish(),
   isRefreshing: zod.boolean(),
   count: zod.number(),
+  bbRunning: zod.boolean(),
+  bbLastRun: zod.string().nullish(),
+  bbCount: zod.number().nullish(),
+});
+
+/**
+ * @summary Webhook from Apps Script to trigger an immediate cache refresh (secret header auth)
+ */
+export const RefreshCacheHeader = zod.object({
+  "x-refresh-secret": zod.string(),
+});
+
+export const RefreshCacheResponse = zod.object({
+  ok: zod.boolean(),
+  message: zod.string().optional(),
+});
+
+/**
+ * @summary Trigger manual Black Book refresh (owner only)
+ */
+export const RefreshBlackBookResponse = zod.object({
+  ok: zod.boolean(),
+  message: zod.string().optional(),
 });
 
 /**
@@ -62,6 +110,7 @@ export const GetVehicleImagesQueryParams = zod.object({
 export const GetVehicleImagesResponse = zod.object({
   vin: zod.string(),
   urls: zod.array(zod.string()),
+  websiteUrl: zod.string().nullish(),
 });
 
 /**
@@ -120,7 +169,7 @@ export const RemoveAccessEntryResponse = zod.object({
 });
 
 /**
- * @summary Get cached lender program matrices (owner only)
+ * @summary Get cached lender program matrices (owner or viewer)
  */
 export const GetLenderProgramsResponse = zod.object({
   programs: zod.array(
@@ -188,10 +237,11 @@ export const GetLenderProgramsResponse = zod.object({
     }),
   ),
   updatedAt: zod.string().nullish(),
+  role: zod.string().optional(),
 });
 
 /**
- * @summary Get lender sync status (owner only)
+ * @summary Get lender sync status (owner or viewer)
  */
 export const GetLenderStatusResponse = zod.object({
   running: zod.boolean(),
@@ -210,7 +260,7 @@ export const RefreshLenderResponse = zod.object({
 });
 
 /**
- * @summary Calculate inventory affordability by lender/tier (owner only)
+ * @summary Calculate inventory affordability by lender/tier (owner or viewer)
  */
 export const LenderCalculateBody = zod.object({
   lenderCode: zod.string(),
@@ -222,17 +272,19 @@ export const LenderCalculateBody = zod.object({
   tradeValue: zod.number().optional(),
   tradeLien: zod.number().optional(),
   taxRate: zod.number().optional(),
-  warrantyPrice: zod.number().optional(),
-  warrantyCost: zod.number().optional(),
-  gapPrice: zod.number().optional(),
-  gapCost: zod.number().optional(),
   adminFee: zod.number().optional(),
+  termStretchMonths: zod.number().optional(),
+  showAllWithDownPayment: zod.boolean().optional(),
 });
 
 export const LenderCalculateResponse = zod.object({
   lender: zod.string(),
   program: zod.string(),
   tier: zod.string(),
+  termStretchMonths: zod.number(),
+  showAllWithDownPayment: zod.boolean(),
+  calculatorVersion: zod.string(),
+  gitSha: zod.string(),
   tierConfig: zod.object({
     tierName: zod.string(),
     minRate: zod.number(),
@@ -244,14 +296,39 @@ export const LenderCalculateResponse = zod.object({
     creditorFee: zod.number(),
     dealerReserve: zod.number(),
   }),
-  programLimits: zod
-    .object({
-      maxWarrantyPrice: zod.number().nullish(),
-      maxGapPrice: zod.number().nullish(),
-      maxAdminFee: zod.number().nullish(),
-      gapAllowed: zod.boolean(),
-    })
-    .optional(),
+  programLimits: zod.object({
+    maxWarrantyPrice: zod.number().nullish(),
+    maxGapPrice: zod.number().nullish(),
+    maxAdminFee: zod.number().nullish(),
+    maxGapMarkup: zod.number().optional(),
+    gapAllowed: zod.boolean(),
+    allInOnly: zod.boolean(),
+    hasAdvanceCap: zod.boolean(),
+    hasAftermarketCap: zod.boolean(),
+    aftermarketBudgetIsDynamic: zod.boolean(),
+    aftermarketBase: zod.string(),
+    adminFeeInclusion: zod.string(),
+    capModelResolved: zod.string(),
+    capProfileKey: zod.string(),
+    noOnlineStrategy: zod.string(),
+  }),
+  debugCounts: zod.object({
+    total: zod.number().optional(),
+    noYear: zod.number().optional(),
+    noKm: zod.number().optional(),
+    noTerm: zod.number().optional(),
+    noCondition: zod.number().optional(),
+    noBB: zod.number().optional(),
+    noBBVal: zod.number().optional(),
+    noPrice: zod.number().optional(),
+    ltvAdvance: zod.number().optional(),
+    ltvMinAftermarket: zod.number().optional(),
+    ltvAllIn: zod.number().optional(),
+    negFinanced: zod.number().optional(),
+    dealValue: zod.number().optional(),
+    maxPmtFilter: zod.number().optional(),
+    passed: zod.number().optional(),
+  }),
   resultCount: zod.number(),
   results: zod.array(
     zod.object({
@@ -259,17 +336,39 @@ export const LenderCalculateResponse = zod.object({
       vehicle: zod.string(),
       location: zod.string(),
       term: zod.number(),
+      matrixTerm: zod.number(),
+      termStretchApplied: zod.number(),
       conditionUsed: zod.string(),
       bbWholesale: zod.number(),
       sellingPrice: zod.number(),
       priceSource: zod.string(),
+      adminFeeUsed: zod.number(),
+      warrantyPrice: zod.number(),
+      warrantyCost: zod.number(),
+      gapPrice: zod.number(),
+      gapCost: zod.number(),
       totalFinanced: zod.number(),
       monthlyPayment: zod.number(),
       profit: zod.number(),
-      hasPhotos: zod.boolean().optional(),
-      website: zod.string().optional(),
+      profitTarget: zod.number(),
+      qualificationTier: zod.string(),
+      hasPhotos: zod.boolean(),
+      website: zod.string(),
+      termStretched: zod.boolean(),
+      termStretchCappedReason: zod.string().nullish(),
+      requiredDownPayment: zod.number().optional(),
     }),
   ),
+});
+
+/**
+ * @summary Diagnostic dump of cached lender program metadata (owner only)
+ */
+export const GetLenderDebugResponse = zod.object({
+  updatedAt: zod.string().nullish(),
+  lenders: zod.array(zod.object({}).passthrough()).optional(),
+  calculatorVersion: zod.string().optional(),
+  gitSha: zod.string().optional(),
 });
 
 /**
@@ -285,3 +384,39 @@ export const GetAuditLogResponseItem = zod.object({
   timestamp: zod.string(),
 });
 export const GetAuditLogResponse = zod.array(GetAuditLogResponseItem);
+
+/**
+ * @summary Get current Carfax batch worker status (owner only)
+ */
+export const GetCarfaxBatchStatusResponse = zod.object({}).passthrough();
+
+/**
+ * @summary Trigger a manual Carfax batch run (owner only)
+ */
+export const RunCarfaxBatchResponse = zod.object({
+  ok: zod.boolean(),
+  message: zod.string().optional(),
+});
+
+/**
+ * @summary Run a targeted Carfax lookup for up to 10 VINs (owner only)
+ */
+export const RunCarfaxTestBody = zod.object({
+  vins: zod.array(zod.string()),
+});
+
+export const RunCarfaxTestResponse = zod.object({
+  ok: zod.boolean(),
+  results: zod.object({}).passthrough(),
+});
+
+/**
+ * @summary Resolve a dealer listing URL to a live price via Typesense
+ */
+export const PriceLookupQueryParams = zod.object({
+  url: zod.coerce.string(),
+});
+
+export const PriceLookupResponse = zod.object({
+  price: zod.string().nullable(),
+});

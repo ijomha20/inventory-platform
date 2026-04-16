@@ -11,13 +11,25 @@ export interface LenderCalcResultItem {
   vehicle: string;
   location: string;
   term: number;
+  matrixTerm: number;
+  termStretchApplied: number;
   conditionUsed: string;
   bbWholesale: number;
   sellingPrice: number;
   priceSource: string;
+  adminFeeUsed: number;
+  warrantyPrice: number;
+  warrantyCost: number;
+  gapPrice: number;
+  gapCost: number;
   totalFinanced: number;
   monthlyPayment: number;
   profit: number;
-  hasPhotos?: boolean;
-  website?: string;
+  profitTarget: number;
+  qualificationTier: string;
+  hasPhotos: boolean;
+  website: string;
+  termStretched: boolean;
+  termStretchCappedReason?: string | null;
+  requiredDownPayment?: number;
 }

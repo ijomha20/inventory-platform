@@ -42,6 +42,12 @@ const envSchema = z.object({
                                    .transform((v) => v === "true")
                                    .default("false"),
 
+  TYPESENSE_HOST:                z.string().trim().default("v6eba1srpfohj89dp-1.a1.typesense.net"),
+  TYPESENSE_KEY_PARKDALE:        optStr,
+  TYPESENSE_KEY_MATRIX:          optStr,
+  TYPESENSE_COLLECTION_PARKDALE: z.string().trim().default("37042ac7ece3a217b1a41d6f54ba6855"),
+  TYPESENSE_COLLECTION_MATRIX:   z.string().trim().default("cebacbca97920d818d57c6f0526d7413"),
+
   APPS_SCRIPT_WEB_APP_URL:       optStr,
 
   RESEND_API_KEY:                optStr,

@@ -20,6 +20,8 @@ tags:
     description: Audit log
   - name: lender
     description: Inventory Selector (lender program calculator)
+  - name: carfax
+    description: Carfax VHR management
 paths:
   /healthz:
     get:
@@ -33,6 +35,63 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+
+  /auth/google:
+    get:
+      operationId: authGoogle
+      tags: [auth]
+      summary: Kick off Google OAuth login flow (redirects to Google)
+      responses:
+        "302":
+          description: Redirects to Google OAuth consent screen
+
+  /auth/google/callback:
+    get:
+      operationId: authGoogleCallback
+      tags: [auth]
+      summary: Google OAuth callback (redirects to app)
+      parameters:
+        - name: code
+          in: query
+          schema:
+            type: string
+        - name: state
+          in: query
+          schema:
+            type: string
+      responses:
+        "302":
+          description: Redirects to app root on success or /?auth_error=1 on failure
+
+  /auth/logout:
+    get:
+      operationId: authLogout
+      tags: [auth]
+      summary: Destroy session and redirect to app root
+      responses:
+        "302":
+          description: Redirects to /
+
+  /auth/debug-callback:
+    get:
+      operationId: authDebugCallback
+      tags: [auth]
+      summary: Debug endpoint showing the computed OAuth callback URL
+      responses:
+        "200":
+          description: Callback URL info
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  callbackURL:
+                    type: string
+                  REPLIT_DOMAINS:
+                    type: string
+                required:
+                  - callbackURL
+                  - REPLIT_DOMAINS
 
   /me:
     get:
@@ -94,6 +153,56 @@ paths:
                 $ref: "#/components/schemas/CacheStatus"
         "401":
           description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /refresh:
+    post:
+      operationId: refreshCache
+      tags: [inventory]
+      summary: Webhook from Apps Script to trigger an immediate cache refresh (secret header auth)
+      parameters:
+        - name: x-refresh-secret
+          in: header
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Refresh triggered
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessMessageResponse"
+        "401":
+          description: Unauthorized — invalid or missing secret
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /refresh-blackbook:
+    post:
+      operationId: refreshBlackBook
+      tags: [inventory]
+      summary: Trigger manual Black Book refresh (owner only)
+      responses:
+        "200":
+          description: Refresh started or already running
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessMessageResponse"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: Owner only
           content:
             application/json:
               schema:
@@ -253,7 +362,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/LenderProgramsResponse"
         "403":
-          description: Owner only
+          description: Owner or Viewer only
           content:
             application/json:
               schema:
@@ -272,7 +381,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/LenderStatus"
         "403":
-          description: Owner only
+          description: Owner or Viewer only
           content:
             application/json:
               schema:
@@ -322,6 +431,43 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
         "403":
+          description: Owner or Viewer only
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Lender, program, or tier not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /lender-debug:
+    get:
+      operationId: getLenderDebug
+      tags: [lender]
+      summary: Diagnostic dump of cached lender program metadata (owner only)
+      responses:
+        "200":
+          description: Debug lender summary
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  updatedAt:
+                    type: string
+                    nullable: true
+                  lenders:
+                    type: array
+                    items:
+                      type: object
+                  calculatorVersion:
+                    type: string
+                  gitSha:
+                    type: string
+        "403":
           description: Owner only
           content:
             application/json:
@@ -344,6 +490,133 @@ paths:
                   $ref: "#/components/schemas/AuditLogEntry"
         "403":
           description: Owner only
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /carfax/batch-status:
+    get:
+      operationId: getCarfaxBatchStatus
+      tags: [carfax]
+      summary: Get current Carfax batch worker status (owner only)
+      responses:
+        "200":
+          description: Batch status
+          content:
+            application/json:
+              schema:
+                type: object
+        "403":
+          description: Owner only
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /carfax/run-batch:
+    post:
+      operationId: runCarfaxBatch
+      tags: [carfax]
+      summary: Trigger a manual Carfax batch run (owner only)
+      responses:
+        "200":
+          description: Batch started
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessMessageResponse"
+        "403":
+          description: Owner only
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "409":
+          description: Batch already running
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /carfax/test:
+    post:
+      operationId: runCarfaxTest
+      tags: [carfax]
+      summary: Run a targeted Carfax lookup for up to 10 VINs (owner only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                vins:
+                  type: array
+                  items:
+                    type: string
+              required:
+                - vins
+      responses:
+        "200":
+          description: Test results
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                  results:
+                    type: object
+                required:
+                  - ok
+                  - results
+        "400":
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: Owner only
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /price-lookup:
+    get:
+      operationId: priceLookup
+      tags: [inventory]
+      summary: Resolve a dealer listing URL to a live price via Typesense
+      parameters:
+        - name: url
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Resolved price (null if not found)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  price:
+                    type: string
+                    nullable: true
+                required:
+                  - price
+        "400":
+          description: Invalid URL
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Not authenticated
           content:
             application/json:
               schema:
@@ -406,6 +679,25 @@ components:
         bbAvgWholesale:
           type: string
           nullable: true
+        hasPhotos:
+          type: boolean
+        bbValues:
+          type: object
+          nullable: true
+          properties:
+            xclean:
+              type: number
+            clean:
+              type: number
+            avg:
+              type: number
+            rough:
+              type: number
+          required:
+            - xclean
+            - clean
+            - avg
+            - rough
       required:
         - location
         - vehicle
@@ -422,9 +714,18 @@ components:
           type: boolean
         count:
           type: integer
+        bbRunning:
+          type: boolean
+        bbLastRun:
+          type: string
+          nullable: true
+        bbCount:
+          type: integer
+          nullable: true
       required:
         - isRefreshing
         - count
+        - bbRunning
 
     VehicleImages:
       type: object
@@ -435,6 +736,9 @@ components:
           type: array
           items:
             type: string
+        websiteUrl:
+          type: string
+          nullable: true
       required:
         - vin
         - urls
@@ -513,6 +817,16 @@ components:
       properties:
         ok:
           type: boolean
+      required:
+        - ok
+
+    SuccessMessageResponse:
+      type: object
+      properties:
+        ok:
+          type: boolean
+        message:
+          type: string
       required:
         - ok
 
@@ -714,6 +1028,10 @@ components:
           type: number
         adminFee:
           type: number
+        termStretchMonths:
+          type: integer
+        showAllWithDownPayment:
+          type: boolean
       required:
         - lenderCode
         - programId
@@ -730,6 +1048,10 @@ components:
         location:
           type: string
         term:
+          type: integer
+        matrixTerm:
+          type: integer
+        termStretchApplied:
           type: integer
         conditionUsed:
           type: string
@@ -755,15 +1077,28 @@ components:
           type: number
         profit:
           type: number
+        profitTarget:
+          type: number
+        qualificationTier:
+          type: string
         hasPhotos:
           type: boolean
         website:
           type: string
+        termStretched:
+          type: boolean
+        termStretchCappedReason:
+          type: string
+          nullable: true
+        requiredDownPayment:
+          type: number
       required:
         - vin
         - vehicle
         - location
         - term
+        - matrixTerm
+        - termStretchApplied
         - conditionUsed
         - bbWholesale
         - sellingPrice
@@ -776,6 +1111,45 @@ components:
         - totalFinanced
         - monthlyPayment
         - profit
+        - profitTarget
+        - qualificationTier
+        - hasPhotos
+        - website
+        - termStretched
+
+    DebugCounts:
+      type: object
+      properties:
+        total:
+          type: integer
+        noYear:
+          type: integer
+        noKm:
+          type: integer
+        noTerm:
+          type: integer
+        noCondition:
+          type: integer
+        noBB:
+          type: integer
+        noBBVal:
+          type: integer
+        noPrice:
+          type: integer
+        ltvAdvance:
+          type: integer
+        ltvMinAftermarket:
+          type: integer
+        ltvAllIn:
+          type: integer
+        negFinanced:
+          type: integer
+        dealValue:
+          type: integer
+        maxPmtFilter:
+          type: integer
+        passed:
+          type: integer
 
     ProgramLimits:
       type: object
@@ -789,10 +1163,39 @@ components:
         maxAdminFee:
           type: number
           nullable: true
+        maxGapMarkup:
+          type: number
         gapAllowed:
           type: boolean
+        allInOnly:
+          type: boolean
+        hasAdvanceCap:
+          type: boolean
+        hasAftermarketCap:
+          type: boolean
+        aftermarketBudgetIsDynamic:
+          type: boolean
+        aftermarketBase:
+          type: string
+        adminFeeInclusion:
+          type: string
+        capModelResolved:
+          type: string
+        capProfileKey:
+          type: string
+        noOnlineStrategy:
+          type: string
       required:
         - gapAllowed
+        - allInOnly
+        - hasAdvanceCap
+        - hasAftermarketCap
+        - aftermarketBudgetIsDynamic
+        - aftermarketBase
+        - adminFeeInclusion
+        - capModelResolved
+        - capProfileKey
+        - noOnlineStrategy
 
     LenderCalculateResponse:
       type: object
@@ -803,10 +1206,20 @@ components:
           type: string
         tier:
           type: string
+        termStretchMonths:
+          type: integer
+        showAllWithDownPayment:
+          type: boolean
+        calculatorVersion:
+          type: string
+        gitSha:
+          type: string
         tierConfig:
           $ref: "#/components/schemas/LenderProgramTier"
         programLimits:
           $ref: "#/components/schemas/ProgramLimits"
+        debugCounts:
+          $ref: "#/components/schemas/DebugCounts"
         resultCount:
           type: integer
         results:
@@ -817,6 +1230,12 @@ components:
         - lender
         - program
         - tier
+        - termStretchMonths
+        - showAllWithDownPayment
+        - calculatorVersion
+        - gitSha
         - tierConfig
+        - programLimits
+        - debugCounts
         - resultCount
         - results

@@ -17,6 +17,13 @@ export interface User {
   role: string;
 }
 
+export type InventoryItemBbValues = {
+  xclean: number;
+  clean: number;
+  avg: number;
+  rough: number;
+} | null;
+
 export interface InventoryItem {
   location: string;
   vehicle: string;
@@ -29,17 +36,23 @@ export interface InventoryItem {
   matrixPrice?: string | null;
   cost?: string | null;
   bbAvgWholesale?: string | null;
+  hasPhotos?: boolean;
+  bbValues?: InventoryItemBbValues;
 }
 
 export interface CacheStatus {
   lastUpdated?: string | null;
   isRefreshing: boolean;
   count: number;
+  bbRunning: boolean;
+  bbLastRun?: string | null;
+  bbCount?: number | null;
 }
 
 export interface VehicleImages {
   vin: string;
   urls: string[];
+  websiteUrl?: string | null;
 }
 
 export interface AccessEntry {
@@ -74,6 +87,11 @@ export interface ErrorResponse {
 
 export interface SuccessResponse {
   ok: boolean;
+}
+
+export interface SuccessMessageResponse {
+  ok: boolean;
+  message?: string;
 }
 
 export interface LenderProgramTier {
@@ -158,9 +176,7 @@ export interface LenderCalculateRequest {
   tradeLien?: number;
   taxRate?: number;
   adminFee?: number;
-  /** 0, 6, or 12 — months added to matrix term */
   termStretchMonths?: number;
-  /** When true, include vehicles that need extra cash down to meet LTV / max payment */
   showAllWithDownPayment?: boolean;
 }
 
@@ -169,12 +185,8 @@ export interface LenderCalcResultItem {
   vehicle: string;
   location: string;
   term: number;
-  /** Vehicle term from lender matrix before exception stretch */
-  matrixTerm?: number;
-  /** Effective months added (0 / 6 / 12) after 84-month cap rules */
-  termStretchApplied?: 0 | 6 | 12;
-  /** When stretch was reduced (e.g. 78 cannot use +12; 84 matrix cannot stretch) */
-  termStretchCappedReason?: string;
+  matrixTerm: number;
+  termStretchApplied: number;
   conditionUsed: string;
   bbWholesale: number;
   sellingPrice: number;
@@ -187,38 +199,105 @@ export interface LenderCalcResultItem {
   totalFinanced: number;
   monthlyPayment: number;
   profit: number;
-  /** Target profit the deal aims to achieve (onlinePrice - pacCost for PATH A, 0 for PATH B) */
   profitTarget: number;
-  /** 1 = full deal at selling price, 2 = reduced price with product-based profit recovery */
-  qualificationTier: 1 | 2;
-  hasPhotos?: boolean;
-  website?: string;
-  termStretched?: boolean;
-  /** Extra cash down (beyond base downPayment) needed to fit program when showAllWithDownPayment is on */
+  qualificationTier: string;
+  hasPhotos: boolean;
+  website: string;
+  termStretched: boolean;
+  termStretchCappedReason?: string | null;
   requiredDownPayment?: number;
+}
+
+export interface DebugCounts {
+  total?: number;
+  noYear?: number;
+  noKm?: number;
+  noTerm?: number;
+  noCondition?: number;
+  noBB?: number;
+  noBBVal?: number;
+  noPrice?: number;
+  ltvAdvance?: number;
+  ltvMinAftermarket?: number;
+  ltvAllIn?: number;
+  negFinanced?: number;
+  dealValue?: number;
+  maxPmtFilter?: number;
+  passed?: number;
 }
 
 export interface ProgramLimits {
   maxWarrantyPrice?: number | null;
   maxGapPrice?: number | null;
   maxAdminFee?: number | null;
+  maxGapMarkup?: number;
   gapAllowed: boolean;
+  allInOnly: boolean;
+  hasAdvanceCap: boolean;
+  hasAftermarketCap: boolean;
+  aftermarketBudgetIsDynamic: boolean;
+  aftermarketBase: string;
+  adminFeeInclusion: string;
+  capModelResolved: string;
+  capProfileKey: string;
+  noOnlineStrategy: string;
 }
 
 export interface LenderCalculateResponse {
   lender: string;
   program: string;
   tier: string;
-  /** Echo: effective term stretch (0, 6, or 12 months added to matrix term) */
-  termStretchMonths?: 0 | 6 | 12;
-  /** Echo: server parsed show-all mode (see request `showAllWithDownPayment`) */
-  showAllWithDownPayment?: boolean;
+  termStretchMonths: number;
+  showAllWithDownPayment: boolean;
+  calculatorVersion: string;
+  gitSha: string;
   tierConfig: LenderProgramTier;
-  programLimits?: ProgramLimits;
+  programLimits: ProgramLimits;
+  debugCounts: DebugCounts;
   resultCount: number;
   results: LenderCalcResultItem[];
 }
 
+export type AuthGoogleCallbackParams = {
+  code?: string;
+  state?: string;
+};
+
+export type AuthDebugCallback200 = {
+  callbackURL: string;
+  REPLIT_DOMAINS: string;
+};
+
 export type GetVehicleImagesParams = {
   vin: string;
+};
+
+export type GetLenderDebug200LendersItem = { [key: string]: unknown };
+
+export type GetLenderDebug200 = {
+  updatedAt?: string | null;
+  lenders?: GetLenderDebug200LendersItem[];
+  calculatorVersion?: string;
+  gitSha?: string;
+};
+
+export type GetCarfaxBatchStatus200 = { [key: string]: unknown };
+
+export type RunCarfaxTestBody = {
+  vins: string[];
+};
+
+export type RunCarfaxTest200Results = { [key: string]: unknown };
+
+export type RunCarfaxTest200 = {
+  ok: boolean;
+  results: RunCarfaxTest200Results;
+};
+
+export type PriceLookupParams = {
+  url: string;
+};
+
+export type PriceLookup200 = {
+  price: string | null;
 };

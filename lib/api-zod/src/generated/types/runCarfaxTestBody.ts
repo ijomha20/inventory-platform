@@ -6,8 +6,6 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export interface VehicleImages {
-  vin: string;
-  urls: string[];
-  websiteUrl?: string | null;
-}
+export type RunCarfaxTestBody = {
+  vins: string[];
+};

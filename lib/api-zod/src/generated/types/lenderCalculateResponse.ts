@@ -5,6 +5,7 @@
  * API specification
  * OpenAPI spec version: 0.1.0
  */
+import type { DebugCounts } from "./debugCounts";
 import type { LenderCalcResultItem } from "./lenderCalcResultItem";
 import type { LenderProgramTier } from "./lenderProgramTier";
 import type { ProgramLimits } from "./programLimits";
@@ -13,8 +14,13 @@ export interface LenderCalculateResponse {
   lender: string;
   program: string;
   tier: string;
+  termStretchMonths: number;
+  showAllWithDownPayment: boolean;
+  calculatorVersion: string;
+  gitSha: string;
   tierConfig: LenderProgramTier;
-  programLimits?: ProgramLimits;
+  programLimits: ProgramLimits;
+  debugCounts: DebugCounts;
   resultCount: number;
   results: LenderCalcResultItem[];
 }

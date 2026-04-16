@@ -20,8 +20,12 @@ import type {
   AccessEntry,
   AddAccessRequest,
   AuditLogEntry,
+  AuthDebugCallback200,
+  AuthGoogleCallbackParams,
   CacheStatus,
   ErrorResponse,
+  GetCarfaxBatchStatus200,
+  GetLenderDebug200,
   GetVehicleImagesParams,
   HealthStatus,
   InventoryItem,
@@ -29,6 +33,11 @@ import type {
   LenderCalculateResponse,
   LenderProgramsResponse,
   LenderStatus,
+  PriceLookup200,
+  PriceLookupParams,
+  RunCarfaxTest200,
+  RunCarfaxTestBody,
+  SuccessMessageResponse,
   SuccessResponse,
   UpdateAccessRoleRequest,
   User,
@@ -111,6 +120,324 @@ export function useHealthCheck<
   request?: SecondParameter<typeof customFetch>;
 }): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
   const queryOptions = getHealthCheckQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Kick off Google OAuth login flow (redirects to Google)
+ */
+export const getAuthGoogleUrl = () => {
+  return `/api/auth/google`;
+};
+
+export const authGoogle = async (options?: RequestInit): Promise<unknown> => {
+  return customFetch<unknown>(getAuthGoogleUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getAuthGoogleQueryKey = () => {
+  return [`/api/auth/google`] as const;
+};
+
+export const getAuthGoogleQueryOptions = <
+  TData = Awaited<ReturnType<typeof authGoogle>>,
+  TError = ErrorType<void>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof authGoogle>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getAuthGoogleQueryKey();
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof authGoogle>>> = ({
+    signal,
+  }) => authGoogle({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof authGoogle>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type AuthGoogleQueryResult = NonNullable<
+  Awaited<ReturnType<typeof authGoogle>>
+>;
+export type AuthGoogleQueryError = ErrorType<void>;
+
+/**
+ * @summary Kick off Google OAuth login flow (redirects to Google)
+ */
+
+export function useAuthGoogle<
+  TData = Awaited<ReturnType<typeof authGoogle>>,
+  TError = ErrorType<void>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof authGoogle>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getAuthGoogleQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Google OAuth callback (redirects to app)
+ */
+export const getAuthGoogleCallbackUrl = (params?: AuthGoogleCallbackParams) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/auth/google/callback?${stringifiedParams}`
+    : `/api/auth/google/callback`;
+};
+
+export const authGoogleCallback = async (
+  params?: AuthGoogleCallbackParams,
+  options?: RequestInit,
+): Promise<unknown> => {
+  return customFetch<unknown>(getAuthGoogleCallbackUrl(params), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getAuthGoogleCallbackQueryKey = (
+  params?: AuthGoogleCallbackParams,
+) => {
+  return [`/api/auth/google/callback`, ...(params ? [params] : [])] as const;
+};
+
+export const getAuthGoogleCallbackQueryOptions = <
+  TData = Awaited<ReturnType<typeof authGoogleCallback>>,
+  TError = ErrorType<void>,
+>(
+  params?: AuthGoogleCallbackParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof authGoogleCallback>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getAuthGoogleCallbackQueryKey(params);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof authGoogleCallback>>
+  > = ({ signal }) => authGoogleCallback(params, { signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof authGoogleCallback>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type AuthGoogleCallbackQueryResult = NonNullable<
+  Awaited<ReturnType<typeof authGoogleCallback>>
+>;
+export type AuthGoogleCallbackQueryError = ErrorType<void>;
+
+/**
+ * @summary Google OAuth callback (redirects to app)
+ */
+
+export function useAuthGoogleCallback<
+  TData = Awaited<ReturnType<typeof authGoogleCallback>>,
+  TError = ErrorType<void>,
+>(
+  params?: AuthGoogleCallbackParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof authGoogleCallback>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getAuthGoogleCallbackQueryOptions(params, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Destroy session and redirect to app root
+ */
+export const getAuthLogoutUrl = () => {
+  return `/api/auth/logout`;
+};
+
+export const authLogout = async (options?: RequestInit): Promise<unknown> => {
+  return customFetch<unknown>(getAuthLogoutUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getAuthLogoutQueryKey = () => {
+  return [`/api/auth/logout`] as const;
+};
+
+export const getAuthLogoutQueryOptions = <
+  TData = Awaited<ReturnType<typeof authLogout>>,
+  TError = ErrorType<void>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof authLogout>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getAuthLogoutQueryKey();
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof authLogout>>> = ({
+    signal,
+  }) => authLogout({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof authLogout>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type AuthLogoutQueryResult = NonNullable<
+  Awaited<ReturnType<typeof authLogout>>
+>;
+export type AuthLogoutQueryError = ErrorType<void>;
+
+/**
+ * @summary Destroy session and redirect to app root
+ */
+
+export function useAuthLogout<
+  TData = Awaited<ReturnType<typeof authLogout>>,
+  TError = ErrorType<void>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof authLogout>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getAuthLogoutQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Debug endpoint showing the computed OAuth callback URL
+ */
+export const getAuthDebugCallbackUrl = () => {
+  return `/api/auth/debug-callback`;
+};
+
+export const authDebugCallback = async (
+  options?: RequestInit,
+): Promise<AuthDebugCallback200> => {
+  return customFetch<AuthDebugCallback200>(getAuthDebugCallbackUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getAuthDebugCallbackQueryKey = () => {
+  return [`/api/auth/debug-callback`] as const;
+};
+
+export const getAuthDebugCallbackQueryOptions = <
+  TData = Awaited<ReturnType<typeof authDebugCallback>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof authDebugCallback>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getAuthDebugCallbackQueryKey();
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof authDebugCallback>>
+  > = ({ signal }) => authDebugCallback({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof authDebugCallback>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type AuthDebugCallbackQueryResult = NonNullable<
+  Awaited<ReturnType<typeof authDebugCallback>>
+>;
+export type AuthDebugCallbackQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Debug endpoint showing the computed OAuth callback URL
+ */
+
+export function useAuthDebugCallback<
+  TData = Awaited<ReturnType<typeof authDebugCallback>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof authDebugCallback>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getAuthDebugCallbackQueryOptions(options);
 
   const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
     queryKey: QueryKey;
@@ -331,6 +658,168 @@ export function useGetCacheStatus<
 
   return { ...query, queryKey: queryOptions.queryKey };
 }
+
+/**
+ * @summary Webhook from Apps Script to trigger an immediate cache refresh (secret header auth)
+ */
+export const getRefreshCacheUrl = () => {
+  return `/api/refresh`;
+};
+
+export const refreshCache = async (
+  options?: RequestInit,
+): Promise<SuccessMessageResponse> => {
+  return customFetch<SuccessMessageResponse>(getRefreshCacheUrl(), {
+    ...options,
+    method: "POST",
+  });
+};
+
+export const getRefreshCacheMutationOptions = <
+  TError = ErrorType<ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof refreshCache>>,
+    TError,
+    void,
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof refreshCache>>,
+  TError,
+  void,
+  TContext
+> => {
+  const mutationKey = ["refreshCache"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof refreshCache>>,
+    void
+  > = () => {
+    return refreshCache(requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type RefreshCacheMutationResult = NonNullable<
+  Awaited<ReturnType<typeof refreshCache>>
+>;
+
+export type RefreshCacheMutationError = ErrorType<ErrorResponse>;
+
+/**
+ * @summary Webhook from Apps Script to trigger an immediate cache refresh (secret header auth)
+ */
+export const useRefreshCache = <
+  TError = ErrorType<ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof refreshCache>>,
+    TError,
+    void,
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof refreshCache>>,
+  TError,
+  void,
+  TContext
+> => {
+  return useMutation(getRefreshCacheMutationOptions(options));
+};
+
+/**
+ * @summary Trigger manual Black Book refresh (owner only)
+ */
+export const getRefreshBlackBookUrl = () => {
+  return `/api/refresh-blackbook`;
+};
+
+export const refreshBlackBook = async (
+  options?: RequestInit,
+): Promise<SuccessMessageResponse> => {
+  return customFetch<SuccessMessageResponse>(getRefreshBlackBookUrl(), {
+    ...options,
+    method: "POST",
+  });
+};
+
+export const getRefreshBlackBookMutationOptions = <
+  TError = ErrorType<ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof refreshBlackBook>>,
+    TError,
+    void,
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof refreshBlackBook>>,
+  TError,
+  void,
+  TContext
+> => {
+  const mutationKey = ["refreshBlackBook"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof refreshBlackBook>>,
+    void
+  > = () => {
+    return refreshBlackBook(requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type RefreshBlackBookMutationResult = NonNullable<
+  Awaited<ReturnType<typeof refreshBlackBook>>
+>;
+
+export type RefreshBlackBookMutationError = ErrorType<ErrorResponse>;
+
+/**
+ * @summary Trigger manual Black Book refresh (owner only)
+ */
+export const useRefreshBlackBook = <
+  TError = ErrorType<ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof refreshBlackBook>>,
+    TError,
+    void,
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof refreshBlackBook>>,
+  TError,
+  void,
+  TContext
+> => {
+  return useMutation(getRefreshBlackBookMutationOptions(options));
+};
 
 /**
  * @summary Get photo gallery URLs for a vehicle by VIN
@@ -762,7 +1251,7 @@ export const useRemoveAccessEntry = <
 };
 
 /**
- * @summary Get cached lender program matrices (owner only)
+ * @summary Get cached lender program matrices (owner or viewer)
  */
 export const getGetLenderProgramsUrl = () => {
   return `/api/lender-programs`;
@@ -813,7 +1302,7 @@ export type GetLenderProgramsQueryResult = NonNullable<
 export type GetLenderProgramsQueryError = ErrorType<ErrorResponse>;
 
 /**
- * @summary Get cached lender program matrices (owner only)
+ * @summary Get cached lender program matrices (owner or viewer)
  */
 
 export function useGetLenderPrograms<
@@ -837,7 +1326,7 @@ export function useGetLenderPrograms<
 }
 
 /**
- * @summary Get lender sync status (owner only)
+ * @summary Get lender sync status (owner or viewer)
  */
 export const getGetLenderStatusUrl = () => {
   return `/api/lender-status`;
@@ -888,7 +1377,7 @@ export type GetLenderStatusQueryResult = NonNullable<
 export type GetLenderStatusQueryError = ErrorType<ErrorResponse>;
 
 /**
- * @summary Get lender sync status (owner only)
+ * @summary Get lender sync status (owner or viewer)
  */
 
 export function useGetLenderStatus<
@@ -993,7 +1482,7 @@ export const useRefreshLender = <
 };
 
 /**
- * @summary Calculate inventory affordability by lender/tier (owner only)
+ * @summary Calculate inventory affordability by lender/tier (owner or viewer)
  */
 export const getLenderCalculateUrl = () => {
   return `/api/lender-calculate`;
@@ -1056,7 +1545,7 @@ export type LenderCalculateMutationBody = BodyType<LenderCalculateRequest>;
 export type LenderCalculateMutationError = ErrorType<ErrorResponse>;
 
 /**
- * @summary Calculate inventory affordability by lender/tier (owner only)
+ * @summary Calculate inventory affordability by lender/tier (owner or viewer)
  */
 export const useLenderCalculate = <
   TError = ErrorType<ErrorResponse>,
@@ -1077,6 +1566,81 @@ export const useLenderCalculate = <
 > => {
   return useMutation(getLenderCalculateMutationOptions(options));
 };
+
+/**
+ * @summary Diagnostic dump of cached lender program metadata (owner only)
+ */
+export const getGetLenderDebugUrl = () => {
+  return `/api/lender-debug`;
+};
+
+export const getLenderDebug = async (
+  options?: RequestInit,
+): Promise<GetLenderDebug200> => {
+  return customFetch<GetLenderDebug200>(getGetLenderDebugUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetLenderDebugQueryKey = () => {
+  return [`/api/lender-debug`] as const;
+};
+
+export const getGetLenderDebugQueryOptions = <
+  TData = Awaited<ReturnType<typeof getLenderDebug>>,
+  TError = ErrorType<ErrorResponse>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getLenderDebug>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetLenderDebugQueryKey();
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof getLenderDebug>>> = ({
+    signal,
+  }) => getLenderDebug({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getLenderDebug>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetLenderDebugQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getLenderDebug>>
+>;
+export type GetLenderDebugQueryError = ErrorType<ErrorResponse>;
+
+/**
+ * @summary Diagnostic dump of cached lender program metadata (owner only)
+ */
+
+export function useGetLenderDebug<
+  TData = Awaited<ReturnType<typeof getLenderDebug>>,
+  TError = ErrorType<ErrorResponse>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getLenderDebug>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetLenderDebugQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
 
 /**
  * @summary Get audit log of access changes (owner only)
@@ -1145,6 +1709,342 @@ export function useGetAuditLog<
   request?: SecondParameter<typeof customFetch>;
 }): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
   const queryOptions = getGetAuditLogQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Get current Carfax batch worker status (owner only)
+ */
+export const getGetCarfaxBatchStatusUrl = () => {
+  return `/api/carfax/batch-status`;
+};
+
+export const getCarfaxBatchStatus = async (
+  options?: RequestInit,
+): Promise<GetCarfaxBatchStatus200> => {
+  return customFetch<GetCarfaxBatchStatus200>(getGetCarfaxBatchStatusUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetCarfaxBatchStatusQueryKey = () => {
+  return [`/api/carfax/batch-status`] as const;
+};
+
+export const getGetCarfaxBatchStatusQueryOptions = <
+  TData = Awaited<ReturnType<typeof getCarfaxBatchStatus>>,
+  TError = ErrorType<ErrorResponse>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getCarfaxBatchStatus>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetCarfaxBatchStatusQueryKey();
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getCarfaxBatchStatus>>
+  > = ({ signal }) => getCarfaxBatchStatus({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getCarfaxBatchStatus>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetCarfaxBatchStatusQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getCarfaxBatchStatus>>
+>;
+export type GetCarfaxBatchStatusQueryError = ErrorType<ErrorResponse>;
+
+/**
+ * @summary Get current Carfax batch worker status (owner only)
+ */
+
+export function useGetCarfaxBatchStatus<
+  TData = Awaited<ReturnType<typeof getCarfaxBatchStatus>>,
+  TError = ErrorType<ErrorResponse>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getCarfaxBatchStatus>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetCarfaxBatchStatusQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Trigger a manual Carfax batch run (owner only)
+ */
+export const getRunCarfaxBatchUrl = () => {
+  return `/api/carfax/run-batch`;
+};
+
+export const runCarfaxBatch = async (
+  options?: RequestInit,
+): Promise<SuccessMessageResponse> => {
+  return customFetch<SuccessMessageResponse>(getRunCarfaxBatchUrl(), {
+    ...options,
+    method: "POST",
+  });
+};
+
+export const getRunCarfaxBatchMutationOptions = <
+  TError = ErrorType<ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof runCarfaxBatch>>,
+    TError,
+    void,
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof runCarfaxBatch>>,
+  TError,
+  void,
+  TContext
+> => {
+  const mutationKey = ["runCarfaxBatch"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof runCarfaxBatch>>,
+    void
+  > = () => {
+    return runCarfaxBatch(requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type RunCarfaxBatchMutationResult = NonNullable<
+  Awaited<ReturnType<typeof runCarfaxBatch>>
+>;
+
+export type RunCarfaxBatchMutationError = ErrorType<ErrorResponse>;
+
+/**
+ * @summary Trigger a manual Carfax batch run (owner only)
+ */
+export const useRunCarfaxBatch = <
+  TError = ErrorType<ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof runCarfaxBatch>>,
+    TError,
+    void,
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof runCarfaxBatch>>,
+  TError,
+  void,
+  TContext
+> => {
+  return useMutation(getRunCarfaxBatchMutationOptions(options));
+};
+
+/**
+ * @summary Run a targeted Carfax lookup for up to 10 VINs (owner only)
+ */
+export const getRunCarfaxTestUrl = () => {
+  return `/api/carfax/test`;
+};
+
+export const runCarfaxTest = async (
+  runCarfaxTestBody: RunCarfaxTestBody,
+  options?: RequestInit,
+): Promise<RunCarfaxTest200> => {
+  return customFetch<RunCarfaxTest200>(getRunCarfaxTestUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(runCarfaxTestBody),
+  });
+};
+
+export const getRunCarfaxTestMutationOptions = <
+  TError = ErrorType<ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof runCarfaxTest>>,
+    TError,
+    { data: BodyType<RunCarfaxTestBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof runCarfaxTest>>,
+  TError,
+  { data: BodyType<RunCarfaxTestBody> },
+  TContext
+> => {
+  const mutationKey = ["runCarfaxTest"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof runCarfaxTest>>,
+    { data: BodyType<RunCarfaxTestBody> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return runCarfaxTest(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type RunCarfaxTestMutationResult = NonNullable<
+  Awaited<ReturnType<typeof runCarfaxTest>>
+>;
+export type RunCarfaxTestMutationBody = BodyType<RunCarfaxTestBody>;
+export type RunCarfaxTestMutationError = ErrorType<ErrorResponse>;
+
+/**
+ * @summary Run a targeted Carfax lookup for up to 10 VINs (owner only)
+ */
+export const useRunCarfaxTest = <
+  TError = ErrorType<ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof runCarfaxTest>>,
+    TError,
+    { data: BodyType<RunCarfaxTestBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof runCarfaxTest>>,
+  TError,
+  { data: BodyType<RunCarfaxTestBody> },
+  TContext
+> => {
+  return useMutation(getRunCarfaxTestMutationOptions(options));
+};
+
+/**
+ * @summary Resolve a dealer listing URL to a live price via Typesense
+ */
+export const getPriceLookupUrl = (params: PriceLookupParams) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/price-lookup?${stringifiedParams}`
+    : `/api/price-lookup`;
+};
+
+export const priceLookup = async (
+  params: PriceLookupParams,
+  options?: RequestInit,
+): Promise<PriceLookup200> => {
+  return customFetch<PriceLookup200>(getPriceLookupUrl(params), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getPriceLookupQueryKey = (params?: PriceLookupParams) => {
+  return [`/api/price-lookup`, ...(params ? [params] : [])] as const;
+};
+
+export const getPriceLookupQueryOptions = <
+  TData = Awaited<ReturnType<typeof priceLookup>>,
+  TError = ErrorType<ErrorResponse>,
+>(
+  params: PriceLookupParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof priceLookup>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getPriceLookupQueryKey(params);
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof priceLookup>>> = ({
+    signal,
+  }) => priceLookup(params, { signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof priceLookup>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type PriceLookupQueryResult = NonNullable<
+  Awaited<ReturnType<typeof priceLookup>>
+>;
+export type PriceLookupQueryError = ErrorType<ErrorResponse>;
+
+/**
+ * @summary Resolve a dealer listing URL to a live price via Typesense
+ */
+
+export function usePriceLookup<
+  TData = Awaited<ReturnType<typeof priceLookup>>,
+  TError = ErrorType<ErrorResponse>,
+>(
+  params: PriceLookupParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof priceLookup>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getPriceLookupQueryOptions(params, options);
 
   const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
     queryKey: QueryKey;

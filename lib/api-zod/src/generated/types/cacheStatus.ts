@@ -10,4 +10,7 @@ export interface CacheStatus {
   lastUpdated?: string | null;
   isRefreshing: boolean;
   count: number;
+  bbRunning: boolean;
+  bbLastRun?: string | null;
+  bbCount?: number | null;
 }

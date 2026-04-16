@@ -5,6 +5,7 @@
  * API specification
  * OpenAPI spec version: 0.1.0
  */
+import type { InventoryItemBbValues } from "./inventoryItemBbValues";
 
 export interface InventoryItem {
   location: string;
@@ -18,4 +19,6 @@ export interface InventoryItem {
   matrixPrice?: string | null;
   cost?: string | null;
   bbAvgWholesale?: string | null;
+  hasPhotos?: boolean;
+  bbValues?: InventoryItemBbValues;
 }
