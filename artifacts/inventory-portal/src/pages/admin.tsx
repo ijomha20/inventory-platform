@@ -97,7 +97,7 @@ export default function Admin() {
   const updateRoleMutation = useUpdateAccessRole();
 
   if (error) {
-    const status = (error as any)?.response?.status;
+    const status = (error as any)?.status;
     if (status === 401 || status === 403) { setLocation("/"); return null; }
   }
 
@@ -114,7 +114,7 @@ export default function Admin() {
     setErrorMsg("");
     addMutation.mutate(
       { data: { email: newEmail.toLowerCase().trim(), role: newRole } },
-      { onSuccess: () => { setNewEmail(""); invalidateAll(); }, onError: (err: any) => setErrorMsg(err.response?.data?.error || "Failed to add user.") }
+      { onSuccess: () => { setNewEmail(""); invalidateAll(); }, onError: (err: any) => setErrorMsg(err.data?.error || "Failed to add user.") }
     );
   };
 

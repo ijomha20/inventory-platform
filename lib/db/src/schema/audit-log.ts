@@ -1,4 +1,4 @@
-import { pgTable, serial, text, timestamp } from "drizzle-orm/pg-core";
+import { index, pgTable, serial, text, timestamp } from "drizzle-orm/pg-core";
 
 export const auditLogTable = pgTable("audit_log", {
   id:          serial("id").primaryKey(),
@@ -8,6 +8,8 @@ export const auditLogTable = pgTable("audit_log", {
   roleFrom:    text("role_from"),
   roleTo:      text("role_to"),
   timestamp:   timestamp("timestamp").defaultNow().notNull(),
-});
+}, (table) => [
+  index("audit_log_timestamp_idx").on(table.timestamp.desc()),
+]);
 
 export type AuditLogEntry = typeof auditLogTable.$inferSelect;

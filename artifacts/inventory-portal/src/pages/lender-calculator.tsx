@@ -172,7 +172,7 @@ export default function LenderCalculator() {
   const handleCalculateRef = useRef<() => void>(() => {});
 
   const handleRefresh = () => {
-    refreshMutation.mutate(undefined as any, {
+    refreshMutation.mutate(undefined, {
       onSuccess: () => {
         setTimeout(() => { refetchStatus(); refetchPrograms(); }, 2000);
       },

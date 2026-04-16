@@ -103,5 +103,11 @@ export function configurePassport() {
   );
 
   passport.serializeUser((user, done) => done(null, user));
-  passport.deserializeUser((user, done) => done(null, user as Express.User));
+  passport.deserializeUser((user: unknown, done) => {
+    if (user && typeof user === "object" && typeof (user as Record<string, unknown>).email === "string") {
+      done(null, user as Express.User);
+    } else {
+      done(new Error("Invalid session data"));
+    }
+  });
 }
