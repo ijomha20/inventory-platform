@@ -1,23 +1,22 @@
 import { Resend } from "resend";
 import { logger } from "./logger.js";
+import { env } from "./env.js";
 
-const RESEND_API_KEY = process.env["RESEND_API_KEY"]?.trim() ?? "";
-const APP_URL = (() => {
-  const domain = (process.env["REPLIT_DOMAINS"] ?? "").split(",")[0]?.trim();
-  return domain ? `https://${domain}` : "https://script-reviewer.replit.app";
-})();
+const APP_URL = env.REPLIT_DOMAINS
+  ? `https://${env.REPLIT_DOMAINS.split(",")[0]?.trim()}`
+  : "https://script-reviewer.replit.app";
 
 export async function sendInvitationEmail(
   toEmail: string,
   role: string,
   invitedBy: string,
 ): Promise<void> {
-  if (!RESEND_API_KEY) {
+  if (!env.RESEND_API_KEY) {
     logger.warn("RESEND_API_KEY not set — skipping invitation email");
     return;
   }
 
-  const resend = new Resend(RESEND_API_KEY);
+  const resend = new Resend(env.RESEND_API_KEY);
   const roleName = role === "guest" ? "Guest (prices hidden)" : "Viewer";
 
   try {
