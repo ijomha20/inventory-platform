@@ -577,7 +577,15 @@ router.post("/lender-calculate", requireOwnerOrViewer, async (req, res) => {
     warPrice = Math.round(warPrice);
     gapPr    = Math.round(gapPr);
 
-    const aftermarketRevenue = warPrice + gapPr;
+    // When DP is already required from LTV checks, strip products so the DP
+    // reflects only what's needed to finance the base selling price (or PAC).
+    if (reqDP > 0) {
+      effectiveAdmin = 0;
+      warPrice = 0; warCost = 0;
+      gapPr = 0;    gCost = 0;
+    }
+
+    let aftermarketRevenue = warPrice + gapPr;
     let reqAcc = reqDP;
 
     let finalExposure: number;
@@ -612,6 +620,16 @@ router.post("/lender-calculate", requireOwnerOrViewer, async (req, res) => {
         if (!showAllDP) {
           debugCounts.maxPmtFilter++;
           continue inventory;
+        }
+        // If products are inflating the payment, strip them and re-settle
+        // on the base deal before resorting to additional DP.
+        if (aftermarketRevenue > 0 || effectiveAdmin > 0) {
+          effectiveAdmin = 0;
+          warPrice = 0; warCost = 0;
+          gapPr = 0;    gCost = 0;
+          aftermarketRevenue = 0;
+          reqAcc = reqDP;
+          continue settle;
         }
         const monthlyRate = rateDecimal / 12;
         const targetPV =
