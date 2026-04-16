@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from "react";
+import React, { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import {
   useGetMe,
   useGetLenderPrograms,
@@ -156,6 +156,9 @@ export default function LenderCalculator() {
     }
   }, [selectedTierObj]);
 
+  const hasCalculated = useRef(false);
+  const handleCalculateRef = useRef<() => void>(() => {});
+
   const handleRefresh = () => {
     refreshMutation.mutate(undefined as any, {
       onSuccess: () => {
@@ -164,7 +167,7 @@ export default function LenderCalculator() {
     });
   };
 
-  const handleCalculate = () => {
+  const handleCalculate = useCallback(() => {
     if (!selectedLender || !selectedProgram || !selectedTier) return;
     const payload: any = {
       lenderCode: selectedLender,
@@ -181,8 +184,16 @@ export default function LenderCalculator() {
     };
     const pmtOverride = parseFloat(maxPaymentOverride);
     if (pmtOverride > 0) payload.maxPaymentOverride = pmtOverride;
+    hasCalculated.current = true;
     calcMutation.mutate({ data: payload });
-  };
+  }, [selectedLender, selectedProgram, selectedTier, approvedRate, downPayment, tradeValue, tradeLien, taxRate, adminFee, termStretch, showAllDP, maxPaymentOverride, calcMutation]);
+
+  handleCalculateRef.current = handleCalculate;
+
+  useEffect(() => {
+    if (!hasCalculated.current) return;
+    handleCalculateRef.current();
+  }, [termStretch, showAllDP]);
 
   const handleLenderChange = (code: string) => {
     setSelectedLender(code);

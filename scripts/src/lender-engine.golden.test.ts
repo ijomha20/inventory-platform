@@ -42,7 +42,7 @@ test("PAC floor is enforced when no-online ceilings are below PAC", () => {
     netTrade: 0,
     creditorFee: 699,
     maxAdvance: Infinity,
-    maxAllIn: 18000,
+    maxAllInPreTax: 18000,
     profile,
   });
   assert.equal(resolution.rejection, "ltvAllIn");
@@ -61,7 +61,7 @@ test("no-online sell price is maximized from all-in profile", () => {
     netTrade: 0,
     creditorFee: 699,
     maxAdvance: Infinity,
-    maxAllIn: 25000,
+    maxAllInPreTax: 25000,
     profile,
   });
   assert.equal(resolution.source, "maximized");
