@@ -7,7 +7,9 @@
     "hello": "tsx ./src/hello.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test:lender-golden": "tsx --test ./src/lender-engine.golden.test.ts",
-    "smoke:lender": "tsx ./src/lender-smoke.ts"
+    "test:lender-scenarios": "tsx --test ./src/lender-calc-scenarios.test.ts",
+    "smoke:lender": "tsx ./src/lender-smoke.ts",
+    "export:complete-md": "tsx ./src/generate-complete-source-md.ts"
   },
   "devDependencies": {
     "@types/node": "catalog:",
