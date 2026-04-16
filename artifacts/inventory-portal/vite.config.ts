@@ -45,6 +45,10 @@ export default defineConfig({
     port,
     host: "0.0.0.0",
     allowedHosts: true,
+    // Replit + some browsers cache dev responses aggressively; avoid "stale UI" confusion
+    headers: {
+      "Cache-Control": "no-store",
+    },
     fs: {
       strict: true,
       deny: ["**/.*"],
