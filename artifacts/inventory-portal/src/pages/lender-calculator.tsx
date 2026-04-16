@@ -37,44 +37,51 @@ function formatPayment(n: number): string {
   return new Intl.NumberFormat("en-CA", { style: "currency", currency: "CAD", minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n);
 }
 
-function conditionLabel(c: string): string {
-  const map: Record<string, string> = { extraClean: "Extra Clean", clean: "Clean", average: "Average", rough: "Rough" };
-  return map[c] ?? c;
-}
+const COND_SHORT: Record<string, string> = { extraClean: "XC", clean: "C", average: "A", rough: "R" };
 
-function ResultRow({ item, rank }: { item: LenderCalcResultItem; rank: number }) {
+function ResultRow({ item, rank, showDP, termStretch }: { item: any; rank: number; showDP: boolean; termStretch: number }) {
+  const needsDP = (item.requiredDownPayment ?? 0) > 0;
+  const stretched = item.termStretched === true;
+  let rowBg = "odd:bg-white even:bg-slate-50/40";
+  if (needsDP) rowBg = "bg-gray-100/60";
+  else if (stretched && termStretch === 12) rowBg = "bg-orange-50";
+  else if (stretched) rowBg = "bg-amber-50";
+
   return (
-    <tr className="border-b border-gray-100 last:border-0 odd:bg-white even:bg-slate-50/40 hover:bg-blue-50/50">
-      <td className="px-3 py-2.5 text-xs text-gray-500 font-semibold text-center">{rank}</td>
-      <td className="px-3 py-2.5 text-sm font-semibold text-gray-900">
+    <tr className={`border-b border-gray-100 last:border-0 ${rowBg} hover:bg-blue-50/50`}>
+      <td className="px-1.5 py-1.5 text-[11px] text-gray-400 font-semibold text-center">{rank}</td>
+      <td className="px-2 py-1.5 text-xs font-semibold text-gray-900">
         <div className="truncate" title={item.vehicle}>{item.vehicle}</div>
       </td>
-      <td className="px-3 py-2.5 text-sm text-gray-700">{item.location}</td>
-      <td className="px-3 py-2.5 text-sm text-center text-gray-700">{item.term}mo</td>
-      <td className="px-3 py-2.5 text-sm text-center">
-        <Badge variant="outline" className="text-xs">{conditionLabel(item.conditionUsed)}</Badge>
-      </td>
-      <td className="px-3 py-2.5 text-sm text-right font-medium text-gray-700">{formatCurrency(item.bbWholesale)}</td>
-      <td className="px-3 py-2.5 text-sm text-right font-medium text-gray-700">
+      <td className="px-1.5 py-1.5 text-xs text-gray-600 whitespace-nowrap">{item.location}</td>
+      <td className="px-1.5 py-1.5 text-xs text-center text-gray-600 whitespace-nowrap">{item.term}mo</td>
+      <td className="px-1.5 py-1.5 text-xs text-center text-gray-600 whitespace-nowrap">{COND_SHORT[item.conditionUsed] ?? item.conditionUsed}</td>
+      <td className="px-1.5 py-1.5 text-xs text-right font-medium text-gray-600">{formatCurrency(item.bbWholesale)}</td>
+      <td className="px-2 py-1.5 text-xs text-right font-medium text-gray-700">
         {item.sellingPrice > 0 ? formatCurrency(item.sellingPrice) : "—"}
         {item.priceSource && (
-          <span className="text-xs text-gray-400 ml-1">
-            ({item.priceSource === "online" ? "Online" : item.priceSource === "maximized" ? "Max LTV" : "PAC"})
+          <span className="text-[10px] text-gray-400 ml-0.5">
+            ({item.priceSource === "online" ? "On" : item.priceSource === "maximized" ? "Max" : "PAC"})
           </span>
         )}
       </td>
-      <td className="px-3 py-2.5 text-sm text-right font-medium text-indigo-700">{formatCurrency(item.adminFeeUsed)}</td>
-      <td className="px-3 py-2.5 text-sm text-right text-gray-700">
+      <td className="px-1.5 py-1.5 text-xs text-right font-medium text-indigo-700">{formatCurrency(item.adminFeeUsed)}</td>
+      <td className="px-2 py-1.5 text-xs text-right text-gray-700">
         {formatCurrency(item.warrantyPrice)}
-        <span className="text-xs text-gray-400 ml-0.5">/{formatCurrency(item.warrantyCost)}</span>
+        <span className="text-[10px] text-gray-400 ml-0.5">/{formatCurrency(item.warrantyCost)}</span>
       </td>
-      <td className="px-3 py-2.5 text-sm text-right text-gray-700">
+      <td className="px-2 py-1.5 text-xs text-right text-gray-700">
         {formatCurrency(item.gapPrice)}
-        <span className="text-xs text-gray-400 ml-0.5">/{formatCurrency(item.gapCost)}</span>
+        <span className="text-[10px] text-gray-400 ml-0.5">/{formatCurrency(item.gapCost)}</span>
       </td>
-      <td className="px-3 py-2.5 text-sm text-right font-medium text-gray-700">{formatCurrency(item.totalFinanced)}</td>
-      <td className="px-3 py-2.5 text-sm text-right font-semibold text-green-700">{formatPayment(item.monthlyPayment)}</td>
-      <td className="px-3 py-2.5 text-sm text-right font-semibold text-emerald-700">{formatCurrency(item.profit)}</td>
+      <td className="px-2 py-1.5 text-xs text-right font-medium text-gray-700">{formatCurrency(item.totalFinanced)}</td>
+      <td className="px-2 py-1.5 text-xs text-right font-semibold text-green-700">{formatPayment(item.monthlyPayment)}</td>
+      <td className="px-2 py-1.5 text-xs text-right font-semibold text-emerald-700">{formatCurrency(item.profit)}</td>
+      {showDP && (
+        <td className="px-2 py-1.5 text-xs text-right font-semibold text-red-600">
+          {needsDP ? formatCurrency(item.requiredDownPayment) : "—"}
+        </td>
+      )}
     </tr>
   );
 }
@@ -101,6 +108,8 @@ export default function LenderCalculator() {
   const [taxRate, setTaxRate] = useState("5");
   const [adminFee, setAdminFee] = useState("0");
   const [showAdvanced, setShowAdvanced] = useState(false);
+  const [termStretch, setTermStretch] = useState(0);
+  const [showAllDP, setShowAllDP] = useState(false);
 
   const isUserOwner = !!meData?.isOwner;
 
@@ -155,6 +164,8 @@ export default function LenderCalculator() {
       tradeLien: parseFloat(tradeLien) || 0,
       taxRate: parseFloat(taxRate) || 5,
       adminFee: parseFloat(adminFee) || 0,
+      termStretchMonths: termStretch,
+      showAllWithDownPayment: showAllDP,
     };
     const pmtOverride = parseFloat(maxPaymentOverride);
     if (pmtOverride > 0) payload.maxPaymentOverride = pmtOverride;
@@ -347,6 +358,31 @@ export default function LenderCalculator() {
                   {showAdvanced ? "Less" : "More"}
                 </button>
 
+                <div className="flex items-center gap-4 pb-1 ml-2">
+                  <div className="flex items-center gap-2 text-xs text-gray-600">
+                    <span className="font-medium whitespace-nowrap">Term Exception:</span>
+                    {[0, 6, 12].map(v => (
+                      <label key={v} className="flex items-center gap-1 cursor-pointer">
+                        <input
+                          type="radio" name="termStretch" value={v}
+                          checked={termStretch === v}
+                          onChange={() => setTermStretch(v)}
+                          className="w-3 h-3"
+                        />
+                        <span>{v === 0 ? "None" : `+${v}mo`}</span>
+                      </label>
+                    ))}
+                  </div>
+                  <label className="flex items-center gap-1.5 text-xs text-gray-600 cursor-pointer whitespace-nowrap">
+                    <input
+                      type="checkbox" checked={showAllDP}
+                      onChange={e => setShowAllDP(e.target.checked)}
+                      className="w-3 h-3"
+                    />
+                    <span className="font-medium">Show all + req. DP</span>
+                  </label>
+                </div>
+
                 <div className="ml-auto flex-shrink-0">
                   <Button
                     onClick={handleCalculate}
@@ -420,25 +456,26 @@ export default function LenderCalculator() {
                   <div className="rounded-md border border-gray-200 overflow-x-auto">
                     <table className="text-left w-full">
                       <thead className="bg-gray-50 sticky top-0 z-10">
-                        <tr className="border-b border-gray-200 text-xs text-gray-600 uppercase tracking-wide">
-                          <th className="w-10 px-3 py-2.5 text-center">#</th>
-                          <th className="px-3 py-2.5" style={{ minWidth: "240px" }}>Vehicle</th>
-                          <th className="px-3 py-2.5" style={{ minWidth: "90px" }}>Location</th>
-                          <th className="px-3 py-2.5 text-center" style={{ minWidth: "60px" }}>Term</th>
-                          <th className="px-3 py-2.5 text-center" style={{ minWidth: "90px" }}>Condition</th>
-                          <th className="px-3 py-2.5 text-right" style={{ minWidth: "100px" }}>BB Value</th>
-                          <th className="px-3 py-2.5 text-right" style={{ minWidth: "110px" }}>Sell Price</th>
-                          <th className="px-3 py-2.5 text-right" style={{ minWidth: "90px" }}>Admin Fee</th>
-                          <th className="px-3 py-2.5 text-right" style={{ minWidth: "120px" }}>Warranty</th>
-                          <th className="px-3 py-2.5 text-right" style={{ minWidth: "110px" }}>GAP</th>
-                          <th className="px-3 py-2.5 text-right" style={{ minWidth: "110px" }}>Financed</th>
-                          <th className="px-3 py-2.5 text-right" style={{ minWidth: "90px" }}>Payment</th>
-                          <th className="px-3 py-2.5 text-right" style={{ minWidth: "90px" }}>Profit</th>
+                        <tr className="border-b border-gray-200 text-[10px] text-gray-600 uppercase tracking-wide">
+                          <th className="w-8 px-1.5 py-2 text-center">#</th>
+                          <th className="px-2 py-2" style={{ minWidth: "220px" }}>Vehicle</th>
+                          <th className="px-1.5 py-2 whitespace-nowrap">Loc</th>
+                          <th className="px-1.5 py-2 text-center whitespace-nowrap">Term</th>
+                          <th className="px-1.5 py-2 text-center whitespace-nowrap">Cond</th>
+                          <th className="px-1.5 py-2 text-right whitespace-nowrap">BB Val</th>
+                          <th className="px-2 py-2 text-right" style={{ minWidth: "100px" }}>Sell Price</th>
+                          <th className="px-1.5 py-2 text-right whitespace-nowrap">Admin</th>
+                          <th className="px-2 py-2 text-right" style={{ minWidth: "100px" }}>Warranty</th>
+                          <th className="px-2 py-2 text-right" style={{ minWidth: "90px" }}>GAP</th>
+                          <th className="px-2 py-2 text-right" style={{ minWidth: "90px" }}>Financed</th>
+                          <th className="px-2 py-2 text-right whitespace-nowrap">Pmt</th>
+                          <th className="px-2 py-2 text-right whitespace-nowrap">Profit</th>
+                          {showAllDP && <th className="px-2 py-2 text-right whitespace-nowrap">Req. DP</th>}
                         </tr>
                       </thead>
                       <tbody>
-                        {calcResults.results.map((item, idx) => (
-                          <ResultRow key={item.vin} item={item} rank={idx + 1} />
+                        {calcResults.results.map((item: any, idx: number) => (
+                          <ResultRow key={item.vin} item={item} rank={idx + 1} showDP={showAllDP} termStretch={termStretch} />
                         ))}
                       </tbody>
                     </table>

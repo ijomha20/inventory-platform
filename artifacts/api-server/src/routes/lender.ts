@@ -111,7 +111,9 @@ interface CalcParams {
   tradeValue?:   number;
   tradeLien?:    number;
   taxRate?:      number;
-  adminFee?:       number;
+  adminFee?:     number;
+  termStretchMonths?:      number;
+  showAllWithDownPayment?: boolean;
 }
 
 function pmt(rate: number, nper: number, pv: number): number {
@@ -266,6 +268,9 @@ router.post("/lender-calculate", requireOwnerOrViewer, async (req, res) => {
     : (capAdmin ?? 0);
   const gapAllowed  = capGap == null || capGap > 0;
 
+  const termStretch = [0, 6, 12].includes(params.termStretchMonths ?? 0) ? (params.termStretchMonths ?? 0) : 0;
+  const showAllDP = params.showAllWithDownPayment === true;
+
   interface Result {
     vin: string; vehicle: string; location: string; term: number;
     conditionUsed: string; bbWholesale: number; sellingPrice: number;
@@ -273,6 +278,8 @@ router.post("/lender-calculate", requireOwnerOrViewer, async (req, res) => {
     warrantyCost: number; gapPrice: number; gapCost: number;
     totalFinanced: number; monthlyPayment: number; profit: number;
     hasPhotos: boolean; website: string;
+    termStretched: boolean;
+    requiredDownPayment?: number;
   }
 
   const results: Result[] = [];
@@ -286,8 +293,10 @@ router.post("/lender-calculate", requireOwnerOrViewer, async (req, res) => {
     const km = parseInt(item.km?.replace(/[^0-9]/g, "") || "0", 10);
     if (!km || km <= 0) { debugCounts.noKm++; continue; }
 
-    const termMonths = lookupTerm(guide.vehicleTermMatrix, vehicleYear, km);
-    if (!termMonths) { debugCounts.noTerm++; continue; }
+    const baseTerm = lookupTerm(guide.vehicleTermMatrix, vehicleYear, km);
+    if (!baseTerm) { debugCounts.noTerm++; continue; }
+    const termStretched = termStretch > 0;
+    const termMonths = baseTerm + termStretch;
 
     const condition = lookupCondition(guide.vehicleConditionMatrix, vehicleYear, km);
     if (!condition) { debugCounts.noCondition++; continue; }
@@ -321,17 +330,29 @@ router.post("/lender-calculate", requireOwnerOrViewer, async (req, res) => {
     let gapPr    = 0;
     let gCost    = 0;
 
+    let reqDP = 0;
+
     if (rawOnline > 0) {
       // --- PATH A: online price is fixed ---
       sellingPrice = rawOnline;
       priceSource  = "online";
       if (sellingPrice < pacCost) { debugCounts.noPrice++; continue; }
 
-      const lenderExposure = sellingPrice - downPayment - netTrade;
-      if (isFinite(maxAdvance) && lenderExposure > maxAdvance) { debugCounts.ltvAdvance++; continue; }
+      let lenderExposure = sellingPrice - downPayment - netTrade;
+      if (isFinite(maxAdvance) && lenderExposure > maxAdvance) {
+        if (!showAllDP) { debugCounts.ltvAdvance++; continue; }
+        const needed = Math.ceil(lenderExposure - maxAdvance);
+        reqDP = Math.max(reqDP, needed);
+        lenderExposure = maxAdvance;
+      }
 
-      const allInRoom = isFinite(maxAllInPreTax) ? maxAllInPreTax - lenderExposure - creditorFee : Infinity;
-      if (isFinite(allInRoom) && allInRoom < 0) { debugCounts.ltvAllIn++; continue; }
+      let allInRoom = isFinite(maxAllInPreTax) ? maxAllInPreTax - lenderExposure - creditorFee : Infinity;
+      if (isFinite(allInRoom) && allInRoom < 0) {
+        if (!showAllDP) { debugCounts.ltvAllIn++; continue; }
+        const needed = Math.ceil(-allInRoom);
+        reqDP = Math.max(reqDP, needed);
+        allInRoom = 0;
+      }
 
       // Product room: limited by aftermarket LTV and/or all-in room
       const aftermarketBaseValue = guide.aftermarketBase === "salePrice" ? sellingPrice : bbWholesale;
@@ -392,19 +413,28 @@ router.post("/lender-calculate", requireOwnerOrViewer, async (req, res) => {
         profile: capProfile,
       });
 
-      if (noOnlineResolution.rejection === "ltvAllIn") { debugCounts.ltvAllIn++; continue; }
-      if (noOnlineResolution.rejection === "ltvAdvance") { debugCounts.ltvAdvance++; continue; }
-
-      sellingPrice = noOnlineResolution.price;
-      priceSource = noOnlineResolution.source;
-
-      if (priceSource === "pac") {
-        // No sell-price LTV ceiling exists in this cap profile; keep PAC floor path.
+      if (noOnlineResolution.rejection) {
+        if (!showAllDP) {
+          if (noOnlineResolution.rejection === "ltvAllIn") { debugCounts.ltvAllIn++; continue; }
+          if (noOnlineResolution.rejection === "ltvAdvance") { debugCounts.ltvAdvance++; continue; }
+        }
+        const ceiling = noOnlineResolution.rejection === "ltvAdvance" ? maxAdvance : maxAllInPreTax - creditorFee;
+        const needed = Math.ceil(pacCost - ceiling - netTrade);
+        if (needed > 0) reqDP = Math.max(reqDP, needed);
       }
 
-      const lenderExposure = sellingPrice - downPayment - netTrade;
-      const allInRoom = isFinite(maxAllInPreTax) ? maxAllInPreTax - lenderExposure - creditorFee : Infinity;
-      if (isFinite(allInRoom) && allInRoom < 0) { debugCounts.ltvAllIn++; continue; }
+      sellingPrice = noOnlineResolution.rejection ? pacCost : noOnlineResolution.price;
+      priceSource = noOnlineResolution.rejection ? "pac" : noOnlineResolution.source;
+
+      let lenderExposure = sellingPrice - downPayment - netTrade;
+      if (reqDP > 0) lenderExposure = sellingPrice - (downPayment + reqDP) - netTrade;
+      let allInRoom = isFinite(maxAllInPreTax) ? maxAllInPreTax - lenderExposure - creditorFee : Infinity;
+      if (isFinite(allInRoom) && allInRoom < 0) {
+        if (!showAllDP) { debugCounts.ltvAllIn++; continue; }
+        const needed = Math.ceil(-allInRoom);
+        reqDP = Math.max(reqDP, needed);
+        allInRoom = 0;
+      }
 
       const aftermarketBaseValue = guide.aftermarketBase === "salePrice" ? sellingPrice : bbWholesale;
       const aftermarketCap = hasAftermarketCap ? aftermarketBaseValue * maxAftermarketLTV : Infinity;
@@ -458,17 +488,28 @@ router.post("/lender-calculate", requireOwnerOrViewer, async (req, res) => {
     warPrice = Math.round(warPrice);
     gapPr    = Math.round(gapPr);
 
-    const lenderExposure = sellingPrice - downPayment - netTrade;
+    const finalExposure = sellingPrice - (downPayment + reqDP) - netTrade;
     const aftermarketRevenue = warPrice + gapPr;
-    const allInSubtotal = lenderExposure + aftermarketRevenue + effectiveAdmin + creditorFee;
-    if (isFinite(maxAllInPreTax) && allInSubtotal > maxAllInPreTax) { debugCounts.ltvAllIn++; continue; }
+    const allInSubtotal = finalExposure + aftermarketRevenue + effectiveAdmin + creditorFee;
+    if (isFinite(maxAllInPreTax) && allInSubtotal > maxAllInPreTax) {
+      if (!showAllDP) { debugCounts.ltvAllIn++; continue; }
+      reqDP = Math.max(reqDP, Math.ceil(allInSubtotal - maxAllInPreTax));
+    }
     if (allInSubtotal <= 0) { debugCounts.negFinanced++; continue; }
 
     const taxes = allInSubtotal * taxRate;
     const totalFinanced = allInSubtotal + taxes;
 
     const monthlyPayment = pmt(rateDecimal, termMonths, totalFinanced);
-    if (maxPmt < Infinity && monthlyPayment > maxPmt) { debugCounts.maxPmtFilter++; continue; }
+    if (maxPmt < Infinity && monthlyPayment > maxPmt) {
+      if (!showAllDP) { debugCounts.maxPmtFilter++; continue; }
+      // Compute extra DP to bring payment under maxPmt via PV reduction
+      const targetPV = maxPmt * ((Math.pow(1 + rateDecimal / 12, termMonths) - 1) / (rateDecimal / 12 * Math.pow(1 + rateDecimal / 12, termMonths)));
+      const excessPV = totalFinanced - targetPV;
+      if (excessPV > 0) {
+        reqDP = Math.max(reqDP, Math.ceil(excessPV / (1 + taxRate)));
+      }
+    }
     debugCounts.passed++;
 
     const frontEndGross  = sellingPrice - pacCost;
@@ -495,6 +536,8 @@ router.post("/lender-calculate", requireOwnerOrViewer, async (req, res) => {
       profit:          Math.round(profit),
       hasPhotos:       item.hasPhotos,
       website:         item.website,
+      termStretched,
+      requiredDownPayment: reqDP > 0 ? Math.round(reqDP) : undefined,
     });
   }
 
