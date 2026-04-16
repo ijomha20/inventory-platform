@@ -104,9 +104,6 @@ const CREDITORS_PROGRAMS_QUERY = `{
       maxDealerAdminFeeCalculation
       backendRemainingCalculation
       allInRemainingCalculation
-      autoWorksheetPreferences {
-        gapInsuranceTarget
-      }
     }
   }
 }`;
@@ -271,10 +268,11 @@ function mapProgramGuide(prog: any): LenderProgramGuide {
   const parsedMaxAh       = parseCalcNumber(prog.maxAhInsuranceFeeCalculation);
   const parsedMaxAdmin    = parseCalcNumber(prog.maxDealerAdminFeeCalculation);
 
-  const gapTarget: string | null =
-    typeof prog.autoWorksheetPreferences?.gapInsuranceTarget === "string"
-      ? prog.autoWorksheetPreferences.gapInsuranceTarget
-      : null;
+  // autoWorksheetPreferences.gapInsuranceTarget is not available in the
+  // creditors-level GraphQL query (field doesn't exist in the schema).
+  // Keep the AH_INSURANCE routing logic below for future use if a
+  // per-program query becomes available.
+  const gapTarget: string | null = null;
 
   let resolvedMaxWarranty = parsedMaxWarranty != null && parsedMaxWarranty > 0
     ? parsedMaxWarranty
