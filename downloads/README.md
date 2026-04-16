@@ -4,7 +4,7 @@ Reference snapshots and exports. These are **not** the live codebase; prefer `ar
 
 ## Single-file full tree
 
-- **`inventory-platform-complete-source.md`** — machine-generated bundle of all sources needed to rebuild the API, portal, mockup sandbox, shared packages, and scripts (including `pnpm-lock.yaml`, Orval output, and every `components/ui` file).
+- **`inventory-platform-complete-source.md`** — machine-generated bundle of all sources needed to rebuild the API, portal, mockup sandbox, shared packages, and scripts (including `pnpm-lock.yaml`, Orval output, and every `components/ui` file). Content is **domain-grouped** (navigation → workspace → DB → API → server areas → portal → mockup → scripts) with an alphabetical index appendix for lookup.
 
 Regenerate after substantive changes:
 

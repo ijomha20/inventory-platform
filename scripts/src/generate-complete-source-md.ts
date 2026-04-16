@@ -1,10 +1,9 @@
 /**
  * Writes downloads/inventory-platform-complete-source.md — a single markdown
- * bundle of every workspace source file needed to rebuild and run the platform
- * (API server, portal, mockup sandbox, shared libs, scripts, templates).
- *
- * Excludes: node_modules, dist, .git, caches, attached_assets, downloads/*,
- * Replit artifact dirs, local session JSON, and *.tsbuildinfo.
+ * bundle of every workspace source file needed to rebuild and run the platform.
+ * Files are **grouped by domain** (navigation, workspace, DB, API contract,
+ * server areas, portal, etc.) for AI / reader context; an alphabetical index
+ * is appended.
  *
  * Run: pnpm --filter @workspace/scripts export:complete-md
  */
@@ -75,6 +74,137 @@ const TEXT_EXTENSIONS = new Set([
   ".sh",
 ]);
 
+/** Ordered: first matching section wins. Last entry must be the catch-all. */
+const DOMAIN_SECTIONS: readonly {
+  readonly id: string;
+  readonly title: string;
+  readonly match: (rel: string) => boolean;
+}[] = [
+  {
+    id: "navigation",
+    title: "1. Navigation guide",
+    match: (r) => r === "AGENTS.md" || r === "downloads/README.md",
+  },
+  {
+    id: "workspace",
+    title: "2. Workspace & monorepo root",
+    match: (r) =>
+      [
+        "package.json",
+        "pnpm-workspace.yaml",
+        "pnpm-lock.yaml",
+        "tsconfig.json",
+        "tsconfig.base.json",
+        ".replit",
+        "replit.md",
+      ].includes(r),
+  },
+  {
+    id: "database",
+    title: "3. Database (Drizzle)",
+    match: (r) => r.startsWith("lib/db/"),
+  },
+  {
+    id: "api-contract",
+    title: "4. API contract (OpenAPI + Orval)",
+    match: (r) => r.startsWith("lib/api-spec/"),
+  },
+  {
+    id: "codegen",
+    title: "5. Generated clients & Zod (Orval output)",
+    match: (r) => r.startsWith("lib/api-zod/") || r.startsWith("lib/api-client-react/"),
+  },
+  {
+    id: "shared-lib",
+    title: "6. Shared libraries overview",
+    match: (r) => r === "lib/README.md",
+  },
+  {
+    id: "server-bootstrap",
+    title: "7. API server — bootstrap & application shell",
+    match: (r) =>
+      r === "artifacts/api-server/package.json" ||
+      r === "artifacts/api-server/tsconfig.json" ||
+      r === "artifacts/api-server/build.mjs" ||
+      r === "artifacts/api-server/src/index.ts" ||
+      r === "artifacts/api-server/src/app.ts",
+  },
+  {
+    id: "auth-access",
+    title: "8. API server — auth & access control",
+    match: (r) =>
+      r === "artifacts/api-server/src/routes/auth.ts" ||
+      r === "artifacts/api-server/src/routes/access.ts" ||
+      r === "artifacts/api-server/src/lib/auth.ts" ||
+      r === "artifacts/api-server/src/lib/emailService.ts",
+  },
+  {
+    id: "inventory",
+    title: "9. API server — inventory & vehicle data",
+    match: (r) =>
+      r === "artifacts/api-server/src/routes/inventory.ts" ||
+      r === "artifacts/api-server/src/routes/price-lookup.ts" ||
+      r === "artifacts/api-server/src/lib/inventoryCache.ts",
+  },
+  {
+    id: "lender",
+    title: "10. API server — lender programs & calculator",
+    match: (r) =>
+      r === "artifacts/api-server/src/routes/lender.ts" ||
+      r === "artifacts/api-server/src/lib/lenderCalcEngine.ts" ||
+      r === "artifacts/api-server/src/lib/lenderWorker.ts" ||
+      r === "artifacts/api-server/src/lib/lenderAuth.ts" ||
+      r === "artifacts/api-server/src/lib/runtimeFingerprint.ts",
+  },
+  {
+    id: "integrations",
+    title: "11. API server — integrations (Black Book, Carfax, object storage)",
+    match: (r) =>
+      r === "artifacts/api-server/src/lib/blackBookWorker.ts" ||
+      r === "artifacts/api-server/src/lib/carfaxWorker.ts" ||
+      r === "artifacts/api-server/src/lib/bbObjectStore.ts" ||
+      r === "artifacts/api-server/src/routes/carfax.ts" ||
+      r === "artifacts/api-server/src/scripts/testCarfax.ts",
+  },
+  {
+    id: "server-cross",
+    title: "12. API server — cross-cutting (health, routing, logging, types)",
+    match: (r) =>
+      r === "artifacts/api-server/src/routes/health.ts" ||
+      r === "artifacts/api-server/src/routes/index.ts" ||
+      r === "artifacts/api-server/src/routes/README.md" ||
+      r === "artifacts/api-server/src/lib/logger.ts" ||
+      r === "artifacts/api-server/src/lib/randomScheduler.ts" ||
+      r === "artifacts/api-server/src/lib/README.md" ||
+      r === "artifacts/api-server/src/types/passport.d.ts",
+  },
+  {
+    id: "frontend",
+    title: "13. Frontend portal (production SPA)",
+    match: (r) => r.startsWith("artifacts/inventory-portal/"),
+  },
+  {
+    id: "mockup",
+    title: "14. Mockup sandbox (component preview)",
+    match: (r) => r.startsWith("artifacts/mockup-sandbox/"),
+  },
+  {
+    id: "templates",
+    title: "15. Templates",
+    match: (r) => r.startsWith("templates/"),
+  },
+  {
+    id: "tests-scripts",
+    title: "16. Scripts & tests",
+    match: (r) => r.startsWith("scripts/"),
+  },
+  {
+    id: "uncategorized",
+    title: "17. Uncategorized (extend DOMAIN_SECTIONS if files appear here)",
+    match: () => true,
+  },
+];
+
 function shouldSkipDir(segment: string): boolean {
   return SKIP_DIR_NAMES.has(segment);
 }
@@ -89,8 +219,8 @@ function fenceLang(filePath: string): string {
   if (ext === ".md") return "markdown";
   if (ext === ".toml") return "toml";
   if (ext === ".svg") return "svg";
-  if (ext === ".sh") return "bash";
   if (ext === ".js" || ext === ".mjs" || ext === ".cjs") return "javascript";
+  if (ext === ".sh") return "bash";
   return "text";
 }
 
@@ -139,6 +269,25 @@ function readUtf8(rel: string): string {
   return fs.readFileSync(path.join(WORKSPACE_ROOT, rel), "utf8");
 }
 
+function sectionIndexFor(rel: string): number {
+  for (let i = 0; i < DOMAIN_SECTIONS.length; i++) {
+    if (DOMAIN_SECTIONS[i].match(rel)) return i;
+  }
+  return DOMAIN_SECTIONS.length - 1;
+}
+
+function emitFileBlock(lines: string[], rel: string): void {
+  const body = readUtf8(rel);
+  const lang = fenceLang(rel);
+  const n = body.split(/\r\n|\r|\n/).length;
+  lines.push(`### \`${rel}\` (${n} lines)`);
+  lines.push("");
+  lines.push("```" + lang);
+  lines.push(body);
+  lines.push("```");
+  lines.push("");
+}
+
 function main(): void {
   const files: string[] = [];
 
@@ -154,59 +303,86 @@ function main(): void {
 
   const unique = [...new Set(files)].sort((a, b) => sortKey(a).localeCompare(sortKey(b)));
 
+  const bySection: string[][] = DOMAIN_SECTIONS.map(() => []);
+  for (const rel of unique) {
+    bySection[sectionIndexFor(rel)].push(rel);
+  }
+
+  const uncIdx = DOMAIN_SECTIONS.length - 1;
+  if (bySection[uncIdx].length > 0) {
+    console.warn(
+      "Uncategorized files (add DOMAIN_SECTIONS rules):",
+      bySection[uncIdx].join(", "),
+    );
+  }
+
   const now = new Date().toISOString().replace(/\.\d{3}Z$/, " UTC");
   const lines: string[] = [];
-  lines.push("# Inventory Platform — Complete source bundle (machine-generated)");
+  lines.push("# Inventory Platform — Complete source (domain-grouped, machine-generated)");
   lines.push("");
   lines.push(`Generated: ${now}`);
   lines.push("");
   lines.push(
-    "This file is produced by `pnpm --filter @workspace/scripts export:complete-md`. " +
-      "It inlines **every tracked-style source path** under the monorepo roots listed below " +
-      "(excluding `node_modules`, `dist`, local caches, `attached_assets/`, `downloads/` export history, " +
-      "and CreditApp session JSON files). **Regenerate after code changes** so the bundle stays in sync.",
+    "Produced by `pnpm --filter @workspace/scripts export:complete-md`. " +
+      "Body is ordered by **business domain** (same flow as the hand-curated export: navigation → workspace → DB → API contract → " +
+      "codegen → server domains → portal → mockup → templates → scripts). " +
+      "Within each domain, files are sorted by path. Session JSON and build artifacts are excluded; see *Included roots* below.",
   );
   lines.push("");
   lines.push("## Replication quickstart");
   lines.push("");
-  lines.push("1. Restore this tree from the file sections below (paths are section headers).");
-  lines.push("2. `pnpm install` at the repo root (see root `package.json` + `pnpm-lock.yaml`).");
-  lines.push("3. API codegen (when OpenAPI changes): `pnpm --filter @workspace/api-spec codegen`.");
-  lines.push("4. `pnpm run build` then run packages per their `package.json` scripts (`dev` / `start`).");
+  lines.push("1. Restore files from the sections below.");
+  lines.push("2. `pnpm install` at the repo root.");
+  lines.push("3. When OpenAPI changes: `pnpm --filter @workspace/api-spec codegen`.");
+  lines.push("4. `pnpm run build`, then run `dev` / `start` per package.");
   lines.push("");
   lines.push("## Included roots");
   lines.push("");
   lines.push(
     [
-      "- Root files: `AGENTS.md`, `package.json`, `pnpm-workspace.yaml`, `pnpm-lock.yaml`, `tsconfig*.json`, `.replit`, `replit.md`",
-      "- `scripts/`",
-      "- `lib/` (api-spec, api-zod **including generated**, api-client-react **including generated**, db)",
-      "- `artifacts/api-server/` (source + `build.mjs`; not build output)",
+      "- Root: `AGENTS.md`, `package.json`, `pnpm-workspace.yaml`, `pnpm-lock.yaml`, `tsconfig*.json`, `.replit`, `replit.md`",
+      "- `lib/` (db, api-spec, api-zod, api-client-react, including generated)",
+      "- `artifacts/api-server/` (no `dist/`)",
       "- `artifacts/inventory-portal/`",
       "- `artifacts/mockup-sandbox/`",
-      "- `templates/`",
-      "- `downloads/README.md` only (other `downloads/` files are export artifacts)",
+      "- `templates/`, `scripts/`, `downloads/README.md`",
     ].join("\n"),
   );
   lines.push("");
-  lines.push(`## File index (${unique.length} files)`);
+  lines.push("## Table of contents");
   lines.push("");
-  for (const rel of unique) lines.push(`- \`${rel}\``);
+  for (const s of DOMAIN_SECTIONS) {
+    if (s.id === "uncategorized") continue;
+    lines.push(`- [${s.title}](#${s.id})`);
+  }
+  lines.push(`- [Appendix: alphabetical file index](#appendix-index)`);
   lines.push("");
   lines.push("---");
   lines.push("");
 
-  for (const rel of unique) {
-    const body = readUtf8(rel);
-    const lang = fenceLang(rel);
-    const n = body.split(/\r\n|\r|\n/).length;
-    lines.push(`## \`${rel}\` (${n} lines)`);
+  for (let si = 0; si < DOMAIN_SECTIONS.length; si++) {
+    const s = DOMAIN_SECTIONS[si];
+    const bucket = bySection[si];
+    if (bucket.length === 0) continue;
+
+    lines.push(`<a id="${s.id}"></a>`);
+    lines.push(`## ${s.title}`);
     lines.push("");
-    lines.push("```" + lang);
-    lines.push(body);
-    lines.push("```");
+    lines.push(`*${bucket.length} file(s).*`);
+    lines.push("");
+
+    for (const rel of bucket.sort((a, b) => sortKey(a).localeCompare(sortKey(b)))) {
+      emitFileBlock(lines, rel);
+    }
+    lines.push("---");
     lines.push("");
   }
+
+  lines.push(`<a id="appendix-index"></a>`);
+  lines.push("## Appendix: alphabetical file index");
+  lines.push("");
+  for (const rel of unique) lines.push(`- \`${rel}\``);
+  lines.push("");
 
   fs.mkdirSync(path.dirname(OUTPUT), { recursive: true });
   const outText = lines.join("\n");
