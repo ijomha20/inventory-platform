@@ -169,6 +169,12 @@ export interface LenderCalcResultItem {
   vehicle: string;
   location: string;
   term: number;
+  /** Vehicle term from lender matrix before exception stretch */
+  matrixTerm?: number;
+  /** Effective months added (0 / 6 / 12) after 84-month cap rules */
+  termStretchApplied?: 0 | 6 | 12;
+  /** When stretch was reduced (e.g. 78 cannot use +12; 84 matrix cannot stretch) */
+  termStretchCappedReason?: string;
   conditionUsed: string;
   bbWholesale: number;
   sellingPrice: number;

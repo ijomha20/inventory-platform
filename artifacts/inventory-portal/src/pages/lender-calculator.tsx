@@ -39,13 +39,15 @@ function formatPayment(n: number): string {
 
 const COND_SHORT: Record<string, string> = { extraClean: "XC", clean: "C", average: "A", rough: "R" };
 
-function ResultRow({ item, rank, showDP, termStretch }: { item: any; rank: number; showDP: boolean; termStretch: number }) {
+function ResultRow({ item, rank, showDP }: { item: any; rank: number; showDP: boolean }) {
   const needsDP = (item.requiredDownPayment ?? 0) > 0;
   const stretched = item.termStretched === true;
+  /** Effective stretch after 84-month rules (row color uses this, not the radio selection alone) */
+  const applied = Number(item.termStretchApplied ?? 0);
   let rowBg = "odd:bg-white even:bg-slate-50/40";
   if (needsDP) rowBg = "bg-gray-100/60";
-  else if (stretched && termStretch === 12) rowBg = "bg-orange-50";
-  else if (stretched) rowBg = "bg-amber-50";
+  else if (stretched && applied === 12) rowBg = "bg-orange-50";
+  else if (stretched && applied === 6) rowBg = "bg-amber-50";
 
   return (
     <tr className={`border-b border-gray-100 last:border-0 ${rowBg} hover:bg-blue-50/50`}>
@@ -54,7 +56,17 @@ function ResultRow({ item, rank, showDP, termStretch }: { item: any; rank: numbe
         <div className="truncate" title={item.vehicle}>{item.vehicle}</div>
       </td>
       <td className="px-1.5 py-1.5 text-xs text-gray-600 whitespace-nowrap">{item.location}</td>
-      <td className="px-1.5 py-1.5 text-xs text-center text-gray-600 whitespace-nowrap">{item.term}mo</td>
+      <td
+        className="px-1.5 py-1.5 text-xs text-center text-gray-600 whitespace-nowrap"
+        title={
+          item.matrixTerm != null
+            ? `Matrix ${item.matrixTerm}mo · applied +${applied} → ${item.term}mo${item.termStretchCappedReason ? ` (${item.termStretchCappedReason})` : ""}`
+            : undefined
+        }
+      >
+        {item.term}mo
+        {item.termStretchCappedReason ? <span className="text-[9px] text-amber-700 ml-0.5 align-super">†</span> : null}
+      </td>
       <td className="px-1.5 py-1.5 text-xs text-center text-gray-600 whitespace-nowrap">{COND_SHORT[item.conditionUsed] ?? item.conditionUsed}</td>
       <td className="px-1.5 py-1.5 text-xs text-right font-medium text-gray-600">{formatCurrency(item.bbWholesale)}</td>
       <td className="px-2 py-1.5 text-xs text-right font-medium text-gray-700">
@@ -475,7 +487,7 @@ export default function LenderCalculator() {
                       </thead>
                       <tbody>
                         {calcResults.results.map((item: any, idx: number) => (
-                          <ResultRow key={item.vin} item={item} rank={idx + 1} showDP={showAllDP} termStretch={termStretch} />
+                          <ResultRow key={item.vin} item={item} rank={idx + 1} showDP={showAllDP} />
                         ))}
                       </tbody>
                     </table>

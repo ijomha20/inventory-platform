@@ -136,6 +136,62 @@ function normalizeTermStretchMonths(v: unknown): 0 | 6 | 12 {
   return 0;
 }
 
+/** Hard cap on total finance term (months) when applying an exception stretch */
+const MAX_FINANCE_TERM_MONTHS = 84;
+
+/** Largest stretch in {12,6,0} such that baseTerm + stretch <= maxTotal (default 84) */
+function largestStretchNotExceeding(baseTerm: number, maxTotal: number = MAX_FINANCE_TERM_MONTHS): 0 | 6 | 12 {
+  if (baseTerm >= maxTotal) return 0;
+  const order: (0 | 6 | 12)[] = [12, 6, 0];
+  for (const s of order) {
+    if (baseTerm + s <= maxTotal) return s;
+  }
+  return 0;
+}
+
+/**
+ * Term exception rules:
+ * - If the matrix already qualifies at 84 months, do not stretch (even if +6/+12 is selected).
+ * - Otherwise stretch is limited so base + stretch never exceeds 84 (e.g. 78 can only use +6 to reach 84; +12 becomes +6).
+ */
+function resolveEffectiveTermStretch(
+  baseTerm: number,
+  requested: 0 | 6 | 12,
+): {
+  effectiveStretch: 0 | 6 | 12;
+  termMonths: number;
+  stretched: boolean;
+  cappedReason?: "matrix_already_84_no_stretch" | "78_only_plus6_to_84" | "capped_at_84_max";
+} {
+  if (baseTerm >= MAX_FINANCE_TERM_MONTHS) {
+    return {
+      effectiveStretch: 0,
+      termMonths:       baseTerm,
+      stretched:        false,
+      cappedReason:     baseTerm === MAX_FINANCE_TERM_MONTHS ? "matrix_already_84_no_stretch" : undefined,
+    };
+  }
+  const maxStretch = largestStretchNotExceeding(baseTerm, MAX_FINANCE_TERM_MONTHS);
+  const effectiveStretch = (Math.min(requested, maxStretch) as 0 | 6 | 12);
+  const termMonths = baseTerm + effectiveStretch;
+
+  let cappedReason: "matrix_already_84_no_stretch" | "78_only_plus6_to_84" | "capped_at_84_max" | undefined;
+  if (requested > effectiveStretch) {
+    if (baseTerm === 78 && requested === 12 && effectiveStretch === 6) {
+      cappedReason = "78_only_plus6_to_84";
+    } else {
+      cappedReason = "capped_at_84_max";
+    }
+  }
+
+  return {
+    effectiveStretch,
+    termMonths,
+    stretched: effectiveStretch > 0,
+    cappedReason,
+  };
+}
+
 function pmt(rate: number, nper: number, pv: number): number {
   if (rate === 0) return pv / nper;
   const r = rate / 12;
@@ -293,12 +349,17 @@ router.post("/lender-calculate", requireOwnerOrViewer, async (req, res) => {
 
   interface Result {
     vin: string; vehicle: string; location: string; term: number;
+    /** Matrix term before exception stretch */
+    matrixTerm: number;
+    /** Effective stretch applied (0 / 6 / 12) after 84-month rules */
+    termStretchApplied: 0 | 6 | 12;
     conditionUsed: string; bbWholesale: number; sellingPrice: number;
     priceSource: string; adminFeeUsed: number; warrantyPrice: number;
     warrantyCost: number; gapPrice: number; gapCost: number;
     totalFinanced: number; monthlyPayment: number; profit: number;
     hasPhotos: boolean; website: string;
     termStretched: boolean;
+    termStretchCappedReason?: string;
     requiredDownPayment?: number;
   }
 
@@ -315,8 +376,11 @@ router.post("/lender-calculate", requireOwnerOrViewer, async (req, res) => {
 
     const baseTerm = lookupTerm(guide.vehicleTermMatrix, vehicleYear, km);
     if (!baseTerm) { debugCounts.noTerm++; continue inventory; }
-    const termStretched = termStretch > 0;
-    const termMonths = baseTerm + termStretch;
+    const termResolved = resolveEffectiveTermStretch(baseTerm, termStretch);
+    const termMonths = termResolved.termMonths;
+    const termStretched = termResolved.stretched;
+    const termStretchApplied = termResolved.effectiveStretch;
+    const termStretchCappedReason = termResolved.cappedReason;
 
     const condition = lookupCondition(guide.vehicleConditionMatrix, vehicleYear, km);
     if (!condition) { debugCounts.noCondition++; continue inventory; }
@@ -583,6 +647,8 @@ router.post("/lender-calculate", requireOwnerOrViewer, async (req, res) => {
       vehicle:         item.vehicle,
       location:        item.location,
       term:            termMonths,
+      matrixTerm:      baseTerm,
+      termStretchApplied,
       conditionUsed:   condition,
       bbWholesale,
       sellingPrice:    Math.round(sellingPrice),
@@ -598,6 +664,7 @@ router.post("/lender-calculate", requireOwnerOrViewer, async (req, res) => {
       hasPhotos:       item.hasPhotos,
       website:         item.website,
       termStretched,
+      termStretchCappedReason: termStretchCappedReason,
       requiredDownPayment: reqDP > 0 ? Math.round(reqDP) : undefined,
     });
   }
