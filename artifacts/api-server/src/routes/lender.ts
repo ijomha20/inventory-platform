@@ -128,6 +128,14 @@ function truthyOptionalFlag(v: unknown): boolean {
   return false;
 }
 
+/** +6/+12 mo only; coerces strings so JSON/proxies cannot break [0,6,12].includes */
+function normalizeTermStretchMonths(v: unknown): 0 | 6 | 12 {
+  const n = typeof v === "string" ? parseInt(v.trim(), 10) : Number(v);
+  if (!Number.isFinite(n)) return 0;
+  if (n === 6 || n === 12) return n;
+  return 0;
+}
+
 function pmt(rate: number, nper: number, pv: number): number {
   if (rate === 0) return pv / nper;
   const r = rate / 12;
@@ -280,7 +288,7 @@ router.post("/lender-calculate", requireOwnerOrViewer, async (req, res) => {
     : (capAdmin ?? 0);
   const gapAllowed  = capGap == null || capGap > 0;
 
-  const termStretch = [0, 6, 12].includes(params.termStretchMonths ?? 0) ? (params.termStretchMonths ?? 0) : 0;
+  const termStretch = normalizeTermStretchMonths(params.termStretchMonths);
   const showAllDP = truthyOptionalFlag((params as CalcParams & { showAllWithDownPayment?: unknown }).showAllWithDownPayment);
 
   interface Result {
@@ -603,6 +611,7 @@ router.post("/lender-calculate", requireOwnerOrViewer, async (req, res) => {
     lender: params.lenderCode,
     program: guide.programTitle,
     tier: params.tierName,
+    termStretchMonths: termStretch,
     showAllWithDownPayment: showAllDP,
     allInOnly,
     hasAdvanceCap,
@@ -623,6 +632,7 @@ router.post("/lender-calculate", requireOwnerOrViewer, async (req, res) => {
     lender:     params.lenderCode,
     program:    guide.programTitle,
     tier:       params.tierName,
+    termStretchMonths: termStretch,
     showAllWithDownPayment: showAllDP,
     ...runtime,
     tierConfig: tier,

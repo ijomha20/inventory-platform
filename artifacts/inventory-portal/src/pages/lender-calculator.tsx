@@ -164,7 +164,7 @@ export default function LenderCalculator() {
       tradeLien: parseFloat(tradeLien) || 0,
       taxRate: parseFloat(taxRate) || 5,
       adminFee: parseFloat(adminFee) || 0,
-      termStretchMonths: termStretch,
+      termStretchMonths: Number(termStretch) as 0 | 6 | 12,
       showAllWithDownPayment: showAllDP,
     };
     const pmtOverride = parseFloat(maxPaymentOverride);

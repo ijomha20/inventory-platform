@@ -199,6 +199,8 @@ export interface LenderCalculateResponse {
   lender: string;
   program: string;
   tier: string;
+  /** Echo: effective term stretch (0, 6, or 12 months added to matrix term) */
+  termStretchMonths?: 0 | 6 | 12;
   /** Echo: server parsed show-all mode (see request `showAllWithDownPayment`) */
   showAllWithDownPayment?: boolean;
   tierConfig: LenderProgramTier;
