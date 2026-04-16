@@ -238,10 +238,18 @@ router.post("/lender-calculate", requireOwnerOrViewer, async (req, res) => {
 
   const adminInclusion = guide.adminFeeInclusion ?? "unknown";
 
-  // CreditApp fee calculation fields: positive numbers are real caps, 0 means "no cap set"
-  let capWarranty = (guide.maxWarrantyPrice != null && guide.maxWarrantyPrice > 0) ? guide.maxWarrantyPrice : undefined;
-  let capGap      = (guide.maxGapPrice != null && guide.maxGapPrice > 0)           ? guide.maxGapPrice      : undefined;
-  // ACC-style AH routing fallback: when GAP target is AH and gap field resolves to 0/not-set,
+  // CreditApp fee calculation fields: positive numbers are real caps, 0 means "no cap set".
+  // When aftermarketBase is "salePrice", the fee cap fields return deal-context defaults
+  // (not real program caps). The aftermarket LTV% budget is the true constraint and is
+  // computed dynamically per vehicle below. Discard unreliable static caps in that case.
+  const aftermarketBudgetIsDynamic =
+    (guide.aftermarketBase === "salePrice") && hasAftermarketCap;
+
+  let capWarranty = (guide.maxWarrantyPrice != null && guide.maxWarrantyPrice > 0 && !aftermarketBudgetIsDynamic)
+    ? guide.maxWarrantyPrice : undefined;
+  let capGap = (guide.maxGapPrice != null && guide.maxGapPrice > 0 && !aftermarketBudgetIsDynamic)
+    ? guide.maxGapPrice : undefined;
+  // AH routing fallback: when GAP target is AH and gap field resolves to 0/not-set,
   // treat warranty cap as GAP cap to avoid known mis-mapping.
   if (
     guide.gapInsuranceTarget === "AH_INSURANCE" &&
@@ -502,6 +510,7 @@ router.post("/lender-calculate", requireOwnerOrViewer, async (req, res) => {
     allInOnly,
     hasAdvanceCap,
     hasAftermarketCap,
+    aftermarketBudgetIsDynamic,
     adminInclusion,
     capAdmin,
     capWarranty,
@@ -528,6 +537,7 @@ router.post("/lender-calculate", requireOwnerOrViewer, async (req, res) => {
       allInOnly,
       hasAdvanceCap,
       hasAftermarketCap,
+      aftermarketBudgetIsDynamic,
       aftermarketBase:    guide.aftermarketBase ?? "unknown",
       adminFeeInclusion:  adminInclusion,
       capModelResolved:   guide.capModelResolved ?? "unknown",
