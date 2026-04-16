@@ -44,7 +44,7 @@ const LENDER_2FA_CODE_ENV = process.env["LENDER_CREDITAPP_2FA_CODE"]?.trim() ?? 
 
 async function getLatestRecoveryCode(): Promise<string> {
   try {
-    const fetch = (await import("node-fetch")).default;
+    const fetch = (await import("node-fetch")).default; // Lazy: optional recovery-code fetch
     const OBJ_BASE = "http://127.0.0.1:1106";
     const bucket = process.env.DEFAULT_OBJECT_STORAGE_BUCKET_ID;
     const dir = process.env.PRIVATE_OBJECT_DIR || "";
@@ -105,6 +105,7 @@ function saveCookiesToFile(cookies: any[]): void {
 
 async function loadCookiesFromDb(): Promise<any[]> {
   try {
+    // Lazy: DB only needed for session/schedule bookkeeping
     const { db, lenderSessionTable } = await import("@workspace/db");
     const { eq } = await import("drizzle-orm");
     const rows = await db.select().from(lenderSessionTable).where(eq(lenderSessionTable.id, "singleton"));
@@ -121,6 +122,7 @@ async function loadCookiesFromDb(): Promise<any[]> {
 
 async function saveCookiesToDb(cookies: any[]): Promise<void> {
   try {
+    // Lazy: DB only needed for session/schedule bookkeeping
     const { db, lenderSessionTable } = await import("@workspace/db");
     await db
       .insert(lenderSessionTable)
@@ -209,6 +211,7 @@ export async function callGraphQL(
 }
 
 async function launchBrowser(): Promise<any> {
+  // Lazy: heavy deps loaded only when browser automation runs
   let puppeteer: any;
   try {
     puppeteer = (await import("puppeteer-extra")).default;

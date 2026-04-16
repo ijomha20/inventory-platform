@@ -65,6 +65,7 @@ async function loadFromDb(): Promise<void> {
   }
 
   try {
+    // Lazy load: defers GCS client initialization
     const { loadBbValuesFromStore, parseBbEntry } = await import("./bbObjectStore.js");
     const blob = await loadBbValuesFromStore();
     if (blob?.values) {
@@ -239,6 +240,7 @@ export async function refreshCache(): Promise<void> {
       if (old.bbValues) existingBbDetail.set(old.vin.toUpperCase(), old.bbValues);
     }
     try {
+      // Lazy load: defers GCS client initialization
       const { loadBbValuesFromStore, parseBbEntry } = await import("./bbObjectStore.js");
       const blob = await loadBbValuesFromStore();
       if (blob?.values) {
@@ -372,6 +374,7 @@ export async function applyCarfaxResults(results: Map<string, string>): Promise<
 
 function triggerNewVinLookups(newVins: string[]): void {
 
+  // Breaks static cycle: blackBookWorker statically imports inventoryCache
   import("./blackBookWorker.js").then(({ runBlackBookForVins }) => {
     runBlackBookForVins(newVins).catch(err =>
       logger.error({ err }, "Targeted BB lookup for new VINs failed"),
@@ -379,6 +382,7 @@ function triggerNewVinLookups(newVins: string[]): void {
   }).catch(err => logger.error({ err }, "Failed to import blackBookWorker for targeted run"));
 
   if (!isProduction) {
+    // Breaks static cycle: carfaxWorker statically imports inventoryCache
     import("./carfaxWorker.js").then(({ runCarfaxForNewVins }) => {
       runCarfaxForNewVins(newVins).catch(err =>
         logger.error({ err }, "Targeted Carfax lookup for new VINs failed"),

@@ -14,6 +14,7 @@
  */
 
 import { logger } from "./logger.js";
+import { scheduleRandomDaily, toMountainDateStr } from "./randomScheduler.js";
 import * as fs   from "fs";
 import * as path from "path";
 
@@ -175,9 +176,9 @@ function saveCookies(cookies: any[]): void {
 // ---------------------------------------------------------------------------
 
 async function launchBrowser(): Promise<any> {
+  // Lazy: heavy deps loaded only when browser automation runs
   let puppeteer: any;
   try {
-    // puppeteer-extra + stealth plugin — handles ~20 detection vectors automatically
     puppeteer = (await import("puppeteer-extra")).default;
     const StealthPlugin = (await import("puppeteer-extra-plugin-stealth")).default;
     puppeteer.use(StealthPlugin());
@@ -194,7 +195,7 @@ async function launchBrowser(): Promise<any> {
 
   let executablePath: string | undefined;
   try {
-    const { execSync } = await import("child_process");
+    const { execSync } = await import("child_process"); // Lazy: heavy deps loaded only when browser automation runs
     const found = execSync("which chromium 2>/dev/null || which chromium-browser 2>/dev/null", { encoding: "utf8" }).trim();
     if (found) {
       executablePath = found;
@@ -862,8 +863,6 @@ export async function runCarfaxWorkerForVins(vins: string[]): Promise<CarfaxTest
 // ---------------------------------------------------------------------------
 export function scheduleCarfaxWorker(): void {
   let lastRunDate = "";
-
-  const { scheduleRandomDaily, toMountainDateStr } = require("./randomScheduler.js") as typeof import("./randomScheduler.js");
 
   scheduleRandomDaily({
     name: "Carfax worker",

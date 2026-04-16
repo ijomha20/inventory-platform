@@ -4,7 +4,7 @@ import authRouter      from "./auth.js";
 import inventoryRouter from "./inventory.js";
 import accessRouter    from "./access.js";
 import carfaxRouter    from "./carfax.js";
-import lenderRouter      from "./lender.js";
+import lenderRouter      from "./lender/index.js";
 import priceLookupRouter from "./price-lookup.js";
 
 const router: IRouter = Router();

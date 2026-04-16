@@ -105,7 +105,7 @@ router.delete("/access/:email", requireOwner, validateParams(RemoveAccessEntryPa
   await writeAudit("remove", email, owner, existing?.role ?? null, null);
 
   try {
-    const { pool } = await import("@workspace/db");
+    const { pool } = await import("@workspace/db"); // Lazy: pool needed only for raw session cleanup query
     await pool.query(
       `DELETE FROM "session" WHERE sess->'passport'->'user'->>'email' = $1`,
       [email],

@@ -28,6 +28,7 @@ import {
   saveSessionToStore,
   saveBbValuesToStore,
 } from "./bbObjectStore.js";
+import { scheduleRandomDaily, toMountainDateStr } from "./randomScheduler.js";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -107,6 +108,7 @@ function saveCookiesToFile(cookies: any[]): void {
 
 async function loadCookiesFromDb(): Promise<any[]> {
   try {
+    // Lazy: DB only needed for session/schedule bookkeeping
     const { db, bbSessionTable } = await import("@workspace/db");
     const { eq }                 = await import("drizzle-orm");
     const rows = await db.select().from(bbSessionTable).where(eq(bbSessionTable.id, "singleton"));
@@ -129,6 +131,7 @@ async function loadCookiesFromDb(): Promise<any[]> {
 
 async function saveCookiesToDb(cookies: any[]): Promise<void> {
   try {
+    // Lazy: DB only needed for session/schedule bookkeeping
     const { db, bbSessionTable } = await import("@workspace/db");
     await db
       .insert(bbSessionTable)
@@ -247,6 +250,7 @@ async function getAuthCookies(): Promise<{ appSession: string; csrfToken: string
 // ---------------------------------------------------------------------------
 
 async function launchBrowser(): Promise<any> {
+  // Lazy: heavy deps loaded only when browser automation runs
   let puppeteer: any;
   try {
     puppeteer = (await import("puppeteer-extra")).default;
@@ -824,9 +828,9 @@ export async function runBlackBookWorker(): Promise<void> {
 
 async function getLastRunDateFromDb(): Promise<string> {
   try {
+    // Lazy: DB only needed for session/schedule bookkeeping
     const { db, bbSessionTable } = await import("@workspace/db");
     const { eq }                 = await import("drizzle-orm");
-    const { toMountainDateStr }  = await import("./randomScheduler.js");
     const rows = await db.select({ lastRunAt: bbSessionTable.lastRunAt })
       .from(bbSessionTable)
       .where(eq(bbSessionTable.id, "singleton"));
@@ -841,6 +845,7 @@ async function getLastRunDateFromDb(): Promise<string> {
 
 async function recordRunDateToDb(): Promise<void> {
   try {
+    // Lazy: DB only needed for session/schedule bookkeeping
     const { db, bbSessionTable } = await import("@workspace/db");
     await db
       .insert(bbSessionTable)
@@ -859,8 +864,6 @@ async function recordRunDateToDb(): Promise<void> {
 // ---------------------------------------------------------------------------
 
 export function scheduleBlackBookWorker(): void {
-  const { scheduleRandomDaily, toMountainDateStr } = require("./randomScheduler.js") as typeof import("./randomScheduler.js");
-
   scheduleRandomDaily({
     name: "BB worker",
     hasRunToday: async () => {

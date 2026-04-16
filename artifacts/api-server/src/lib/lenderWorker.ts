@@ -10,6 +10,7 @@ import {
   type VehicleConditionMatrixEntry,
 } from "./bbObjectStore.js";
 import { getLenderAuthCookies, callGraphQL, LENDER_ENABLED } from "./lenderAuth.js";
+import { scheduleRandomDaily, toMountainDateStr } from "./randomScheduler.js";
 
 const CREDITOR_NAME_TO_CODE: Record<string, { code: string; name: string }> = {
   SANTANDER:  { code: "SAN", name: "Santander" },
@@ -451,9 +452,9 @@ export async function runLenderSync(): Promise<void> {
 
 async function getLastRunDateFromDb(): Promise<string> {
   try {
+    // Lazy: DB only needed for session/schedule bookkeeping
     const { db, lenderSessionTable } = await import("@workspace/db");
     const { eq } = await import("drizzle-orm");
-    const { toMountainDateStr } = await import("./randomScheduler.js");
     const rows = await db.select({ lastRunAt: lenderSessionTable.lastRunAt })
       .from(lenderSessionTable)
       .where(eq(lenderSessionTable.id, "singleton"));
@@ -468,6 +469,7 @@ async function getLastRunDateFromDb(): Promise<string> {
 
 async function recordRunDateToDb(): Promise<void> {
   try {
+    // Lazy: DB only needed for session/schedule bookkeeping
     const { db, lenderSessionTable } = await import("@workspace/db");
     await db
       .insert(lenderSessionTable)
@@ -489,8 +491,6 @@ async function recordRunDateToDb(): Promise<void> {
  * Called once from index.ts at server startup.
  */
 export function scheduleLenderSync(): void {
-  const { scheduleRandomDaily, toMountainDateStr } = require("./randomScheduler.js") as typeof import("./randomScheduler.js");
-
   loadLenderProgramsFromCache().catch(err =>
     logger.warn({ err: String(err) }, "Lender sync: could not preload programs from object storage"),
   );
