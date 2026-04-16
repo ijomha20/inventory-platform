@@ -42,7 +42,7 @@ router.get("/me", async (req, res) => {
     res.status(401).json({ error: "Not authenticated" });
     return;
   }
-  const user  = req.user as { email: string; name: string; picture: string };
+  const user  = req.user!;
   const email = user.email.toLowerCase();
   const owner = isOwner(email);
 

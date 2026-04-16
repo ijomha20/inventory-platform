@@ -9,20 +9,20 @@ router.get("/carfax/batch-status", requireOwner, (_req, res) => {
   res.json(getCarfaxBatchStatus());
 });
 
-router.post("/carfax/run-batch", requireOwner, (req: any, res: any) => {
+router.post("/carfax/run-batch", requireOwner, (req, res) => {
   const status = getCarfaxBatchStatus();
   if (status.running) {
     res.status(409).json({ ok: false, error: "A batch is already running", startedAt: status.startedAt });
     return;
   }
-  logger.info({ requestedBy: (req.user as any)?.email }, "Manual Carfax batch triggered via API");
+  logger.info({ requestedBy: req.user?.email }, "Manual Carfax batch triggered via API");
   runCarfaxWorker({ force: true }).catch((err) =>
     logger.error({ err }, "Manual Carfax batch failed")
   );
   res.json({ ok: true, message: "Carfax batch started. Check server logs for progress." });
 });
 
-router.post("/carfax/test", requireOwner, async (req: any, res: any) => {
+router.post("/carfax/test", requireOwner, async (req, res) => {
   const { vins } = req.body as { vins?: string[] };
 
   if (!Array.isArray(vins) || vins.length === 0) {
@@ -36,14 +36,14 @@ router.post("/carfax/test", requireOwner, async (req: any, res: any) => {
   }
 
   const cleanVins = vins.map((v) => String(v).trim().toUpperCase()).filter(Boolean);
-  logger.info({ vins: cleanVins, requestedBy: (req.user as any)?.email }, "Carfax test run requested via API");
+  logger.info({ vins: cleanVins, requestedBy: req.user?.email }, "Carfax test run requested via API");
 
   try {
     const results = await runCarfaxWorkerForVins(cleanVins);
     res.json({ ok: true, results });
-  } catch (err: any) {
+  } catch (err) {
     logger.error({ err }, "Carfax test endpoint error");
-    res.status(500).json({ ok: false, error: err.message });
+    res.status(500).json({ ok: false, error: err instanceof Error ? err.message : "Unknown error" });
   }
 });
 

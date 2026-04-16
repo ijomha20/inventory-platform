@@ -9,6 +9,8 @@ import {
   IMAGE_CDN_BASE,
   extractWebsiteUrl,
 } from "../lib/typesense.js";
+import { validateQuery } from "../lib/validate.js";
+import { GetVehicleImagesQueryParams } from "@workspace/api-zod";
 
 const router = Router();
 
@@ -88,7 +90,7 @@ router.post("/refresh", (req, res) => {
 });
 
 // GET /vehicle-images?vin=XXX — fetch photo gallery from Typesense CDN
-router.get("/vehicle-images", requireAccess, async (req, res) => {
+router.get("/vehicle-images", requireAccess, validateQuery(GetVehicleImagesQueryParams), async (req, res) => {
   const vin = (req.query["vin"] as string ?? "").trim().toUpperCase();
   if (!vin || vin.length < 10) {
     res.json({ vin, urls: [] });

@@ -4,6 +4,13 @@ import { accessListTable, auditLogTable } from "@workspace/db";
 import { eq, desc } from "drizzle-orm";
 import { requireOwner } from "../lib/auth.js";
 import { sendInvitationEmail } from "../lib/emailService.js";
+import { validateBody, validateParams } from "../lib/validate.js";
+import {
+  AddAccessEntryBody,
+  UpdateAccessRoleBody,
+  UpdateAccessRoleParams,
+  RemoveAccessEntryParams,
+} from "@workspace/api-zod";
 
 const router = Router();
 
@@ -34,14 +41,10 @@ router.get("/access", requireOwner, async (_req, res) => {
 });
 
 // POST /access — add a user (owner only)
-router.post("/access", requireOwner, async (req, res) => {
-  const rawEmail = (req.body?.email ?? "").toString().trim().toLowerCase();
-  if (!rawEmail || !rawEmail.includes("@")) {
-    res.status(400).json({ error: "Invalid email" });
-    return;
-  }
-  const role  = ["viewer", "guest"].includes(req.body?.role) ? req.body.role : "viewer";
-  const owner = (req.user as { email: string }).email;
+router.post("/access", requireOwner, validateBody(AddAccessEntryBody), async (req, res) => {
+  const rawEmail = req.body.email.trim().toLowerCase();
+  const role  = req.body.role ?? "viewer";
+  const owner = req.user!.email;
 
   const [entry] = await db
     .insert(accessListTable)
@@ -60,14 +63,9 @@ router.post("/access", requireOwner, async (req, res) => {
 });
 
 // PATCH /access/:email — update a user's role (owner only)
-router.patch("/access/:email", requireOwner, async (req, res) => {
+router.patch("/access/:email", requireOwner, validateParams(UpdateAccessRoleParams), validateBody(UpdateAccessRoleBody), async (req, res) => {
   const email   = decodeURIComponent(String(req.params.email ?? "")).toLowerCase();
-  const newRole = (req.body?.role ?? "").toString().trim().toLowerCase();
-
-  if (!["viewer", "guest"].includes(newRole)) {
-    res.status(400).json({ error: "Role must be 'viewer' or 'guest'" });
-    return;
-  }
+  const newRole = req.body.role;
 
   const [existing] = await db
     .select()
@@ -86,16 +84,16 @@ router.patch("/access/:email", requireOwner, async (req, res) => {
     .where(eq(accessListTable.email, email))
     .returning();
 
-  const owner = (req.user as { email: string }).email;
+  const owner = req.user!.email;
   await writeAudit("role_change", email, owner, existing.role, newRole);
 
   res.json(updated);
 });
 
 // DELETE /access/:email — remove a user (owner only)
-router.delete("/access/:email", requireOwner, async (req, res) => {
+router.delete("/access/:email", requireOwner, validateParams(RemoveAccessEntryParams), async (req, res) => {
   const email = decodeURIComponent(String(req.params.email ?? "")).toLowerCase();
-  const owner = (req.user as { email: string }).email;
+  const owner = req.user!.email;
 
   const [existing] = await db
     .select()

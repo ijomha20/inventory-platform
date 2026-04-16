@@ -24,8 +24,7 @@ export type UserRole = "owner" | "viewer" | "guest";
 
 /** Resolve calling user's role from owner check + access_list DB lookup. */
 export async function getUserRole(req: Request): Promise<UserRole> {
-  const user  = req.user as { email: string };
-  const email = user.email.toLowerCase();
+  const email = req.user!.email.toLowerCase();
   if (isOwner(email)) return "owner";
   const [entry] = await db
     .select()
@@ -70,7 +69,7 @@ export async function requireOwnerOrViewer(req: Request, res: Response, next: Ne
 /** Any authenticated user on the access list (owner, viewer, or guest). */
 export async function requireAccess(req: Request, res: Response, next: NextFunction) {
   if (!requireAuth(req, res)) return;
-  const email = (req.user as { email: string }).email.toLowerCase();
+  const email = req.user!.email.toLowerCase();
   if (isOwner(email)) { next(); return; }
   const [entry] = await db
     .select()
