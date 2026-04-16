@@ -15,11 +15,11 @@ const router = Router();
 router.get("/lender-programs", requireOwnerOrViewer, async (req, res) => {
   const programs = getCachedLenderPrograms();
   if (!programs) {
-    res.json({ programs: [], updatedAt: null, role: (req as any)._role });
+    res.json({ programs: [], updatedAt: null, role: req._role });
     return;
   }
   res.set("Cache-Control", "no-store");
-  res.json({ ...programs, role: (req as any)._role });
+  res.json({ ...programs, role: req._role });
 });
 
 router.get("/lender-status", requireOwnerOrViewer, async (req, res) => {
@@ -33,7 +33,7 @@ router.get("/lender-status", requireOwnerOrViewer, async (req, res) => {
     lenderCount:  s.lastCount,
     error:        s.error ?? null,
     programsAge:  programs?.updatedAt ?? null,
-    role:         (req as any)._role,
+    role:         req._role,
   });
 });
 

@@ -50,6 +50,14 @@ const envSchema = z.object({
   VERCEL_GIT_COMMIT_SHA:         optStr,
 
   LOG_LEVEL:                     z.string().trim().default("info"),
+}).superRefine((data, ctx) => {
+  if (data.REPLIT_DEPLOYMENT === "1" && data.SESSION_SECRET === "dev-secret-change-me") {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["SESSION_SECRET"],
+      message: "SESSION_SECRET must be explicitly set in production",
+    });
+  }
 });
 
 function parseEnv() {

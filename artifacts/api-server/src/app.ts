@@ -8,7 +8,7 @@ import rateLimit from "express-rate-limit";
 import { pool } from "@workspace/db";
 import router from "./routes/index.js";
 import { logger } from "./lib/logger.js";
-import { isProduction } from "./lib/env.js";
+import { env, isProduction } from "./lib/env.js";
 import { configurePassport } from "./lib/auth.js";
 
 const app: Express = express();
@@ -27,8 +27,8 @@ app.use(
   })
 );
 
-const allowedOrigins = process.env["REPLIT_DOMAINS"]
-  ? process.env["REPLIT_DOMAINS"].split(",").map((d) => `https://${d}`)
+const allowedOrigins = env.REPLIT_DOMAINS
+  ? env.REPLIT_DOMAINS.split(",").map((d) => `https://${d}`)
   : undefined;
 app.use(
   cors({
@@ -43,13 +43,7 @@ app.use(express.urlencoded({ extended: true }));
 app.use(
   session({
     store: new PgSession({ pool, createTableIfMissing: false }),
-    secret: (() => {
-      const s = process.env["SESSION_SECRET"];
-      if (!s && isProduction) {
-        throw new Error("SESSION_SECRET is required in production");
-      }
-      return s || "dev-secret-change-me";
-    })(),
+    secret: env.SESSION_SECRET,
     resave: false,
     saveUninitialized: false,
     cookie: {

@@ -1,22 +1,12 @@
 import app from "./app";
 import { logger } from "./lib/logger";
-import { isProduction } from "./lib/env";
+import { env, isProduction } from "./lib/env";
 import { startBackgroundRefresh } from "./lib/inventoryCache";
 import { scheduleCarfaxWorker } from "./lib/carfaxWorker";
 import { scheduleBlackBookWorker } from "./lib/blackBookWorker";
 import { scheduleLenderSync } from "./lib/lenderWorker";
 
-const rawPort = process.env["PORT"];
-
-if (!rawPort) {
-  throw new Error("PORT environment variable is required but was not provided.");
-}
-
-const port = Number(rawPort);
-
-if (Number.isNaN(port) || port <= 0) {
-  throw new Error(`Invalid PORT value: "${rawPort}"`);
-}
+const port = env.PORT;
 
 // Load inventory from DB first (instant), then start background refresh cycle.
 // await ensures the DB snapshot is in memory before we accept any requests.

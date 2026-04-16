@@ -4,16 +4,16 @@ import { db } from "@workspace/db";
 import { accessListTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { isOwner } from "../lib/auth.js";
+import { env } from "../lib/env.js";
 
 const router = Router();
 
-// Temp: shows exact callback URL registered with Google (helps diagnose OAuth mismatches)
 router.get("/auth/debug-callback", (_req, res) => {
-  const domain = (process.env["REPLIT_DOMAINS"] ?? "").split(",")[0]?.trim();
+  const domain = env.REPLIT_DOMAINS?.split(",")[0]?.trim();
   const callbackURL = domain
     ? `https://${domain}/api/auth/google/callback`
     : "http://localhost:8080/api/auth/google/callback";
-  res.json({ callbackURL, REPLIT_DOMAINS: process.env["REPLIT_DOMAINS"] ?? "(not set)" });
+  res.json({ callbackURL, REPLIT_DOMAINS: env.REPLIT_DOMAINS || "(not set)" });
 });
 
 // Kick off Google OAuth

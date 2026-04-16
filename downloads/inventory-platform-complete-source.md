@@ -1,6 +1,6 @@
 # Inventory Platform — Complete source (domain-grouped, machine-generated)
 
-Generated: 2026-04-16T18:58:22 UTC
+Generated: 2026-04-16T19:19:53 UTC
 
 Produced by `pnpm --filter @workspace/scripts export:complete-md`. Body is ordered by **business domain** (same flow as the hand-curated export: navigation → workspace → DB → API contract → codegen → server domains → portal → mockup → templates → scripts). Within each domain, files are sorted by path. Session JSON and build artifacts are excluded; see *Included roots* below.
 
@@ -47,7 +47,7 @@ Produced by `pnpm --filter @workspace/scripts export:complete-md`. Body is order
 
 *2 file(s).*
 
-### `AGENTS.md` (129 lines)
+### `AGENTS.md` (132 lines)
 
 ```markdown
 # Inventory Platform -- Agent Navigation Guide
@@ -178,6 +178,9 @@ All paths relative to `artifacts/api-server/src/`.
 - Do NOT write ad-hoc request validation — use `validateBody(Schema)` / `validateQuery(Schema)` / `validateParams(Schema)` from `lib/validate.ts`
 - Do NOT define local `isProduction` — use `{ isProduction }` from `lib/env.ts`
 - Do NOT use `require()` — use static `import` or `await import()` with a comment explaining why
+- Do NOT use `(req as any)` — extend `Express.Request` in `types/passport.d.ts` instead
+- Do NOT inline role-based field stripping — use `filterInventoryByRole()` from `lib/inventoryCache.ts`
+- Do NOT put pure math in route files — put it in `lib/lenderCalcEngine.ts` and import
 
 ```
 
@@ -12522,7 +12525,7 @@ buildAll().catch((err) => {
 
 ```
 
-### `artifacts/api-server/src/app.ts` (82 lines)
+### `artifacts/api-server/src/app.ts` (76 lines)
 
 ```typescript
 import express, { type Express } from "express";
@@ -12535,7 +12538,7 @@ import rateLimit from "express-rate-limit";
 import { pool } from "@workspace/db";
 import router from "./routes/index.js";
 import { logger } from "./lib/logger.js";
-import { isProduction } from "./lib/env.js";
+import { env, isProduction } from "./lib/env.js";
 import { configurePassport } from "./lib/auth.js";
 
 const app: Express = express();
@@ -12554,8 +12557,8 @@ app.use(
   })
 );
 
-const allowedOrigins = process.env["REPLIT_DOMAINS"]
-  ? process.env["REPLIT_DOMAINS"].split(",").map((d) => `https://${d}`)
+const allowedOrigins = env.REPLIT_DOMAINS
+  ? env.REPLIT_DOMAINS.split(",").map((d) => `https://${d}`)
   : undefined;
 app.use(
   cors({
@@ -12570,13 +12573,7 @@ app.use(express.urlencoded({ extended: true }));
 app.use(
   session({
     store: new PgSession({ pool, createTableIfMissing: false }),
-    secret: (() => {
-      const s = process.env["SESSION_SECRET"];
-      if (!s && isProduction) {
-        throw new Error("SESSION_SECRET is required in production");
-      }
-      return s || "dev-secret-change-me";
-    })(),
+    secret: env.SESSION_SECRET,
     resave: false,
     saveUninitialized: false,
     cookie: {
@@ -12609,28 +12606,18 @@ export default app;
 
 ```
 
-### `artifacts/api-server/src/index.ts` (50 lines)
+### `artifacts/api-server/src/index.ts` (40 lines)
 
 ```typescript
 import app from "./app";
 import { logger } from "./lib/logger";
-import { isProduction } from "./lib/env";
+import { env, isProduction } from "./lib/env";
 import { startBackgroundRefresh } from "./lib/inventoryCache";
 import { scheduleCarfaxWorker } from "./lib/carfaxWorker";
 import { scheduleBlackBookWorker } from "./lib/blackBookWorker";
 import { scheduleLenderSync } from "./lib/lenderWorker";
 
-const rawPort = process.env["PORT"];
-
-if (!rawPort) {
-  throw new Error("PORT environment variable is required but was not provided.");
-}
-
-const port = Number(rawPort);
-
-if (Number.isNaN(port) || port <= 0) {
-  throw new Error(`Invalid PORT value: "${rawPort}"`);
-}
+const port = env.PORT;
 
 // Load inventory from DB first (instant), then start background refresh cycle.
 // await ensures the DB snapshot is in memory before we accept any requests.
@@ -12694,7 +12681,7 @@ startBackgroundRefresh().then(() => {
 
 *4 file(s).*
 
-### `artifacts/api-server/src/lib/auth.ts` (108 lines)
+### `artifacts/api-server/src/lib/auth.ts` (110 lines)
 
 ```typescript
 import passport from "passport";
@@ -12704,13 +12691,14 @@ import { db } from "@workspace/db";
 import { accessListTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { logger } from "./logger.js";
+import { env } from "./env.js";
 
-const OWNER_EMAIL = (process.env["OWNER_EMAIL"] ?? "").toLowerCase().trim();
-const CLIENT_ID     = process.env["GOOGLE_CLIENT_ID"]     ?? "";
-const CLIENT_SECRET = process.env["GOOGLE_CLIENT_SECRET"] ?? "";
+const OWNER_EMAIL   = env.OWNER_EMAIL;
+const CLIENT_ID     = env.GOOGLE_CLIENT_ID;
+const CLIENT_SECRET = env.GOOGLE_CLIENT_SECRET;
 
 function getCallbackUrl(): string {
-  const domain = process.env["REPLIT_DOMAINS"]?.split(",")[0]?.trim();
+  const domain = env.REPLIT_DOMAINS?.split(",")[0]?.trim();
   if (domain) return `https://${domain}/api/auth/google/callback`;
   return "http://localhost:8080/api/auth/google/callback";
 }
@@ -12761,7 +12749,7 @@ export async function requireOwnerOrViewer(req: Request, res: Response, next: Ne
     res.status(403).json({ error: "Access denied" });
     return;
   }
-  (req as any)._role = role;
+  req._role = role;
   next();
 }
 
@@ -12793,7 +12781,8 @@ export function configurePassport() {
         callbackURL:  getCallbackUrl(),
       },
       (_accessToken, _refreshToken, profile, done) => {
-        const email   = profile.emails?.[0]?.value ?? "";
+        const email = profile.emails?.[0]?.value ?? "";
+        if (!email) return done(new Error("Google profile missing email"));
         const name    = profile.displayName ?? "";
         const picture = profile.photos?.[0]?.value ?? "";
         done(null, { email, name, picture });
@@ -13006,16 +12995,16 @@ import { db } from "@workspace/db";
 import { accessListTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { isOwner } from "../lib/auth.js";
+import { env } from "../lib/env.js";
 
 const router = Router();
 
-// Temp: shows exact callback URL registered with Google (helps diagnose OAuth mismatches)
 router.get("/auth/debug-callback", (_req, res) => {
-  const domain = (process.env["REPLIT_DOMAINS"] ?? "").split(",")[0]?.trim();
+  const domain = env.REPLIT_DOMAINS?.split(",")[0]?.trim();
   const callbackURL = domain
     ? `https://${domain}/api/auth/google/callback`
     : "http://localhost:8080/api/auth/google/callback";
-  res.json({ callbackURL, REPLIT_DOMAINS: process.env["REPLIT_DOMAINS"] ?? "(not set)" });
+  res.json({ callbackURL, REPLIT_DOMAINS: env.REPLIT_DOMAINS || "(not set)" });
 });
 
 // Kick off Google OAuth
@@ -13085,13 +13074,13 @@ export default router;
 
 *3 file(s).*
 
-### `artifacts/api-server/src/lib/inventoryCache.ts` (472 lines)
+### `artifacts/api-server/src/lib/inventoryCache.ts` (495 lines)
 
 ```typescript
 import { db, inventoryCacheTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { logger } from "./logger.js";
-import { isProduction } from "./env.js";
+import { env, isProduction } from "./env.js";
 
 export interface InventoryItem {
   location:       string;
@@ -13205,6 +13194,7 @@ import {
   TYPESENSE_HOST,
   DEALER_COLLECTIONS,
   extractWebsiteUrl,
+  type TypesenseSearchResponse,
 } from "./typesense.js";
 
 interface TypesenseMaps {
@@ -13234,12 +13224,12 @@ async function fetchFromTypesense(): Promise<TypesenseMaps> {
         const resp = await fetch(url, { signal: AbortSignal.timeout(10_000) });
         if (!resp.ok) break;
 
-        const body: any = await resp.json();
-        const hits: any[] = body.hits ?? [];
+        const body = await resp.json() as TypesenseSearchResponse;
+        const hits = body.hits ?? [];
         if (hits.length === 0) break;
 
         for (const hit of hits) {
-          const doc = hit.document ?? {};
+          const doc = (hit.document ?? {}) as Record<string, any>;
           const vin = (doc.vin ?? "").toString().trim().toUpperCase();
           if (!vin) continue;
 
@@ -13303,7 +13293,7 @@ export async function refreshCache(): Promise<void> {
   state.isRefreshing = true;
 
   try {
-    const dataUrl = process.env["INVENTORY_DATA_URL"]?.trim();
+    const dataUrl = env.INVENTORY_DATA_URL;
     if (!dataUrl) {
       logger.warn("INVENTORY_DATA_URL is not set — cache not populated");
       return;
@@ -13560,24 +13550,48 @@ export async function startBackgroundRefresh(intervalMs = 60 * 60 * 1000): Promi
   }, intervalMs);
 }
 
+/**
+ * Strip inventory fields based on user role.
+ * Owner sees everything; viewer hides cost/matrixPrice; guest additionally hides
+ * BB values and price.
+ */
+export function filterInventoryByRole(
+  items: InventoryItem[],
+  role: "owner" | "viewer" | "guest",
+): Partial<InventoryItem>[] {
+  return items.map((item) => {
+    if (role === "owner") return item;
+
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const { matrixPrice, cost, ...rest } = item;
+    if (role === "viewer") return rest;
+
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const { bbAvgWholesale, bbValues, ...guestRest } = rest;
+    return { ...guestRest, price: "" };
+  });
+}
+
 ```
 
-### `artifacts/api-server/src/routes/inventory.ts` (142 lines)
+### `artifacts/api-server/src/routes/inventory.ts` (128 lines)
 
 ```typescript
 import { Router } from "express";
 import { getUserRole, requireAccess } from "../lib/auth.js";
 import { logger } from "../lib/logger.js";
-import { getCacheState, refreshCache } from "../lib/inventoryCache.js";
+import { getCacheState, refreshCache, filterInventoryByRole } from "../lib/inventoryCache.js";
 import { runBlackBookWorker, getBlackBookStatus } from "../lib/blackBookWorker.js";
 import {
   TYPESENSE_HOST,
   DEALER_COLLECTIONS,
   IMAGE_CDN_BASE,
   extractWebsiteUrl,
+  type TypesenseSearchResponse,
 } from "../lib/typesense.js";
 import { validateQuery } from "../lib/validate.js";
 import { GetVehicleImagesQueryParams } from "@workspace/api-zod";
+import { env } from "../lib/env.js";
 
 const router = Router();
 
@@ -13585,24 +13599,8 @@ const router = Router();
 router.get("/inventory", requireAccess, async (req, res) => {
   const role = await getUserRole(req);
   const { data } = getCacheState();
-
-  const items = data.map((item) => {
-    if (role === "owner") return item;
-
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    const { matrixPrice, cost, ...rest } = item;
-
-    if (role === "viewer") return rest;
-
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    const { bbAvgWholesale, bbValues, ...guestRest } = rest;
-    if (role === "guest") return { ...guestRest, price: "" };
-
-    return guestRest;
-  });
-
   res.set("Cache-Control", "no-store");
-  res.json(items);
+  res.json(filterInventoryByRole(data, role));
 });
 
 // GET /cache-status — lightweight poll so the portal can detect updates
@@ -13641,10 +13639,10 @@ router.post("/refresh-blackbook", requireAccess, async (req, res) => {
 // POST /refresh — webhook from Apps Script to trigger an immediate cache refresh
 router.post("/refresh", (req, res) => {
   const secret   = req.headers["x-refresh-secret"];
-  const expected = process.env["REFRESH_SECRET"]?.trim();
+  const expected = env.REFRESH_SECRET;
 
   if (!expected || secret !== expected) {
-    logger.warn({ ip: (req as any).ip }, "Unauthorized /refresh attempt");
+    logger.warn({ ip: req.ip }, "Unauthorized /refresh attempt");
     res.status(401).json({ error: "Unauthorized" });
     return;
   }
@@ -13677,10 +13675,10 @@ router.get("/vehicle-images", requireAccess, validateQuery(GetVehicleImagesQuery
       const resp = await fetch(endpoint);
       if (!resp.ok) continue;
 
-      const body: any = await resp.json();
+      const body = await resp.json() as TypesenseSearchResponse;
       if (!body.hits?.length) continue;
 
-      const doc    = body.hits[0].document;
+      const doc    = body.hits[0].document as Record<string, any>;
       const docVin = (doc.vin ?? "").toString().trim().toUpperCase();
       if (docVin !== vin) continue;
 
@@ -13817,7 +13815,7 @@ export default router;
 
 ```typescript
 import { logger } from "./logger.js";
-import { isProduction } from "./env.js";
+import { env, isProduction } from "./env.js";
 import * as fs from "fs";
 import * as path from "path";
 import * as crypto from "crypto";
@@ -13855,17 +13853,17 @@ import {
   saveLenderSessionToStore,
 } from "./bbObjectStore.js";
 
-const LENDER_EMAIL    = process.env["LENDER_CREDITAPP_EMAIL"]?.trim()    ?? "";
-const LENDER_PASSWORD = process.env["LENDER_CREDITAPP_PASSWORD"]?.trim() ?? "";
-const LENDER_TOTP_SECRET = process.env["LENDER_CREDITAPP_TOTP_SECRET"]?.trim() ?? "";
-const LENDER_2FA_CODE_ENV = process.env["LENDER_CREDITAPP_2FA_CODE"]?.trim() ?? "";
+const LENDER_EMAIL         = env.LENDER_CREDITAPP_EMAIL;
+const LENDER_PASSWORD      = env.LENDER_CREDITAPP_PASSWORD;
+const LENDER_TOTP_SECRET   = env.LENDER_CREDITAPP_TOTP_SECRET;
+const LENDER_2FA_CODE_ENV  = env.LENDER_CREDITAPP_2FA_CODE;
 
 async function getLatestRecoveryCode(): Promise<string> {
   try {
     const fetch = (await import("node-fetch")).default; // Lazy: optional recovery-code fetch
     const OBJ_BASE = "http://127.0.0.1:1106";
-    const bucket = process.env.DEFAULT_OBJECT_STORAGE_BUCKET_ID;
-    const dir = process.env.PRIVATE_OBJECT_DIR || "";
+    const bucket = env.DEFAULT_OBJECT_STORAGE_BUCKET_ID;
+    const dir = env.PRIVATE_OBJECT_DIR || "";
     const key = `${dir}/lender-recovery-code.json`;
     const res = await fetch(`${OBJ_BASE}/buckets/${bucket}/objects/${encodeURIComponent(key)}`);
     if (res.ok) {
@@ -14718,9 +14716,11 @@ export async function getLenderAuthCookies(): Promise<{ appSession: string; csrf
 
 ```
 
-### `artifacts/api-server/src/lib/lenderCalcEngine.ts` (138 lines)
+### `artifacts/api-server/src/lib/lenderCalcEngine.ts` (265 lines)
 
 ```typescript
+import type { VehicleTermMatrixEntry, VehicleConditionMatrixEntry } from "./bbObjectStore.js";
+
 export type CapModelResolved = "allInOnly" | "split" | "backendOnly" | "unknown";
 export type CapProfileKey = "000" | "001" | "010" | "011" | "100" | "101" | "110" | "111";
 
@@ -14857,6 +14857,131 @@ export function resolveNoOnlineSellingPrice(ctx: NoOnlineSellContext): NoOnlineS
     source: "maximized",
     strategy,
   };
+}
+
+/** Accepts boolean or common string/number serializations from proxies and clients */
+export function truthyOptionalFlag(v: unknown): boolean {
+  if (v === true || v === 1) return true;
+  if (v === false || v === 0 || v == null) return false;
+  if (typeof v === "string") {
+    const s = v.trim().toLowerCase();
+    return s === "true" || s === "1" || s === "yes" || s === "on";
+  }
+  return false;
+}
+
+/** +6/+12 mo only; coerces strings so JSON/proxies cannot break [0,6,12].includes */
+export function normalizeTermStretchMonths(v: unknown): 0 | 6 | 12 {
+  const n = typeof v === "string" ? parseInt(v.trim(), 10) : Number(v);
+  if (!Number.isFinite(n)) return 0;
+  if (n === 6 || n === 12) return n;
+  return 0;
+}
+
+/** Hard cap on total finance term (months) when applying an exception stretch */
+export const MAX_FINANCE_TERM_MONTHS = 84;
+
+/** Largest stretch in {12,6,0} such that baseTerm + stretch <= maxTotal (default 84) */
+export function largestStretchNotExceeding(baseTerm: number, maxTotal: number = MAX_FINANCE_TERM_MONTHS): 0 | 6 | 12 {
+  if (baseTerm >= maxTotal) return 0;
+  const order: (0 | 6 | 12)[] = [12, 6, 0];
+  for (const s of order) {
+    if (baseTerm + s <= maxTotal) return s;
+  }
+  return 0;
+}
+
+/**
+ * Applies a term exception (stretch) to a matrix-derived base term.
+ *
+ * Business rules:
+ * - Hard cap: no finance term can exceed MAX_FINANCE_TERM_MONTHS (84).
+ * - If the matrix already qualifies at 84 months, no stretch is applied
+ *   regardless of user request — returns cappedReason "matrix_already_84_no_stretch".
+ * - A 78mo base with +12 requested is capped to +6 (reaching 84) — returns
+ *   cappedReason "78_only_plus6_to_84".
+ * - Any other over-cap scenario returns "capped_at_84_max".
+ *
+ * @param baseTerm - Term in months from the vehicle/year/km matrix lookup
+ * @param requested - User-selected stretch: 0, 6, or 12 months
+ * @returns effectiveStretch (actual months added), termMonths (final term),
+ *   stretched (boolean), and optional cappedReason explaining any reduction
+ */
+export function resolveEffectiveTermStretch(
+  baseTerm: number,
+  requested: 0 | 6 | 12,
+): {
+  effectiveStretch: 0 | 6 | 12;
+  termMonths: number;
+  stretched: boolean;
+  cappedReason?: "matrix_already_84_no_stretch" | "78_only_plus6_to_84" | "capped_at_84_max";
+} {
+  if (baseTerm >= MAX_FINANCE_TERM_MONTHS) {
+    return {
+      effectiveStretch: 0,
+      termMonths:       baseTerm,
+      stretched:        false,
+      cappedReason:     baseTerm === MAX_FINANCE_TERM_MONTHS ? "matrix_already_84_no_stretch" : undefined,
+    };
+  }
+  const maxStretch = largestStretchNotExceeding(baseTerm, MAX_FINANCE_TERM_MONTHS);
+  const effectiveStretch = (Math.min(requested, maxStretch) as 0 | 6 | 12);
+  const termMonths = baseTerm + effectiveStretch;
+
+  let cappedReason: "matrix_already_84_no_stretch" | "78_only_plus6_to_84" | "capped_at_84_max" | undefined;
+  if (requested > effectiveStretch) {
+    if (baseTerm === 78 && requested === 12 && effectiveStretch === 6) {
+      cappedReason = "78_only_plus6_to_84";
+    } else {
+      cappedReason = "capped_at_84_max";
+    }
+  }
+
+  return {
+    effectiveStretch,
+    termMonths,
+    stretched: effectiveStretch > 0,
+    cappedReason,
+  };
+}
+
+export function pmt(rate: number, nper: number, pv: number): number {
+  if (rate === 0) return pv / nper;
+  const r = rate / 12;
+  return (pv * r * Math.pow(1 + r, nper)) / (Math.pow(1 + r, nper) - 1);
+}
+
+export function parseVehicleYear(vehicle: string): number | null {
+  const match = vehicle.match(/\b(19|20)\d{2}\b/);
+  return match ? parseInt(match[0], 10) : null;
+}
+
+export function lookupTerm(
+  matrix: VehicleTermMatrixEntry[],
+  year: number,
+  km: number,
+): number | null {
+  const entry = matrix.find(e => e.year === year);
+  if (!entry) return null;
+  const match = entry.data.find(d => km >= d.kmFrom && km <= d.kmTo);
+  return match ? match.term : null;
+}
+
+export type ConditionBucket = "extraClean" | "clean" | "average" | "rough";
+
+export function lookupCondition(
+  matrix: VehicleConditionMatrixEntry[],
+  year: number,
+  km: number,
+): ConditionBucket | null {
+  const entry = matrix.find(e => e.year === year);
+  if (!entry) return null;
+  const buckets: ConditionBucket[] = ["extraClean", "clean", "average", "rough"];
+  for (const bucket of buckets) {
+    const range = entry[bucket];
+    if (km >= range.kmFrom && km <= range.kmTo) return bucket;
+  }
+  return null;
 }
 
 ```
@@ -15378,20 +15503,18 @@ export function scheduleLenderSync(): void {
 
 ```
 
-### `artifacts/api-server/src/lib/runtimeFingerprint.ts` (36 lines)
+### `artifacts/api-server/src/lib/runtimeFingerprint.ts` (34 lines)
 
 ```typescript
 import { execSync } from "node:child_process";
+import { env } from "./env.js";
 
 const CALCULATOR_VERSION = "calculator-cap-profile-v2";
 
 function readGitSha(): string {
-  const env =
-    process.env["GIT_SHA"]
-    ?? process.env["REPL_GIT_COMMIT"]
-    ?? process.env["VERCEL_GIT_COMMIT_SHA"];
-  if (env && env.trim().length > 0 && env.trim() !== "unknown") {
-    return env.trim();
+  const sha = env.GIT_SHA || env.REPL_GIT_COMMIT || env.VERCEL_GIT_COMMIT_SHA;
+  if (sha && sha !== "unknown") {
+    return sha;
   }
 
   // Replit / local dev often omit env SHAs; resolve from .git so responses prove which code is running
@@ -15469,7 +15592,7 @@ export default router;
 
 ```
 
-### `artifacts/api-server/src/routes/lender/lender-calculate.ts` (712 lines)
+### `artifacts/api-server/src/routes/lender/lender-calculate.ts` (595 lines)
 
 ```typescript
 import { Router } from "express";
@@ -15477,10 +15600,17 @@ import { requireOwnerOrViewer } from "../../lib/auth.js";
 import { logger } from "../../lib/logger.js";
 import { getCacheState, type InventoryItem } from "../../lib/inventoryCache.js";
 import { getCachedLenderPrograms } from "../../lib/lenderWorker.js";
-import type { VehicleTermMatrixEntry, VehicleConditionMatrixEntry } from "../../lib/bbObjectStore.js";
 import {
   resolveCapProfile,
   NO_ONLINE_STRATEGY_BY_PROFILE,
+  truthyOptionalFlag,
+  normalizeTermStretchMonths,
+  resolveEffectiveTermStretch,
+  pmt,
+  parseVehicleYear,
+  lookupTerm,
+  lookupCondition,
+  type ConditionBucket,
 } from "../../lib/lenderCalcEngine.js";
 import { getRuntimeFingerprint } from "../../lib/runtimeFingerprint.js";
 
@@ -15502,136 +15632,12 @@ interface CalcParams {
   showAllWithDownPayment?: boolean;
 }
 
-/** Accepts boolean or common string/number serializations from proxies and clients */
-function truthyOptionalFlag(v: unknown): boolean {
-  if (v === true || v === 1) return true;
-  if (v === false || v === 0 || v == null) return false;
-  if (typeof v === "string") {
-    const s = v.trim().toLowerCase();
-    return s === "true" || s === "1" || s === "yes" || s === "on";
-  }
-  return false;
-}
-
-/** +6/+12 mo only; coerces strings so JSON/proxies cannot break [0,6,12].includes */
-function normalizeTermStretchMonths(v: unknown): 0 | 6 | 12 {
-  const n = typeof v === "string" ? parseInt(v.trim(), 10) : Number(v);
-  if (!Number.isFinite(n)) return 0;
-  if (n === 6 || n === 12) return n;
-  return 0;
-}
-
-/** Hard cap on total finance term (months) when applying an exception stretch */
-const MAX_FINANCE_TERM_MONTHS = 84;
-
-/** Largest stretch in {12,6,0} such that baseTerm + stretch <= maxTotal (default 84) */
-function largestStretchNotExceeding(baseTerm: number, maxTotal: number = MAX_FINANCE_TERM_MONTHS): 0 | 6 | 12 {
-  if (baseTerm >= maxTotal) return 0;
-  const order: (0 | 6 | 12)[] = [12, 6, 0];
-  for (const s of order) {
-    if (baseTerm + s <= maxTotal) return s;
-  }
-  return 0;
-}
-
-/**
- * Applies a term exception (stretch) to a matrix-derived base term.
- *
- * Business rules:
- * - Hard cap: no finance term can exceed MAX_FINANCE_TERM_MONTHS (84).
- * - If the matrix already qualifies at 84 months, no stretch is applied
- *   regardless of user request — returns cappedReason "matrix_already_84_no_stretch".
- * - A 78mo base with +12 requested is capped to +6 (reaching 84) — returns
- *   cappedReason "78_only_plus6_to_84".
- * - Any other over-cap scenario returns "capped_at_84_max".
- *
- * @param baseTerm - Term in months from the vehicle/year/km matrix lookup
- * @param requested - User-selected stretch: 0, 6, or 12 months
- * @returns effectiveStretch (actual months added), termMonths (final term),
- *   stretched (boolean), and optional cappedReason explaining any reduction
- */
-function resolveEffectiveTermStretch(
-  baseTerm: number,
-  requested: 0 | 6 | 12,
-): {
-  effectiveStretch: 0 | 6 | 12;
-  termMonths: number;
-  stretched: boolean;
-  cappedReason?: "matrix_already_84_no_stretch" | "78_only_plus6_to_84" | "capped_at_84_max";
-} {
-  if (baseTerm >= MAX_FINANCE_TERM_MONTHS) {
-    return {
-      effectiveStretch: 0,
-      termMonths:       baseTerm,
-      stretched:        false,
-      cappedReason:     baseTerm === MAX_FINANCE_TERM_MONTHS ? "matrix_already_84_no_stretch" : undefined,
-    };
-  }
-  const maxStretch = largestStretchNotExceeding(baseTerm, MAX_FINANCE_TERM_MONTHS);
-  const effectiveStretch = (Math.min(requested, maxStretch) as 0 | 6 | 12);
-  const termMonths = baseTerm + effectiveStretch;
-
-  let cappedReason: "matrix_already_84_no_stretch" | "78_only_plus6_to_84" | "capped_at_84_max" | undefined;
-  if (requested > effectiveStretch) {
-    if (baseTerm === 78 && requested === 12 && effectiveStretch === 6) {
-      cappedReason = "78_only_plus6_to_84";
-    } else {
-      cappedReason = "capped_at_84_max";
-    }
-  }
-
-  return {
-    effectiveStretch,
-    termMonths,
-    stretched: effectiveStretch > 0,
-    cappedReason,
-  };
-}
-
-function pmt(rate: number, nper: number, pv: number): number {
-  if (rate === 0) return pv / nper;
-  const r = rate / 12;
-  return (pv * r * Math.pow(1 + r, nper)) / (Math.pow(1 + r, nper) - 1);
-}
-
-function parseVehicleYear(vehicle: string): number | null {
-  const match = vehicle.match(/\b(19|20)\d{2}\b/);
-  return match ? parseInt(match[0], 10) : null;
-}
-
-function lookupTerm(
-  matrix: VehicleTermMatrixEntry[],
-  year: number,
-  km: number,
-): number | null {
-  const entry = matrix.find(e => e.year === year);
-  if (!entry) return null;
-  const match = entry.data.find(d => km >= d.kmFrom && km <= d.kmTo);
-  return match ? match.term : null;
-}
-
-type ConditionBucket = "extraClean" | "clean" | "average" | "rough";
 const conditionToBBField: Record<ConditionBucket, keyof NonNullable<InventoryItem["bbValues"]>> = {
   extraClean: "xclean",
   clean:      "clean",
   average:    "avg",
   rough:      "rough",
 };
-
-function lookupCondition(
-  matrix: VehicleConditionMatrixEntry[],
-  year: number,
-  km: number,
-): ConditionBucket | null {
-  const entry = matrix.find(e => e.year === year);
-  if (!entry) return null;
-  const buckets: ConditionBucket[] = ["extraClean", "clean", "average", "rough"];
-  for (const bucket of buckets) {
-    const range = entry[bucket];
-    if (km >= range.kmFrom && km <= range.kmTo) return bucket;
-  }
-  return null;
-}
 
 router.post("/lender-calculate", requireOwnerOrViewer, async (req, res) => {
   const params = req.body as CalcParams;
@@ -16206,11 +16212,11 @@ const router = Router();
 router.get("/lender-programs", requireOwnerOrViewer, async (req, res) => {
   const programs = getCachedLenderPrograms();
   if (!programs) {
-    res.json({ programs: [], updatedAt: null, role: (req as any)._role });
+    res.json({ programs: [], updatedAt: null, role: req._role });
     return;
   }
   res.set("Cache-Control", "no-store");
-  res.json({ ...programs, role: (req as any)._role });
+  res.json({ ...programs, role: req._role });
 });
 
 router.get("/lender-status", requireOwnerOrViewer, async (req, res) => {
@@ -16224,7 +16230,7 @@ router.get("/lender-status", requireOwnerOrViewer, async (req, res) => {
     lenderCount:  s.lastCount,
     error:        s.error ?? null,
     programsAge:  programs?.updatedAt ?? null,
-    role:         (req as any)._role,
+    role:         req._role,
   });
 });
 
@@ -16313,6 +16319,7 @@ export default router;
 
 import { Storage } from "@google-cloud/storage";
 import { logger } from "./logger.js";
+import { env } from "./env.js";
 
 const SIDECAR = "http://127.0.0.1:1106";
 
@@ -16332,9 +16339,8 @@ const gcs = new Storage({
 });
 
 function bucket() {
-  const id = process.env["DEFAULT_OBJECT_STORAGE_BUCKET_ID"];
-  if (!id) throw new Error("DEFAULT_OBJECT_STORAGE_BUCKET_ID is not set");
-  return gcs.bucket(id);
+  if (!env.DEFAULT_OBJECT_STORAGE_BUCKET_ID) throw new Error("DEFAULT_OBJECT_STORAGE_BUCKET_ID is not set");
+  return gcs.bucket(env.DEFAULT_OBJECT_STORAGE_BUCKET_ID);
 }
 
 async function readJson<T>(name: string): Promise<T | null> {
@@ -16541,7 +16547,7 @@ export async function saveLenderProgramsToStore(data: LenderProgramsBlob): Promi
  */
 
 import { logger }                         from "./logger.js";
-import { isProduction }                   from "./env.js";
+import { env, isProduction }              from "./env.js";
 import * as fs                            from "fs";
 import * as path                          from "path";
 import { getCacheState, applyBlackBookValues } from "./inventoryCache.js";
@@ -16556,11 +16562,11 @@ import { scheduleRandomDaily, toMountainDateStr } from "./randomScheduler.js";
 // Constants
 // ---------------------------------------------------------------------------
 
-const CREDITAPP_EMAIL    = process.env["CREDITAPP_EMAIL"]?.trim()    ?? "";
-const CREDITAPP_PASSWORD = process.env["CREDITAPP_PASSWORD"]?.trim() ?? "";
+const CREDITAPP_EMAIL    = env.CREDITAPP_EMAIL;
+const CREDITAPP_PASSWORD = env.CREDITAPP_PASSWORD;
 const BB_ENABLED         = !!(CREDITAPP_EMAIL && CREDITAPP_PASSWORD);
 
-const CBB_ENDPOINT    = process.env["BB_CBB_ENDPOINT"]?.trim() ?? "https://admin.creditapp.ca/api/cbb/find";
+const CBB_ENDPOINT    = env.BB_CBB_ENDPOINT || "https://admin.creditapp.ca/api/cbb/find";
 const CREDITAPP_HOME  = "https://admin.creditapp.ca";
 const LOGIN_URL       = "https://admin.creditapp.ca/api/auth/login";
 const SESSION_FILE    = path.join(process.cwd(), ".creditapp-session.json");
@@ -17502,7 +17508,7 @@ export async function runBlackBookForVins(targetVins: string[]): Promise<void> {
 
 ```
 
-### `artifacts/api-server/src/lib/carfaxWorker.ts` (990 lines)
+### `artifacts/api-server/src/lib/carfaxWorker.ts` (991 lines)
 
 ```typescript
 /**
@@ -17521,14 +17527,15 @@ export async function runBlackBookForVins(targetVins: string[]): Promise<void> {
  */
 
 import { logger } from "./logger.js";
+import { env } from "./env.js";
 import { scheduleRandomDaily, toMountainDateStr } from "./randomScheduler.js";
 import * as fs   from "fs";
 import * as path from "path";
 
-const APPS_SCRIPT_URL = process.env["APPS_SCRIPT_WEB_APP_URL"]?.trim() ?? "";
-const CARFAX_EMAIL    = process.env["CARFAX_EMAIL"]?.trim()    ?? "";
-const CARFAX_PASSWORD = process.env["CARFAX_PASSWORD"]?.trim() ?? "";
-const CARFAX_ENABLED  = process.env["CARFAX_ENABLED"]?.trim().toLowerCase() === "true";
+const APPS_SCRIPT_URL = env.APPS_SCRIPT_WEB_APP_URL;
+const CARFAX_EMAIL    = env.CARFAX_EMAIL;
+const CARFAX_PASSWORD = env.CARFAX_PASSWORD;
+const CARFAX_ENABLED  = env.CARFAX_ENABLED;
 
 // Dealer portal URLs — same as the desktop script
 const CARFAX_HOME      = "https://dealer.carfax.ca/";
@@ -18601,7 +18608,7 @@ runCarfaxWorkerForVins(vins).then((results) => {
 
 *10 file(s).*
 
-### `artifacts/api-server/src/lib/env.ts` (69 lines)
+### `artifacts/api-server/src/lib/env.ts` (77 lines)
 
 ```typescript
 /**
@@ -18656,6 +18663,14 @@ const envSchema = z.object({
   VERCEL_GIT_COMMIT_SHA:         optStr,
 
   LOG_LEVEL:                     z.string().trim().default("info"),
+}).superRefine((data, ctx) => {
+  if (data.REPLIT_DEPLOYMENT === "1" && data.SESSION_SECRET === "dev-secret-change-me") {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["SESSION_SECRET"],
+      message: "SESSION_SECRET must be explicitly set in production",
+    });
+  }
 });
 
 function parseEnv() {
@@ -18679,10 +18694,10 @@ export const isProduction = env.REPLIT_DEPLOYMENT === "1";
 
 ```typescript
 import pino from "pino";
-import { isProduction } from "./env.js";
+import { env, isProduction } from "./env.js";
 
 export const logger = pino({
-  level: process.env.LOG_LEVEL ?? "info",
+  level: env.LOG_LEVEL,
   redact: [
     "req.headers.authorization",
     "req.headers.cookie",
@@ -18980,7 +18995,7 @@ lenderAuth.ts ──cookies──▶ lenderWorker.ts ──programs──▶ rou
 
 ```
 
-### `artifacts/api-server/src/lib/typesense.ts` (69 lines)
+### `artifacts/api-server/src/lib/typesense.ts` (75 lines)
 
 ```typescript
 /**
@@ -19050,6 +19065,12 @@ export function extractWebsiteUrl(doc: any, siteUrl: string): string | null {
   }
   if (!id || !slug) return null;
   return `${siteUrl}/inventory/${slug}/${id}/`;
+}
+
+/** Typed shape of a Typesense search API response. */
+export interface TypesenseSearchResponse<T = Record<string, unknown>> {
+  found: number;
+  hits: Array<{ document: T }>;
 }
 
 ```
@@ -19280,15 +19301,20 @@ The lender route is split into focused modules under `routes/lender/`:
 
 ```
 
-### `artifacts/api-server/src/types/passport.d.ts` (12 lines)
+### `artifacts/api-server/src/types/passport.d.ts` (17 lines)
 
 ```typescript
+import type { UserRole } from "../lib/auth";
+
 declare global {
   namespace Express {
     interface User {
       email:   string;
       name:    string;
       picture: string;
+    }
+    interface Request {
+      _role?: UserRole;
     }
   }
 }

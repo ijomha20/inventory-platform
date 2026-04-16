@@ -5,13 +5,14 @@ import { db } from "@workspace/db";
 import { accessListTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { logger } from "./logger.js";
+import { env } from "./env.js";
 
-const OWNER_EMAIL = (process.env["OWNER_EMAIL"] ?? "").toLowerCase().trim();
-const CLIENT_ID     = process.env["GOOGLE_CLIENT_ID"]     ?? "";
-const CLIENT_SECRET = process.env["GOOGLE_CLIENT_SECRET"] ?? "";
+const OWNER_EMAIL   = env.OWNER_EMAIL;
+const CLIENT_ID     = env.GOOGLE_CLIENT_ID;
+const CLIENT_SECRET = env.GOOGLE_CLIENT_SECRET;
 
 function getCallbackUrl(): string {
-  const domain = process.env["REPLIT_DOMAINS"]?.split(",")[0]?.trim();
+  const domain = env.REPLIT_DOMAINS?.split(",")[0]?.trim();
   if (domain) return `https://${domain}/api/auth/google/callback`;
   return "http://localhost:8080/api/auth/google/callback";
 }
@@ -62,7 +63,7 @@ export async function requireOwnerOrViewer(req: Request, res: Response, next: Ne
     res.status(403).json({ error: "Access denied" });
     return;
   }
-  (req as any)._role = role;
+  req._role = role;
   next();
 }
 
@@ -94,7 +95,8 @@ export function configurePassport() {
         callbackURL:  getCallbackUrl(),
       },
       (_accessToken, _refreshToken, profile, done) => {
-        const email   = profile.emails?.[0]?.value ?? "";
+        const email = profile.emails?.[0]?.value ?? "";
+        if (!email) return done(new Error("Google profile missing email"));
         const name    = profile.displayName ?? "";
         const picture = profile.photos?.[0]?.value ?? "";
         done(null, { email, name, picture });

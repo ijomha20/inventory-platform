@@ -13,6 +13,7 @@
 
 import { Storage } from "@google-cloud/storage";
 import { logger } from "./logger.js";
+import { env } from "./env.js";
 
 const SIDECAR = "http://127.0.0.1:1106";
 
@@ -32,9 +33,8 @@ const gcs = new Storage({
 });
 
 function bucket() {
-  const id = process.env["DEFAULT_OBJECT_STORAGE_BUCKET_ID"];
-  if (!id) throw new Error("DEFAULT_OBJECT_STORAGE_BUCKET_ID is not set");
-  return gcs.bucket(id);
+  if (!env.DEFAULT_OBJECT_STORAGE_BUCKET_ID) throw new Error("DEFAULT_OBJECT_STORAGE_BUCKET_ID is not set");
+  return gcs.bucket(env.DEFAULT_OBJECT_STORAGE_BUCKET_ID);
 }
 
 async function readJson<T>(name: string): Promise<T | null> {

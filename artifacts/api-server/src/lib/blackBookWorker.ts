@@ -19,7 +19,7 @@
  */
 
 import { logger }                         from "./logger.js";
-import { isProduction }                   from "./env.js";
+import { env, isProduction }              from "./env.js";
 import * as fs                            from "fs";
 import * as path                          from "path";
 import { getCacheState, applyBlackBookValues } from "./inventoryCache.js";
@@ -34,11 +34,11 @@ import { scheduleRandomDaily, toMountainDateStr } from "./randomScheduler.js";
 // Constants
 // ---------------------------------------------------------------------------
 
-const CREDITAPP_EMAIL    = process.env["CREDITAPP_EMAIL"]?.trim()    ?? "";
-const CREDITAPP_PASSWORD = process.env["CREDITAPP_PASSWORD"]?.trim() ?? "";
+const CREDITAPP_EMAIL    = env.CREDITAPP_EMAIL;
+const CREDITAPP_PASSWORD = env.CREDITAPP_PASSWORD;
 const BB_ENABLED         = !!(CREDITAPP_EMAIL && CREDITAPP_PASSWORD);
 
-const CBB_ENDPOINT    = process.env["BB_CBB_ENDPOINT"]?.trim() ?? "https://admin.creditapp.ca/api/cbb/find";
+const CBB_ENDPOINT    = env.BB_CBB_ENDPOINT || "https://admin.creditapp.ca/api/cbb/find";
 const CREDITAPP_HOME  = "https://admin.creditapp.ca";
 const LOGIN_URL       = "https://admin.creditapp.ca/api/auth/login";
 const SESSION_FILE    = path.join(process.cwd(), ".creditapp-session.json");

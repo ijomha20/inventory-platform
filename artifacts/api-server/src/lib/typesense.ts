@@ -66,3 +66,9 @@ export function extractWebsiteUrl(doc: any, siteUrl: string): string | null {
   if (!id || !slug) return null;
   return `${siteUrl}/inventory/${slug}/${id}/`;
 }
+
+/** Typed shape of a Typesense search API response. */
+export interface TypesenseSearchResponse<T = Record<string, unknown>> {
+  found: number;
+  hits: Array<{ document: T }>;
+}

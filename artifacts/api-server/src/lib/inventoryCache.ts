@@ -1,7 +1,7 @@
 import { db, inventoryCacheTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { logger } from "./logger.js";
-import { isProduction } from "./env.js";
+import { env, isProduction } from "./env.js";
 
 export interface InventoryItem {
   location:       string;
@@ -115,6 +115,7 @@ import {
   TYPESENSE_HOST,
   DEALER_COLLECTIONS,
   extractWebsiteUrl,
+  type TypesenseSearchResponse,
 } from "./typesense.js";
 
 interface TypesenseMaps {
@@ -144,12 +145,12 @@ async function fetchFromTypesense(): Promise<TypesenseMaps> {
         const resp = await fetch(url, { signal: AbortSignal.timeout(10_000) });
         if (!resp.ok) break;
 
-        const body: any = await resp.json();
-        const hits: any[] = body.hits ?? [];
+        const body = await resp.json() as TypesenseSearchResponse;
+        const hits = body.hits ?? [];
         if (hits.length === 0) break;
 
         for (const hit of hits) {
-          const doc = hit.document ?? {};
+          const doc = (hit.document ?? {}) as Record<string, any>;
           const vin = (doc.vin ?? "").toString().trim().toUpperCase();
           if (!vin) continue;
 
@@ -213,7 +214,7 @@ export async function refreshCache(): Promise<void> {
   state.isRefreshing = true;
 
   try {
-    const dataUrl = process.env["INVENTORY_DATA_URL"]?.trim();
+    const dataUrl = env.INVENTORY_DATA_URL;
     if (!dataUrl) {
       logger.warn("INVENTORY_DATA_URL is not set — cache not populated");
       return;
@@ -468,4 +469,26 @@ export async function startBackgroundRefresh(intervalMs = 60 * 60 * 1000): Promi
       logger.error({ err }, "Background inventory cache refresh failed"),
     );
   }, intervalMs);
+}
+
+/**
+ * Strip inventory fields based on user role.
+ * Owner sees everything; viewer hides cost/matrixPrice; guest additionally hides
+ * BB values and price.
+ */
+export function filterInventoryByRole(
+  items: InventoryItem[],
+  role: "owner" | "viewer" | "guest",
+): Partial<InventoryItem>[] {
+  return items.map((item) => {
+    if (role === "owner") return item;
+
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const { matrixPrice, cost, ...rest } = item;
+    if (role === "viewer") return rest;
+
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const { bbAvgWholesale, bbValues, ...guestRest } = rest;
+    return { ...guestRest, price: "" };
+  });
 }

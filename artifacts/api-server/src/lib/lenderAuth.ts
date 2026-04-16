@@ -1,5 +1,5 @@
 import { logger } from "./logger.js";
-import { isProduction } from "./env.js";
+import { env, isProduction } from "./env.js";
 import * as fs from "fs";
 import * as path from "path";
 import * as crypto from "crypto";
@@ -37,17 +37,17 @@ import {
   saveLenderSessionToStore,
 } from "./bbObjectStore.js";
 
-const LENDER_EMAIL    = process.env["LENDER_CREDITAPP_EMAIL"]?.trim()    ?? "";
-const LENDER_PASSWORD = process.env["LENDER_CREDITAPP_PASSWORD"]?.trim() ?? "";
-const LENDER_TOTP_SECRET = process.env["LENDER_CREDITAPP_TOTP_SECRET"]?.trim() ?? "";
-const LENDER_2FA_CODE_ENV = process.env["LENDER_CREDITAPP_2FA_CODE"]?.trim() ?? "";
+const LENDER_EMAIL         = env.LENDER_CREDITAPP_EMAIL;
+const LENDER_PASSWORD      = env.LENDER_CREDITAPP_PASSWORD;
+const LENDER_TOTP_SECRET   = env.LENDER_CREDITAPP_TOTP_SECRET;
+const LENDER_2FA_CODE_ENV  = env.LENDER_CREDITAPP_2FA_CODE;
 
 async function getLatestRecoveryCode(): Promise<string> {
   try {
     const fetch = (await import("node-fetch")).default; // Lazy: optional recovery-code fetch
     const OBJ_BASE = "http://127.0.0.1:1106";
-    const bucket = process.env.DEFAULT_OBJECT_STORAGE_BUCKET_ID;
-    const dir = process.env.PRIVATE_OBJECT_DIR || "";
+    const bucket = env.DEFAULT_OBJECT_STORAGE_BUCKET_ID;
+    const dir = env.PRIVATE_OBJECT_DIR || "";
     const key = `${dir}/lender-recovery-code.json`;
     const res = await fetch(`${OBJ_BASE}/buckets/${bucket}/objects/${encodeURIComponent(key)}`);
     if (res.ok) {

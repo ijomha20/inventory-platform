@@ -1,16 +1,18 @@
 import { Router } from "express";
 import { getUserRole, requireAccess } from "../lib/auth.js";
 import { logger } from "../lib/logger.js";
-import { getCacheState, refreshCache } from "../lib/inventoryCache.js";
+import { getCacheState, refreshCache, filterInventoryByRole } from "../lib/inventoryCache.js";
 import { runBlackBookWorker, getBlackBookStatus } from "../lib/blackBookWorker.js";
 import {
   TYPESENSE_HOST,
   DEALER_COLLECTIONS,
   IMAGE_CDN_BASE,
   extractWebsiteUrl,
+  type TypesenseSearchResponse,
 } from "../lib/typesense.js";
 import { validateQuery } from "../lib/validate.js";
 import { GetVehicleImagesQueryParams } from "@workspace/api-zod";
+import { env } from "../lib/env.js";
 
 const router = Router();
 
@@ -18,24 +20,8 @@ const router = Router();
 router.get("/inventory", requireAccess, async (req, res) => {
   const role = await getUserRole(req);
   const { data } = getCacheState();
-
-  const items = data.map((item) => {
-    if (role === "owner") return item;
-
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    const { matrixPrice, cost, ...rest } = item;
-
-    if (role === "viewer") return rest;
-
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    const { bbAvgWholesale, bbValues, ...guestRest } = rest;
-    if (role === "guest") return { ...guestRest, price: "" };
-
-    return guestRest;
-  });
-
   res.set("Cache-Control", "no-store");
-  res.json(items);
+  res.json(filterInventoryByRole(data, role));
 });
 
 // GET /cache-status — lightweight poll so the portal can detect updates
@@ -74,10 +60,10 @@ router.post("/refresh-blackbook", requireAccess, async (req, res) => {
 // POST /refresh — webhook from Apps Script to trigger an immediate cache refresh
 router.post("/refresh", (req, res) => {
   const secret   = req.headers["x-refresh-secret"];
-  const expected = process.env["REFRESH_SECRET"]?.trim();
+  const expected = env.REFRESH_SECRET;
 
   if (!expected || secret !== expected) {
-    logger.warn({ ip: (req as any).ip }, "Unauthorized /refresh attempt");
+    logger.warn({ ip: req.ip }, "Unauthorized /refresh attempt");
     res.status(401).json({ error: "Unauthorized" });
     return;
   }
@@ -110,10 +96,10 @@ router.get("/vehicle-images", requireAccess, validateQuery(GetVehicleImagesQuery
       const resp = await fetch(endpoint);
       if (!resp.ok) continue;
 
-      const body: any = await resp.json();
+      const body = await resp.json() as TypesenseSearchResponse;
       if (!body.hits?.length) continue;
 
-      const doc    = body.hits[0].document;
+      const doc    = body.hits[0].document as Record<string, any>;
       const docVin = (doc.vin ?? "").toString().trim().toUpperCase();
       if (docVin !== vin) continue;
 

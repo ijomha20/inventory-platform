@@ -14,14 +14,15 @@
  */
 
 import { logger } from "./logger.js";
+import { env } from "./env.js";
 import { scheduleRandomDaily, toMountainDateStr } from "./randomScheduler.js";
 import * as fs   from "fs";
 import * as path from "path";
 
-const APPS_SCRIPT_URL = process.env["APPS_SCRIPT_WEB_APP_URL"]?.trim() ?? "";
-const CARFAX_EMAIL    = process.env["CARFAX_EMAIL"]?.trim()    ?? "";
-const CARFAX_PASSWORD = process.env["CARFAX_PASSWORD"]?.trim() ?? "";
-const CARFAX_ENABLED  = process.env["CARFAX_ENABLED"]?.trim().toLowerCase() === "true";
+const APPS_SCRIPT_URL = env.APPS_SCRIPT_WEB_APP_URL;
+const CARFAX_EMAIL    = env.CARFAX_EMAIL;
+const CARFAX_PASSWORD = env.CARFAX_PASSWORD;
+const CARFAX_ENABLED  = env.CARFAX_ENABLED;
 
 // Dealer portal URLs — same as the desktop script
 const CARFAX_HOME      = "https://dealer.carfax.ca/";

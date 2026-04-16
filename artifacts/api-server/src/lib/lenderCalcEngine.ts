@@ -1,3 +1,5 @@
+import type { VehicleTermMatrixEntry, VehicleConditionMatrixEntry } from "./bbObjectStore.js";
+
 export type CapModelResolved = "allInOnly" | "split" | "backendOnly" | "unknown";
 export type CapProfileKey = "000" | "001" | "010" | "011" | "100" | "101" | "110" | "111";
 
@@ -134,4 +136,129 @@ export function resolveNoOnlineSellingPrice(ctx: NoOnlineSellContext): NoOnlineS
     source: "maximized",
     strategy,
   };
+}
+
+/** Accepts boolean or common string/number serializations from proxies and clients */
+export function truthyOptionalFlag(v: unknown): boolean {
+  if (v === true || v === 1) return true;
+  if (v === false || v === 0 || v == null) return false;
+  if (typeof v === "string") {
+    const s = v.trim().toLowerCase();
+    return s === "true" || s === "1" || s === "yes" || s === "on";
+  }
+  return false;
+}
+
+/** +6/+12 mo only; coerces strings so JSON/proxies cannot break [0,6,12].includes */
+export function normalizeTermStretchMonths(v: unknown): 0 | 6 | 12 {
+  const n = typeof v === "string" ? parseInt(v.trim(), 10) : Number(v);
+  if (!Number.isFinite(n)) return 0;
+  if (n === 6 || n === 12) return n;
+  return 0;
+}
+
+/** Hard cap on total finance term (months) when applying an exception stretch */
+export const MAX_FINANCE_TERM_MONTHS = 84;
+
+/** Largest stretch in {12,6,0} such that baseTerm + stretch <= maxTotal (default 84) */
+export function largestStretchNotExceeding(baseTerm: number, maxTotal: number = MAX_FINANCE_TERM_MONTHS): 0 | 6 | 12 {
+  if (baseTerm >= maxTotal) return 0;
+  const order: (0 | 6 | 12)[] = [12, 6, 0];
+  for (const s of order) {
+    if (baseTerm + s <= maxTotal) return s;
+  }
+  return 0;
+}
+
+/**
+ * Applies a term exception (stretch) to a matrix-derived base term.
+ *
+ * Business rules:
+ * - Hard cap: no finance term can exceed MAX_FINANCE_TERM_MONTHS (84).
+ * - If the matrix already qualifies at 84 months, no stretch is applied
+ *   regardless of user request — returns cappedReason "matrix_already_84_no_stretch".
+ * - A 78mo base with +12 requested is capped to +6 (reaching 84) — returns
+ *   cappedReason "78_only_plus6_to_84".
+ * - Any other over-cap scenario returns "capped_at_84_max".
+ *
+ * @param baseTerm - Term in months from the vehicle/year/km matrix lookup
+ * @param requested - User-selected stretch: 0, 6, or 12 months
+ * @returns effectiveStretch (actual months added), termMonths (final term),
+ *   stretched (boolean), and optional cappedReason explaining any reduction
+ */
+export function resolveEffectiveTermStretch(
+  baseTerm: number,
+  requested: 0 | 6 | 12,
+): {
+  effectiveStretch: 0 | 6 | 12;
+  termMonths: number;
+  stretched: boolean;
+  cappedReason?: "matrix_already_84_no_stretch" | "78_only_plus6_to_84" | "capped_at_84_max";
+} {
+  if (baseTerm >= MAX_FINANCE_TERM_MONTHS) {
+    return {
+      effectiveStretch: 0,
+      termMonths:       baseTerm,
+      stretched:        false,
+      cappedReason:     baseTerm === MAX_FINANCE_TERM_MONTHS ? "matrix_already_84_no_stretch" : undefined,
+    };
+  }
+  const maxStretch = largestStretchNotExceeding(baseTerm, MAX_FINANCE_TERM_MONTHS);
+  const effectiveStretch = (Math.min(requested, maxStretch) as 0 | 6 | 12);
+  const termMonths = baseTerm + effectiveStretch;
+
+  let cappedReason: "matrix_already_84_no_stretch" | "78_only_plus6_to_84" | "capped_at_84_max" | undefined;
+  if (requested > effectiveStretch) {
+    if (baseTerm === 78 && requested === 12 && effectiveStretch === 6) {
+      cappedReason = "78_only_plus6_to_84";
+    } else {
+      cappedReason = "capped_at_84_max";
+    }
+  }
+
+  return {
+    effectiveStretch,
+    termMonths,
+    stretched: effectiveStretch > 0,
+    cappedReason,
+  };
+}
+
+export function pmt(rate: number, nper: number, pv: number): number {
+  if (rate === 0) return pv / nper;
+  const r = rate / 12;
+  return (pv * r * Math.pow(1 + r, nper)) / (Math.pow(1 + r, nper) - 1);
+}
+
+export function parseVehicleYear(vehicle: string): number | null {
+  const match = vehicle.match(/\b(19|20)\d{2}\b/);
+  return match ? parseInt(match[0], 10) : null;
+}
+
+export function lookupTerm(
+  matrix: VehicleTermMatrixEntry[],
+  year: number,
+  km: number,
+): number | null {
+  const entry = matrix.find(e => e.year === year);
+  if (!entry) return null;
+  const match = entry.data.find(d => km >= d.kmFrom && km <= d.kmTo);
+  return match ? match.term : null;
+}
+
+export type ConditionBucket = "extraClean" | "clean" | "average" | "rough";
+
+export function lookupCondition(
+  matrix: VehicleConditionMatrixEntry[],
+  year: number,
+  km: number,
+): ConditionBucket | null {
+  const entry = matrix.find(e => e.year === year);
+  if (!entry) return null;
+  const buckets: ConditionBucket[] = ["extraClean", "clean", "average", "rough"];
+  for (const bucket of buckets) {
+    const range = entry[bucket];
+    if (km >= range.kmFrom && km <= range.kmTo) return bucket;
+  }
+  return null;
 }

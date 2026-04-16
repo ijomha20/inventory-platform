@@ -126,3 +126,6 @@ All paths relative to `artifacts/api-server/src/`.
 - Do NOT write ad-hoc request validation — use `validateBody(Schema)` / `validateQuery(Schema)` / `validateParams(Schema)` from `lib/validate.ts`
 - Do NOT define local `isProduction` — use `{ isProduction }` from `lib/env.ts`
 - Do NOT use `require()` — use static `import` or `await import()` with a comment explaining why
+- Do NOT use `(req as any)` — extend `Express.Request` in `types/passport.d.ts` instead
+- Do NOT inline role-based field stripping — use `filterInventoryByRole()` from `lib/inventoryCache.ts`
+- Do NOT put pure math in route files — put it in `lib/lenderCalcEngine.ts` and import
