@@ -2,23 +2,10 @@ import { Router } from "express";
 import { db } from "@workspace/db";
 import { accessListTable, auditLogTable } from "@workspace/db";
 import { eq, desc } from "drizzle-orm";
-import { isOwner } from "../lib/auth.js";
+import { requireOwner } from "../lib/auth.js";
 import { sendInvitationEmail } from "../lib/emailService.js";
 
 const router = Router();
-
-function requireOwner(req: any, res: any, next: any) {
-  if (!req.isAuthenticated || !req.isAuthenticated()) {
-    res.status(401).json({ error: "Not authenticated" });
-    return;
-  }
-  const user = req.user as { email: string };
-  if (!isOwner(user.email)) {
-    res.status(403).json({ error: "Owner only" });
-    return;
-  }
-  next();
-}
 
 async function writeAudit(
   action: string,
@@ -74,7 +61,7 @@ router.post("/access", requireOwner, async (req, res) => {
 
 // PATCH /access/:email — update a user's role (owner only)
 router.patch("/access/:email", requireOwner, async (req, res) => {
-  const email   = decodeURIComponent(req.params.email ?? "").toLowerCase();
+  const email   = decodeURIComponent(String(req.params.email ?? "")).toLowerCase();
   const newRole = (req.body?.role ?? "").toString().trim().toLowerCase();
 
   if (!["viewer", "guest"].includes(newRole)) {
@@ -107,7 +94,7 @@ router.patch("/access/:email", requireOwner, async (req, res) => {
 
 // DELETE /access/:email — remove a user (owner only)
 router.delete("/access/:email", requireOwner, async (req, res) => {
-  const email = decodeURIComponent(req.params.email ?? "").toLowerCase();
+  const email = decodeURIComponent(String(req.params.email ?? "")).toLowerCase();
   const owner = (req.user as { email: string }).email;
 
   const [existing] = await db
@@ -122,8 +109,8 @@ router.delete("/access/:email", requireOwner, async (req, res) => {
   try {
     const { pool } = await import("@workspace/db");
     await pool.query(
-      `DELETE FROM "session" WHERE sess::text ILIKE $1`,
-      [`%${email}%`],
+      `DELETE FROM "session" WHERE sess->'passport'->'user'->>'email' = $1`,
+      [email],
     );
   } catch (_err) {}
 

@@ -403,6 +403,23 @@ async function syncLenderPrograms(): Promise<void> {
   );
 }
 
+/**
+ * Executes a full lender program sync from CreditApp.
+ *
+ * Flow:
+ * 1. Authenticates to CreditApp via lenderAuth.ts (session cookies)
+ * 2. Queries the creditors GraphQL endpoint for all active programs
+ * 3. Maps each creditor to normalized LenderProgram[] (tiers, LTV caps, fee rules,
+ *    vehicle term matrices, condition matrices)
+ * 4. Saves the result blob to GCS via bbObjectStore and updates in-memory cache
+ *
+ * Trigger conditions:
+ * - Manual: POST /api/refresh-lender (owner only)
+ * - Scheduled: once daily at a random time during business hours (MT)
+ *
+ * Guards: skips if LENDER_ENABLED is false or if already running.
+ * On success, records last-run date to DB for schedule dedup.
+ */
 export async function runLenderSync(): Promise<void> {
   if (!LENDER_ENABLED) {
     logger.info("Lender sync: LENDER_CREDITAPP_EMAIL or LENDER_CREDITAPP_PASSWORD not set — skipping");
@@ -464,6 +481,13 @@ async function recordRunDateToDb(): Promise<void> {
   }
 }
 
+/**
+ * Initializes the lender sync lifecycle:
+ * 1. Preloads cached programs from GCS (so calculator works before first sync)
+ * 2. Registers a randomized daily schedule via randomScheduler
+ *
+ * Called once from index.ts at server startup.
+ */
 export function scheduleLenderSync(): void {
   const { scheduleRandomDaily, toMountainDateStr } = require("./randomScheduler.js") as typeof import("./randomScheduler.js");
 

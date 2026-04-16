@@ -1,22 +1,9 @@
 import { Router } from "express";
-import { isOwner } from "../lib/auth.js";
+import { requireOwner } from "../lib/auth.js";
 import { runCarfaxWorkerForVins, runCarfaxWorker, getCarfaxBatchStatus } from "../lib/carfaxWorker.js";
 import { logger } from "../lib/logger.js";
 
 const router = Router();
-
-function requireOwner(req: any, res: any, next: any) {
-  if (!req.isAuthenticated || !req.isAuthenticated()) {
-    res.status(401).json({ error: "Not authenticated" });
-    return;
-  }
-  const user = req.user as { email: string };
-  if (!isOwner(user.email)) {
-    res.status(403).json({ error: "Owner only" });
-    return;
-  }
-  next();
-}
 
 router.get("/carfax/batch-status", requireOwner, (_req, res) => {
   res.json(getCarfaxBatchStatus());

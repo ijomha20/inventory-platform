@@ -44,6 +44,22 @@ export const NO_ONLINE_STRATEGY_BY_PROFILE: Record<CapProfileKey, string> = {
   "111": "maximizeFromAdvanceAndAllIn",
 };
 
+/**
+ * Resolves the LTV cap profile for a lender tier into a 3-bit key and boolean flags.
+ *
+ * The key encodes which caps are active: bit 2 = advance, bit 1 = aftermarket, bit 0 = allIn.
+ * Example: "101" means advance cap + allIn cap are active, aftermarket is not.
+ *
+ * Special rule: when capModelResolved is "allInOnly", the aftermarket cap is suppressed
+ * even if a numeric value exists in the tier — this prevents double-constraining products
+ * when the lender uses a single all-in bucket for everything.
+ *
+ * The `allInOnly` flag is true when neither advance nor aftermarket caps are active
+ * and only the all-in cap governs the deal (common for Santander, iAF).
+ *
+ * @param input - Tier LTV percentages + capModelResolved classification
+ * @returns CapProfile with boolean flags and a CapProfileKey ("000" through "111")
+ */
 export function resolveCapProfile(input: CapProfileInput): CapProfile {
   const hasAdvanceCap = input.maxAdvanceLTV > 0;
   const hasAllInCap = input.maxAllInLTV > 0;
@@ -65,6 +81,22 @@ export function resolveCapProfile(input: CapProfileInput): CapProfile {
   };
 }
 
+/**
+ * Determines the maximized selling price when a vehicle has no online listing price.
+ *
+ * Strategy is determined by the cap profile key (see NO_ONLINE_STRATEGY_BY_PROFILE):
+ * - "pacFallback" (000, 010): no LTV caps → sell at PAC cost
+ * - "maximizeFromAdvance" (100, 110): ceiling = maxAdvance + downPayment + netTrade
+ * - "maximizeFromAllIn" (001, 011): ceiling = maxAllInPreTax - creditorFee + downPayment + netTrade
+ * - "maximizeFromAdvanceAndAllIn" (101, 111): tighter of the two above
+ *
+ * If the computed ceiling is below PAC cost, the vehicle is flagged with a
+ * rejection reason ("ltvAdvance" or "ltvAllIn") — the caller decides whether
+ * to skip it or show required down payment.
+ *
+ * @param ctx - PAC cost, down payment, net trade, creditor fee, max ceilings, and cap profile
+ * @returns { price, source ("maximized" | "pac"), rejection?, strategy }
+ */
 export function resolveNoOnlineSellingPrice(ctx: NoOnlineSellContext): NoOnlineSellResolution {
   const strategy = NO_ONLINE_STRATEGY_BY_PROFILE[ctx.profile.key];
 

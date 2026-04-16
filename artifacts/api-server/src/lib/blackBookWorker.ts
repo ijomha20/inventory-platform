@@ -19,6 +19,7 @@
  */
 
 import { logger }                         from "./logger.js";
+import { isProduction }                   from "./env.js";
 import * as fs                            from "fs";
 import * as path                          from "path";
 import { getCacheState, applyBlackBookValues } from "./inventoryCache.js";
@@ -158,8 +159,6 @@ function extractAuthCookies(cookies: any[]): { appSession: string; csrfToken: st
  * cookies fresh in the shared object storage bucket.
  */
 async function getAuthCookies(): Promise<{ appSession: string; csrfToken: string }> {
-  const isProduction = process.env["REPLIT_DEPLOYMENT"] === "1";
-
   // 1. Object storage (shared between dev + prod — primary source)
   try {
     const blob = await loadSessionFromStore();

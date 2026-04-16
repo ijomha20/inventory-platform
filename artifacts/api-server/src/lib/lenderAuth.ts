@@ -1,4 +1,5 @@
 import { logger } from "./logger.js";
+import { isProduction } from "./env.js";
 import * as fs from "fs";
 import * as path from "path";
 import * as crypto from "crypto";
@@ -802,8 +803,6 @@ async function loginWithAuth0(page: any): Promise<boolean> {
 }
 
 export async function getLenderAuthCookies(): Promise<{ appSession: string; csrfToken: string }> {
-  const isProduction = process.env["REPLIT_DEPLOYMENT"] === "1";
-
   try {
     const blob = await loadLenderSessionFromStore();
     if (blob?.cookies?.length) {

@@ -17,7 +17,7 @@ const basePath = process.env.BASE_PATH || "/";
 const devApiProxyTarget =
   process.env["INVENTORY_DEV_API_ORIGIN"]?.trim()
   || process.env["VITE_DEV_API_ORIGIN"]?.trim()
-  || "http://127.0.0.1:3101";
+  || "http://127.0.0.1:3000";
 
 export default defineConfig({
   base: basePath,

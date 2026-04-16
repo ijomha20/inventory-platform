@@ -1,8 +1,5 @@
 import { Router } from "express";
-import { db } from "@workspace/db";
-import { accessListTable } from "@workspace/db";
-import { eq } from "drizzle-orm";
-import { isOwner } from "../lib/auth.js";
+import { requireOwner, requireOwnerOrViewer } from "../lib/auth.js";
 import { logger } from "../lib/logger.js";
 import { getCacheState, type InventoryItem } from "../lib/inventoryCache.js";
 import {
@@ -19,45 +16,6 @@ import {
 import { getRuntimeFingerprint } from "../lib/runtimeFingerprint.js";
 
 const router = Router();
-
-async function getUserRole(req: any): Promise<string> {
-  const user  = req.user as { email: string };
-  const email = user.email.toLowerCase();
-  if (isOwner(email)) return "owner";
-  const [entry] = await db
-    .select()
-    .from(accessListTable)
-    .where(eq(accessListTable.email, email))
-    .limit(1);
-  return entry?.role ?? "viewer";
-}
-
-async function requireOwner(req: any, res: any, next: any) {
-  if (!req.isAuthenticated || !req.isAuthenticated()) {
-    res.status(401).json({ error: "Not authenticated" });
-    return;
-  }
-  const role = await getUserRole(req);
-  if (role !== "owner") {
-    res.status(403).json({ error: "Owner only" });
-    return;
-  }
-  next();
-}
-
-async function requireOwnerOrViewer(req: any, res: any, next: any) {
-  if (!req.isAuthenticated || !req.isAuthenticated()) {
-    res.status(401).json({ error: "Not authenticated" });
-    return;
-  }
-  const role = await getUserRole(req);
-  if (role !== "owner" && role !== "viewer") {
-    res.status(403).json({ error: "Access denied" });
-    return;
-  }
-  (req as any)._role = role;
-  next();
-}
 
 router.get("/lender-programs", requireOwnerOrViewer, async (req, res) => {
   const programs = getCachedLenderPrograms();
@@ -150,9 +108,20 @@ function largestStretchNotExceeding(baseTerm: number, maxTotal: number = MAX_FIN
 }
 
 /**
- * Term exception rules:
- * - If the matrix already qualifies at 84 months, do not stretch (even if +6/+12 is selected).
- * - Otherwise stretch is limited so base + stretch never exceeds 84 (e.g. 78 can only use +6 to reach 84; +12 becomes +6).
+ * Applies a term exception (stretch) to a matrix-derived base term.
+ *
+ * Business rules:
+ * - Hard cap: no finance term can exceed MAX_FINANCE_TERM_MONTHS (84).
+ * - If the matrix already qualifies at 84 months, no stretch is applied
+ *   regardless of user request — returns cappedReason "matrix_already_84_no_stretch".
+ * - A 78mo base with +12 requested is capped to +6 (reaching 84) — returns
+ *   cappedReason "78_only_plus6_to_84".
+ * - Any other over-cap scenario returns "capped_at_84_max".
+ *
+ * @param baseTerm - Term in months from the vehicle/year/km matrix lookup
+ * @param requested - User-selected stretch: 0, 6, or 12 months
+ * @returns effectiveStretch (actual months added), termMonths (final term),
+ *   stretched (boolean), and optional cappedReason explaining any reduction
  */
 function resolveEffectiveTermStretch(
   baseTerm: number,
@@ -363,7 +332,26 @@ router.post("/lender-calculate", requireOwnerOrViewer, async (req, res) => {
     requiredDownPayment?: number;
   }
 
-  /** Stack products into available room: doc fee first, then warranty, then GAP. */
+  /**
+   * Allocates aftermarket products into available LTV room in priority order:
+   * admin fee → warranty → GAP.
+   *
+   * Room is the tighter of `allInRoom` and `aftermarketRoom`. Products are only
+   * added if the remaining room meets the minimum cost threshold after markup.
+   *
+   * Key thresholds (from outer scope):
+   * - MIN_WARRANTY_COST * MARKUP = 1500 — minimum room needed to add warranty
+   * - MIN_GAP_COST * MARKUP = 1375 — minimum room needed to add GAP
+   * - MAX_GAP_PRICE = 2500 — hard ceiling on GAP selling price
+   * - capWarranty / capGap — per-program caps from CreditApp (may be undefined = uncapped)
+   *
+   * Admin fee handling depends on `adminInclusion`:
+   * - "excluded": admin doesn't consume aftermarket room, only all-in room
+   * - other: admin is deducted from shared room before warranty/GAP
+   *
+   * @returns Object with allocated { admin, war, wCost, gap, gCost, profit }
+   *   where profit = (war - wCost) + (gap - gCost) + admin + dealerReserve - creditorFee
+   */
   function stackProducts(allInRoom: number, aftermarketRoom: number, sellPrice: number) {
     let room = isFinite(allInRoom) ? allInRoom : Infinity;
     if (isFinite(aftermarketRoom)) room = Math.min(room, aftermarketRoom);
@@ -445,18 +433,24 @@ router.post("/lender-calculate", requireOwnerOrViewer, async (req, res) => {
     const maxAllInWithTax = hasAllInCap ? bbWholesale * maxAllInLTV : Infinity;
     const maxAllInPreTax = isFinite(maxAllInWithTax) ? (maxAllInWithTax / allInTaxMultiplier) : Infinity;
 
-    // ============================================================
-    //  Two-tier qualification logic
-    //
-    //  PATH A (online price): Tier 1 = sell at online price, max products.
-    //         Tier 2 = reduce price to LTV ceiling, recover profit via products.
-    //         Profit target = onlinePrice - pacCost.
-    //
-    //  PATH B (no online price): sell at PAC, stack products.
-    //         Profit target = 0 (break even).
-    //
-    //  Hard constraint: sellingPrice >= pacCost always.
-    // ============================================================
+    /**
+     * TWO-TIER QUALIFICATION LOGIC
+     *
+     * PATH A (online price exists):
+     *   Tier 1: Sell at online price. If lender exposure fits within advance LTV,
+     *     stack max products into remaining all-in/aftermarket room.
+     *     Profit target = onlinePrice - pacCost (front-end gross).
+     *   Tier 2: Online price exceeds advance ceiling. Reduce selling price to
+     *     floor(maxAdvance + downPayment + netTrade). Stack products into the
+     *     tighter room to recover margin. If reduced price < PAC, requires
+     *     cash down (shown only when showAllDP is true).
+     *
+     * PATH B (no online price):
+     *   Sell at PAC cost, stack products. Profit target = 0 (break even).
+     *   Classified as Tier 2 (qualificationTier = 2).
+     *
+     * Hard constraint: sellingPrice >= pacCost in all paths.
+     */
 
     let sellingPrice = 0;
     let priceSource  = "";
@@ -469,7 +463,20 @@ router.post("/lender-calculate", requireOwnerOrViewer, async (req, res) => {
     let profitTarget = 0;
     let qualificationTier: 1 | 2 = 1;
 
-    /** Compute product room given a lender exposure value */
+    /**
+     * Computes how much dollar room is available for aftermarket products,
+     * given the lender's exposure on the base deal.
+     *
+     * Two independent ceilings:
+     * - allInRoom: total financed (pre-tax) budget minus exposure and creditor fee.
+     *   Formula: maxAllInPreTax - lenderExposure - creditorFee
+     *   Returns Infinity when no all-in LTV cap exists.
+     * - aftermarketRoom: percentage of a base value (BB wholesale or sale price,
+     *   depending on program's `aftermarketBase` setting) times maxAftermarketLTV.
+     *   Returns Infinity when no aftermarket cap exists.
+     *
+     * The caller uses the tighter of these two as the effective product budget.
+     */
     function computeRooms(lenderExposure: number, sellPrice: number) {
       const allIn = isFinite(maxAllInPreTax) ? maxAllInPreTax - lenderExposure - creditorFee : Infinity;
       const aftermarketBase = guide.aftermarketBase === "salePrice" ? sellPrice : bbWholesale;
@@ -588,6 +595,20 @@ router.post("/lender-calculate", requireOwnerOrViewer, async (req, res) => {
     let totalFinanced!: number;
     let monthlyPayment!: number;
 
+    /**
+     * SETTLE LOOP — iteratively resolves required additional cash down.
+     *
+     * Each pass recalculates the deal and checks two constraints:
+     * 1. All-in LTV: if allInSubtotal > maxAllInPreTax, increases reqAcc
+     *    (required additional cash) by the overage amount.
+     * 2. Payment cap: if monthlyPayment > maxPmt, first strips all products
+     *    (admin/warranty/GAP), then on subsequent passes increases reqAcc
+     *    by the present-value overage.
+     *
+     * Max 24 iterations. Exits on first pass where both constraints are met.
+     * If showAllDP is false, vehicles that fail either constraint are skipped
+     * entirely (continue inventory) rather than entering this loop.
+     */
     settle: for (let pass = 0; pass < 24; pass++) {
       finalExposure = sellingPrice - (downPayment + reqAcc) - netTrade;
       allInSubtotal = finalExposure + aftermarketRevenue + effectiveAdmin + creditorFee;

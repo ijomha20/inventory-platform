@@ -1,6 +1,7 @@
 import { db, inventoryCacheTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { logger } from "./logger.js";
+import { isProduction } from "./env.js";
 
 export interface InventoryItem {
   location:       string;
@@ -109,39 +110,11 @@ async function persistToDb(): Promise<void> {
 // Typesense — batch enrichment (prices + website URLs)
 // ---------------------------------------------------------------------------
 
-const TYPESENSE_HOST = "v6eba1srpfohj89dp-1.a1.typesense.net";
-
-const TYPESENSE_COLLECTIONS = [
-  {
-    collection: "37042ac7ece3a217b1a41d6f54ba6855", // Parkdale (checked first — preferred)
-    apiKey:     "bENlSmdIaVJWNGhTcjBnZ3BaN2JxajBINWcvdzREZ21hQnFMZWM3OWJBRT1oZmUweyJmaWx0ZXJfYnkiOiJzdGF0dXM6W0luc3RvY2tdICYmIHZpc2liaWxpdHk6PjAgJiYgZGVsZXRlZF9hdDo9MCJ9",
-    siteUrl:    "https://www.parkdalemotors.ca",
-  },
-  {
-    collection: "cebacbca97920d818d57c6f0526d7413", // Matrix
-    apiKey:     "ZWoxa3NxVmJLWFBOK2dWcUFBM1V0aTJyb09wUDhFZ0R5Vnc1blc2RW9Kdz1oZmUweyJmaWx0ZXJfYnkiOiJzdGF0dXM6W0luc3RvY2ssIFNvbGRdICYmIHZpc2liaWxpdHk6PjAgJiYgZGVsZXRlZF9hdDo9MCJ9",
-    siteUrl:    "https://www.matrixmotorsyeg.ca",
-  },
-];
-
-// Keep the old alias so the price function below still compiles
-const PRICE_COLLECTIONS = TYPESENSE_COLLECTIONS;
-
-function extractWebsiteUrl(doc: any, siteUrl: string): string | null {
-  if (doc.page_url) {
-    const path = doc.page_url.toString().trim().replace(/^\/+|\/+$/g, "");
-    return `${siteUrl}/${path}/`;
-  }
-  const id   = doc.id || doc.post_id || doc.vehicle_id || "";
-  let   slug = doc.slug || doc.url_slug || "";
-  if (!slug && doc.year && doc.make && doc.model) {
-    slug = [doc.year, doc.make, doc.model, doc.trim || ""]
-      .filter((p: any) => String(p).trim() !== "")
-      .join(" ").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
-  }
-  if (!id || !slug) return null;
-  return `${siteUrl}/inventory/${slug}/${id}/`;
-}
+import {
+  TYPESENSE_HOST,
+  DEALER_COLLECTIONS,
+  extractWebsiteUrl,
+} from "./typesense.js";
 
 interface TypesenseMaps {
   prices:  Map<string, string>; // VIN → online price string
@@ -159,7 +132,7 @@ async function fetchFromTypesense(): Promise<TypesenseMaps> {
   const website = new Map<string, string>();
   const photos  = new Set<string>();
 
-  for (const col of TYPESENSE_COLLECTIONS) {
+  for (const col of DEALER_COLLECTIONS) {
     try {
       let page = 1;
       while (true) {
@@ -220,6 +193,20 @@ async function fetchOnlinePricesFromTypesense(): Promise<Map<string, string>> {
 // Cache refresh
 // ---------------------------------------------------------------------------
 
+/**
+ * Fetches fresh inventory from the Apps Script JSON feed and rebuilds the cache.
+ *
+ * Pipeline:
+ * 1. Fetch JSON array from INVENTORY_DATA_URL
+ * 2. Normalize each row into InventoryItem
+ * 3. Carry forward existing BB values from previous cache + GCS blob
+ * 4. Enrich with Typesense: online prices, website URLs, photo presence
+ * 5. Detect new VINs and trigger targeted BB + Carfax lookups
+ * 6. Persist to database for instant startup on next restart
+ *
+ * Guards: no-op if already refreshing. Keeps stale cache on failure.
+ * Called hourly by startBackgroundRefresh, and on-demand via webhook.
+ */
 export async function refreshCache(): Promise<void> {
   if (state.isRefreshing) return;
   state.isRefreshing = true;
@@ -384,7 +371,6 @@ export async function applyCarfaxResults(results: Map<string, string>): Promise<
 // ---------------------------------------------------------------------------
 
 function triggerNewVinLookups(newVins: string[]): void {
-  const isProduction = process.env["REPLIT_DEPLOYMENT"] === "1";
 
   import("./blackBookWorker.js").then(({ runBlackBookForVins }) => {
     runBlackBookForVins(newVins).catch(err =>
@@ -433,6 +419,17 @@ export async function applyBlackBookValues(
   }
 }
 
+/**
+ * Initializes the inventory cache lifecycle:
+ * 1. Loads last-known inventory from DB (instant data for users on startup)
+ * 2. Kicks off a background fetch from Apps Script (with retry up to 3 attempts)
+ * 3. Sets up hourly refresh interval
+ *
+ * Called once from index.ts. The await ensures DB snapshot is in memory
+ * before the server accepts requests.
+ *
+ * @param intervalMs - Refresh interval in ms (default: 1 hour)
+ */
 export async function startBackgroundRefresh(intervalMs = 60 * 60 * 1000): Promise<void> {
   // Step 1: load the last-known inventory from the database immediately.
   // Users see data right away — no waiting for Apps Script on startup.

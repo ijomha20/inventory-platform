@@ -1,21 +1,8 @@
 import { Router } from "express";
 import { logger } from "../lib/logger.js";
+import { TYPESENSE_HOST, DEALER_BY_HOSTNAME } from "../lib/typesense.js";
 
 const router = Router();
-
-const TYPESENSE_HOST = "v6eba1srpfohj89dp-1.a1.typesense.net";
-
-// Dealer configs: hostname → { collection, apiKey }
-const DEALERS: Record<string, { collection: string; apiKey: string }> = {
-  "matrixmotorsyeg.ca": {
-    collection: "cebacbca97920d818d57c6f0526d7413",
-    apiKey: "ZWoxa3NxVmJLWFBOK2dWcUFBM1V0aTJyb09wUDhFZ0R5Vnc1blc2RW9Kdz1oZmUweyJmaWx0ZXJfYnkiOiJzdGF0dXM6W0luc3RvY2ssIFNvbGRdICYmIHZpc2liaWxpdHk6PjAgJiYgZGVsZXRlZF9hdDo9MCJ9",
-  },
-  "parkdalemotors.ca": {
-    collection: "37042ac7ece3a217b1a41d6f54ba6855",
-    apiKey: "bENlSmdIaVJWNGhTcjBnZ3BaN2JxajBINWcvdzREZ21hQnFMZWM3OWJBRT1oZmUweyJmaWx0ZXJfYnkiOiJzdGF0dXM6W0luc3RvY2tdICYmIHZpc2liaWxpdHk6PjAgJiYgZGVsZXRlZF9hdDo9MCJ9",
-  },
-};
 
 function formatPrice(n: number): string {
   return "$" + Math.round(n).toLocaleString("en-US");
@@ -40,9 +27,8 @@ router.get("/price-lookup", async (req, res) => {
   try {
     const parsed = new URL(url);
 
-    // Match dealer by hostname (strip www.)
     const hostname = parsed.hostname.replace(/^www\./, "");
-    const dealer = DEALERS[hostname];
+    const dealer = DEALER_BY_HOSTNAME.get(hostname);
 
     if (!dealer) {
       // Unknown dealer — fall back to null (no scraping attempt)

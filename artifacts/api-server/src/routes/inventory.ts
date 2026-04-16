@@ -1,77 +1,16 @@
 import { Router } from "express";
-import { db } from "@workspace/db";
-import { accessListTable } from "@workspace/db";
-import { eq } from "drizzle-orm";
-import { isOwner } from "../lib/auth.js";
+import { getUserRole, requireAccess } from "../lib/auth.js";
 import { logger } from "../lib/logger.js";
 import { getCacheState, refreshCache } from "../lib/inventoryCache.js";
 import { runBlackBookWorker, getBlackBookStatus } from "../lib/blackBookWorker.js";
+import {
+  TYPESENSE_HOST,
+  DEALER_COLLECTIONS,
+  IMAGE_CDN_BASE,
+  extractWebsiteUrl,
+} from "../lib/typesense.js";
 
 const router = Router();
-
-const TYPESENSE_HOST = "v6eba1srpfohj89dp-1.a1.typesense.net";
-const IMAGE_CDN_BASE = "https://zopsoftware-asset.b-cdn.net";
-
-const DEALER_COLLECTIONS = [
-  {
-    name:       "Matrix",
-    collection: "cebacbca97920d818d57c6f0526d7413",
-    apiKey:     "ZWoxa3NxVmJLWFBOK2dWcUFBM1V0aTJyb09wUDhFZ0R5Vnc1blc2RW9Kdz1oZmUweyJmaWx0ZXJfYnkiOiJzdGF0dXM6W0luc3RvY2ssIFNvbGRdICYmIHZpc2liaWxpdHk6PjAgJiYgZGVsZXRlZF9hdDo9MCJ9",
-    siteUrl:    "https://www.matrixmotorsyeg.ca",
-  },
-  {
-    name:       "Parkdale",
-    collection: "37042ac7ece3a217b1a41d6f54ba6855",
-    apiKey:     "bENlSmdIaVJWNGhTcjBnZ3BaN2JxajBINWcvdzREZ21hQnFMZWM3OWJBRT1oZmUweyJmaWx0ZXJfYnkiOiJzdGF0dXM6W0luc3RvY2tdICYmIHZpc2liaWxpdHk6PjAgJiYgZGVsZXRlZF9hdDo9MCJ9",
-    siteUrl:    "https://www.parkdalemotors.ca",
-  },
-];
-
-function extractWebsiteUrl(doc: any, siteUrl: string): string | null {
-  if (doc.page_url) {
-    const path = doc.page_url.toString().trim().replace(/^\/+|\/+$/g, "");
-    return `${siteUrl}/${path}/`;
-  }
-  const id   = doc.id || doc.post_id || doc.vehicle_id || "";
-  let   slug = doc.slug || doc.url_slug || "";
-  if (!slug && doc.year && doc.make && doc.model) {
-    slug = [doc.year, doc.make, doc.model, doc.trim || ""]
-      .filter((p: any) => String(p).trim() !== "")
-      .join(" ").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
-  }
-  if (!id || !slug) return null;
-  return `${siteUrl}/inventory/${slug}/${id}/`;
-}
-
-// Determine the calling user's role ('owner' | 'viewer' | 'guest')
-async function getUserRole(req: any): Promise<string> {
-  const user  = req.user as { email: string };
-  const email = user.email.toLowerCase();
-  if (isOwner(email)) return "owner";
-  const [entry] = await db
-    .select()
-    .from(accessListTable)
-    .where(eq(accessListTable.email, email))
-    .limit(1);
-  return entry?.role ?? "viewer";
-}
-
-async function requireAccess(req: any, res: any, next: any) {
-  if (!req.isAuthenticated || !req.isAuthenticated()) {
-    res.status(401).json({ error: "Not authenticated" });
-    return;
-  }
-  const user  = req.user as { email: string };
-  const email = user.email.toLowerCase();
-  if (isOwner(email)) { next(); return; }
-  const [entry] = await db
-    .select()
-    .from(accessListTable)
-    .where(eq(accessListTable.email, email))
-    .limit(1);
-  if (entry) { next(); return; }
-  res.status(403).json({ error: "Access denied" });
-}
 
 // GET /inventory — instant response from server-side cache, role-filtered
 router.get("/inventory", requireAccess, async (req, res) => {

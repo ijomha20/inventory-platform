@@ -1,5 +1,6 @@
 import app from "./app";
 import { logger } from "./lib/logger";
+import { isProduction } from "./lib/env";
 import { startBackgroundRefresh } from "./lib/inventoryCache";
 import { scheduleCarfaxWorker } from "./lib/carfaxWorker";
 import { scheduleBlackBookWorker } from "./lib/blackBookWorker";
@@ -16,10 +17,6 @@ const port = Number(rawPort);
 if (Number.isNaN(port) || port <= 0) {
   throw new Error(`Invalid PORT value: "${rawPort}"`);
 }
-
-// Carfax worker only runs in the dev environment — not on the production deployment.
-// Production containers start fresh with no session file, causing guaranteed login failures.
-const isProduction = process.env["REPLIT_DEPLOYMENT"] === "1";
 
 // Load inventory from DB first (instant), then start background refresh cycle.
 // await ensures the DB snapshot is in memory before we accept any requests.

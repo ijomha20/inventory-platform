@@ -8,6 +8,7 @@ import rateLimit from "express-rate-limit";
 import { pool } from "@workspace/db";
 import router from "./routes/index.js";
 import { logger } from "./lib/logger.js";
+import { isProduction } from "./lib/env.js";
 import { configurePassport } from "./lib/auth.js";
 
 const app: Express = express();
@@ -26,7 +27,15 @@ app.use(
   })
 );
 
-app.use(cors({ origin: true, credentials: true }));
+const allowedOrigins = process.env["REPLIT_DOMAINS"]
+  ? process.env["REPLIT_DOMAINS"].split(",").map((d) => `https://${d}`)
+  : undefined;
+app.use(
+  cors({
+    origin: allowedOrigins ?? true,
+    credentials: true,
+  }),
+);
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
@@ -36,7 +45,7 @@ app.use(
     store: new PgSession({ pool, createTableIfMissing: false }),
     secret: (() => {
       const s = process.env["SESSION_SECRET"];
-      if (!s && process.env["REPLIT_DEPLOYMENT"] === "1") {
+      if (!s && isProduction) {
         throw new Error("SESSION_SECRET is required in production");
       }
       return s || "dev-secret-change-me";
@@ -44,7 +53,8 @@ app.use(
     resave: false,
     saveUninitialized: false,
     cookie: {
-      secure: process.env["NODE_ENV"] === "production",
+      secure: isProduction,
+      sameSite: "lax",
       maxAge: 7 * 24 * 60 * 60 * 1000,
     },
   })
@@ -62,7 +72,7 @@ const apiLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: "Too many requests, please slow down." },
-  skip: (req) => req.path === "/api/healthz",
+  skip: (req) => req.path === "/healthz",
 });
 
 app.use("/api", apiLimiter);
