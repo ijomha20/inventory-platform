@@ -9,6 +9,16 @@ const port = rawPort ? Number(rawPort) : 3000;
 
 const basePath = process.env.BASE_PATH || "/";
 
+/**
+ * Replit / local split dev: browser talks to Vite (this port), Express usually runs on another port.
+ * Forward same-origin `/api/*` to the API so `fetch("/api/...")` works without CORS or wrong host.
+ * Override if your API listens elsewhere: `INVENTORY_DEV_API_ORIGIN=http://127.0.0.1:PORT`
+ */
+const devApiProxyTarget =
+  process.env["INVENTORY_DEV_API_ORIGIN"]?.trim()
+  || process.env["VITE_DEV_API_ORIGIN"]?.trim()
+  || "http://127.0.0.1:3101";
+
 export default defineConfig({
   base: basePath,
   plugins: [
@@ -49,6 +59,13 @@ export default defineConfig({
     headers: {
       "Cache-Control": "no-store",
     },
+    proxy: {
+      "/api": {
+        target: devApiProxyTarget,
+        changeOrigin: true,
+        secure: false,
+      },
+    },
     fs: {
       strict: true,
       deny: ["**/.*"],
@@ -58,5 +75,12 @@ export default defineConfig({
     port,
     host: "0.0.0.0",
     allowedHosts: true,
+    proxy: {
+      "/api": {
+        target: devApiProxyTarget,
+        changeOrigin: true,
+        secure: false,
+      },
+    },
   },
 });
