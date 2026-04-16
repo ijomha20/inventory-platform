@@ -55,3 +55,6 @@ Thumbs.db
 # Replit
 .cache/
 .local/
+
+# Generated export — the generator stays in repo; only the 37K-line output is ignored
+downloads/inventory-platform-complete-source.md

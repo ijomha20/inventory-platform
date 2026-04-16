@@ -4,17 +4,19 @@ import { db } from "@workspace/db";
 import { accessListTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { isOwner } from "../lib/auth.js";
-import { env } from "../lib/env.js";
+import { env, isProduction } from "../lib/env.js";
 
 const router = Router();
 
-router.get("/auth/debug-callback", (_req, res) => {
-  const domain = env.REPLIT_DOMAINS?.split(",")[0]?.trim();
-  const callbackURL = domain
-    ? `https://${domain}/api/auth/google/callback`
-    : "http://localhost:8080/api/auth/google/callback";
-  res.json({ callbackURL, REPLIT_DOMAINS: env.REPLIT_DOMAINS || "(not set)" });
-});
+if (!isProduction) {
+  router.get("/auth/debug-callback", (_req, res) => {
+    const domain = env.REPLIT_DOMAINS?.split(",")[0]?.trim();
+    const callbackURL = domain
+      ? `https://${domain}/api/auth/google/callback`
+      : "http://localhost:8080/api/auth/google/callback";
+    res.json({ callbackURL, REPLIT_DOMAINS: env.REPLIT_DOMAINS || "(not set)" });
+  });
+}
 
 // Kick off Google OAuth
 router.get("/auth/google", passport.authenticate("google", { scope: ["email", "profile"] }));

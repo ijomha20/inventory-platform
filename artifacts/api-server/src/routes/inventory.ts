@@ -1,7 +1,8 @@
 import { Router } from "express";
 import { getUserRole, requireAccess } from "../lib/auth.js";
 import { logger } from "../lib/logger.js";
-import { getCacheState, refreshCache, filterInventoryByRole } from "../lib/inventoryCache.js";
+import { getCacheState, refreshCache } from "../lib/inventoryCache.js";
+import { filterInventoryByRole } from "../lib/roleFilter.js";
 import { runBlackBookWorker, getBlackBookStatus } from "../lib/blackBookWorker.js";
 import {
   TYPESENSE_HOST,

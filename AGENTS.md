@@ -65,6 +65,7 @@ All paths relative to `artifacts/api-server/src/`.
 |------|---------|-------------|
 | `auth.ts` | `isOwner()`, `getUserRole()`, `requireOwner`, `requireAccess`, `requireOwnerOrViewer`, `configurePassport()` — Google OAuth setup + shared auth middleware | `app.ts`, all routes |
 | `inventoryCache.ts` | In-memory + DB inventory cache, Typesense enrichment, BB/Carfax merge | `routes/inventory.ts`, workers |
+| `roleFilter.ts` | `filterInventoryByRole()` — strip fields by user role | `routes/inventory.ts` |
 | `lenderCalcEngine.ts` | Cap profile resolver, no-online selling price logic | `routes/lender/lender-calculate.ts` |
 | `lenderWorker.ts` | Syncs lender programs from CreditApp GraphQL, caches to GCS | `routes/lender/`, `index.ts` |
 | `lenderAuth.ts` | CreditApp auth cookies, GraphQL client | `lenderWorker.ts` |
@@ -118,6 +119,15 @@ All paths relative to `artifacts/api-server/src/`.
 | `attached_assets/` | Captured CreditApp API payloads and reference documents — not live code |
 | `artifacts/mockup-sandbox/` | Standalone UI mockup preview app — not the production portal |
 
+## Common Multi-File Changes
+
+| Change | Files to update |
+|--------|----------------|
+| Add/change an API endpoint | `openapi.yaml` → `pnpm codegen` → route file → portal hook usage |
+| Add a user role | `UserRole` in `lib/auth.ts` → DB schema `access.ts` → `lib/roleFilter.ts` → frontend role checks |
+| Add an environment variable | `lib/env.ts` schema → consumer file → `.env` / Replit secrets |
+| Add a dealer/collection | `lib/typesense.ts` `DEALER_COLLECTIONS` → env vars for keys |
+
 ## Anti-Patterns (DO NOT)
 
 - Do NOT define route-local auth middleware — use `lib/auth.ts` (`requireOwner`, `requireAccess`, `requireOwnerOrViewer`)
@@ -127,5 +137,7 @@ All paths relative to `artifacts/api-server/src/`.
 - Do NOT define local `isProduction` — use `{ isProduction }` from `lib/env.ts`
 - Do NOT use `require()` — use static `import` or `await import()` with a comment explaining why
 - Do NOT use `(req as any)` — extend `Express.Request` in `types/passport.d.ts` instead
-- Do NOT inline role-based field stripping — use `filterInventoryByRole()` from `lib/inventoryCache.ts`
+- Do NOT inline role-based field stripping — use `filterInventoryByRole()` from `lib/roleFilter.ts`
 - Do NOT put pure math in route files — put it in `lib/lenderCalcEngine.ts` and import
+
+> `isProduction` (from `lib/env.ts`) is true when `REPLIT_DEPLOYMENT === "1"` OR `NODE_ENV === "production"`. It controls: secure cookies, log format (pretty vs JSON), Carfax worker disable, session secret enforcement.

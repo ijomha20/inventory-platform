@@ -246,9 +246,11 @@ export async function refreshCache(): Promise<void> {
 
       const existingBb = new Map<string, string>();
       const existingBbDetail = new Map<string, { xclean: number; clean: number; avg: number; rough: number }>();
+      const existingPhotos = new Set<string>();
       for (const old of state.data) {
         if (old.bbAvgWholesale) existingBb.set(old.vin.toUpperCase(), old.bbAvgWholesale);
         if (old.bbValues) existingBbDetail.set(old.vin.toUpperCase(), old.bbValues);
+        if (old.hasPhotos) existingPhotos.add(old.vin.toUpperCase());
       }
       try {
         const { loadBbValuesFromStore, parseBbEntry } = await import("./bbObjectStore.js");
@@ -288,7 +290,7 @@ export async function refreshCache(): Promise<void> {
           onlinePrice:    String(r.onlinePrice ?? "").trim(),
           matrixPrice:    String(r.matrixPrice ?? "").trim(),
           cost:           String(r.cost        ?? "").trim(),
-          hasPhotos:      false,
+          hasPhotos:      existingPhotos.has(vin),
           bbAvgWholesale: existingBb.get(vin),
           bbValues:       existingBbDetail.get(vin),
         });
@@ -480,24 +482,3 @@ export async function startBackgroundRefresh(intervalMs = 60 * 60 * 1000): Promi
   }, intervalMs);
 }
 
-/**
- * Strip inventory fields based on user role.
- * Owner sees everything; viewer hides cost/matrixPrice; guest additionally hides
- * BB values and price.
- */
-export function filterInventoryByRole(
-  items: InventoryItem[],
-  role: "owner" | "viewer" | "guest",
-): Partial<InventoryItem>[] {
-  return items.map((item) => {
-    if (role === "owner") return item;
-
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    const { matrixPrice, cost, ...rest } = item;
-    if (role === "viewer") return rest;
-
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    const { bbAvgWholesale, bbValues, ...guestRest } = rest;
-    return { ...guestRest, price: "" };
-  });
-}

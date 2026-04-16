@@ -14,7 +14,7 @@ const CLIENT_SECRET = env.GOOGLE_CLIENT_SECRET;
 function getCallbackUrl(): string {
   const domain = env.REPLIT_DOMAINS?.split(",")[0]?.trim();
   if (domain) return `https://${domain}/api/auth/google/callback`;
-  return "http://localhost:8080/api/auth/google/callback";
+  return `http://localhost:${env.PORT}/api/auth/google/callback`;
 }
 
 export function isOwner(email: string): boolean {
