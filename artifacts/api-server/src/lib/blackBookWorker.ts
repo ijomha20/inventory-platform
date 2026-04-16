@@ -246,7 +246,12 @@ async function getAuthCookies(): Promise<{ appSession: string; csrfToken: string
     const loggedIn = await loginWithAuth0(page);
     if (!loggedIn) throw new Error("Login to CreditApp failed");
 
-    const cookies = await page.cookies();
+    // After Auth0 login the browser is on the auth domain — navigate to the
+    // app domain so appSession + CA_CSRF_TOKEN cookies are actually set.
+    await page.goto(CREDITAPP_HOME, { waitUntil: "domcontentloaded", timeout: 30_000 });
+    await sleep(3000);
+
+    const cookies = await page.cookies(CREDITAPP_HOME);
     const auth    = extractAuthCookies(cookies);
     if (!auth) throw new Error("Required auth cookies not found after login");
 
