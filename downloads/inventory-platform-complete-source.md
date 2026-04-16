@@ -1,6 +1,6 @@
 # Inventory Platform — Complete source (domain-grouped, machine-generated)
 
-Generated: 2026-04-16T19:19:53 UTC
+Generated: 2026-04-16T20:05:27 UTC
 
 Produced by `pnpm --filter @workspace/scripts export:complete-md`. Body is ordered by **business domain** (same flow as the hand-curated export: navigation → workspace → DB → API contract → codegen → server domains → portal → mockup → templates → scripts). Within each domain, files are sorted by path. Session JSON and build artifacts are excluded; see *Included roots* below.
 
@@ -47,7 +47,7 @@ Produced by `pnpm --filter @workspace/scripts export:complete-md`. Body is order
 
 *2 file(s).*
 
-### `AGENTS.md` (132 lines)
+### `AGENTS.md` (144 lines)
 
 ```markdown
 # Inventory Platform -- Agent Navigation Guide
@@ -117,6 +117,7 @@ All paths relative to `artifacts/api-server/src/`.
 |------|---------|-------------|
 | `auth.ts` | `isOwner()`, `getUserRole()`, `requireOwner`, `requireAccess`, `requireOwnerOrViewer`, `configurePassport()` — Google OAuth setup + shared auth middleware | `app.ts`, all routes |
 | `inventoryCache.ts` | In-memory + DB inventory cache, Typesense enrichment, BB/Carfax merge | `routes/inventory.ts`, workers |
+| `roleFilter.ts` | `filterInventoryByRole()` — strip fields by user role | `routes/inventory.ts` |
 | `lenderCalcEngine.ts` | Cap profile resolver, no-online selling price logic | `routes/lender/lender-calculate.ts` |
 | `lenderWorker.ts` | Syncs lender programs from CreditApp GraphQL, caches to GCS | `routes/lender/`, `index.ts` |
 | `lenderAuth.ts` | CreditApp auth cookies, GraphQL client | `lenderWorker.ts` |
@@ -170,6 +171,15 @@ All paths relative to `artifacts/api-server/src/`.
 | `attached_assets/` | Captured CreditApp API payloads and reference documents — not live code |
 | `artifacts/mockup-sandbox/` | Standalone UI mockup preview app — not the production portal |
 
+## Common Multi-File Changes
+
+| Change | Files to update |
+|--------|----------------|
+| Add/change an API endpoint | `openapi.yaml` → `pnpm codegen` → route file → portal hook usage |
+| Add a user role | `UserRole` in `lib/auth.ts` → DB schema `access.ts` → `lib/roleFilter.ts` → frontend role checks |
+| Add an environment variable | `lib/env.ts` schema → consumer file → `.env` / Replit secrets |
+| Add a dealer/collection | `lib/typesense.ts` `DEALER_COLLECTIONS` → env vars for keys |
+
 ## Anti-Patterns (DO NOT)
 
 - Do NOT define route-local auth middleware — use `lib/auth.ts` (`requireOwner`, `requireAccess`, `requireOwnerOrViewer`)
@@ -179,8 +189,10 @@ All paths relative to `artifacts/api-server/src/`.
 - Do NOT define local `isProduction` — use `{ isProduction }` from `lib/env.ts`
 - Do NOT use `require()` — use static `import` or `await import()` with a comment explaining why
 - Do NOT use `(req as any)` — extend `Express.Request` in `types/passport.d.ts` instead
-- Do NOT inline role-based field stripping — use `filterInventoryByRole()` from `lib/inventoryCache.ts`
+- Do NOT inline role-based field stripping — use `filterInventoryByRole()` from `lib/roleFilter.ts`
 - Do NOT put pure math in route files — put it in `lib/lenderCalcEngine.ts` and import
+
+> `isProduction` (from `lib/env.ts`) is true when `REPLIT_DEPLOYMENT === "1"` OR `NODE_ENV === "production"`. It controls: secure cookies, log format (pretty vs JSON), Carfax worker disable, session secret enforcement.
 
 ```
 
@@ -8424,26 +8436,29 @@ export * from "./schema";
 
 ```
 
-### `lib/db/src/schema/access.ts` (11 lines)
+### `lib/db/src/schema/access.ts` (14 lines)
 
 ```typescript
-import { pgTable, text, timestamp } from "drizzle-orm/pg-core";
+import { check, pgTable, text, timestamp } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
 
 export const accessListTable = pgTable("access_list", {
   email:   text("email").primaryKey(),
   addedAt: timestamp("added_at").defaultNow().notNull(),
   addedBy: text("added_by").notNull(),
   role:    text("role").notNull().default("viewer"),
-});
+}, (table) => [
+  check("access_list_role_check", sql`${table.role} IN ('viewer', 'guest')`),
+]);
 
 export type AccessListEntry = typeof accessListTable.$inferSelect;
 
 ```
 
-### `lib/db/src/schema/audit-log.ts` (14 lines)
+### `lib/db/src/schema/audit-log.ts` (16 lines)
 
 ```typescript
-import { pgTable, serial, text, timestamp } from "drizzle-orm/pg-core";
+import { index, pgTable, serial, text, timestamp } from "drizzle-orm/pg-core";
 
 export const auditLogTable = pgTable("audit_log", {
   id:          serial("id").primaryKey(),
@@ -8453,23 +8468,28 @@ export const auditLogTable = pgTable("audit_log", {
   roleFrom:    text("role_from"),
   roleTo:      text("role_to"),
   timestamp:   timestamp("timestamp").defaultNow().notNull(),
-});
+}, (table) => [
+  index("audit_log_timestamp_idx").on(table.timestamp.desc()),
+]);
 
 export type AuditLogEntry = typeof auditLogTable.$inferSelect;
 
 ```
 
-### `lib/db/src/schema/bb-session.ts` (9 lines)
+### `lib/db/src/schema/bb-session.ts` (12 lines)
 
 ```typescript
-import { pgTable, text, timestamp } from "drizzle-orm/pg-core";
+import { check, pgTable, text, timestamp } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
 
 export const bbSessionTable = pgTable("bb_session", {
   id:        text("id").primaryKey().default("singleton"),
   cookies:   text("cookies").notNull(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
   lastRunAt: timestamp("last_run_at"),
-});
+}, (table) => [
+  check("bb_session_singleton", sql`${table.id} = 'singleton'`),
+]);
 
 ```
 
@@ -8484,30 +8504,36 @@ export * from "./lender-session";
 
 ```
 
-### `lib/db/src/schema/inventory-cache.ts` (8 lines)
+### `lib/db/src/schema/inventory-cache.ts` (11 lines)
 
 ```typescript
-import { integer, jsonb, pgTable, timestamp } from "drizzle-orm/pg-core";
+import { check, integer, jsonb, pgTable, timestamp } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
 
 export const inventoryCacheTable = pgTable("inventory_cache", {
   id:          integer("id").primaryKey(),
   data:        jsonb("data").notNull().default([]),
   lastUpdated: timestamp("last_updated").notNull(),
-});
+}, (table) => [
+  check("inventory_cache_singleton", sql`${table.id} = 1`),
+]);
 
 ```
 
-### `lib/db/src/schema/lender-session.ts` (9 lines)
+### `lib/db/src/schema/lender-session.ts` (12 lines)
 
 ```typescript
-import { pgTable, text, timestamp } from "drizzle-orm/pg-core";
+import { check, pgTable, text, timestamp } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
 
 export const lenderSessionTable = pgTable("lender_session", {
   id:        text("id").primaryKey().default("singleton"),
   cookies:   text("cookies").notNull(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
   lastRunAt: timestamp("last_run_at"),
-});
+}, (table) => [
+  check("lender_session_singleton", sql`${table.id} = 'singleton'`),
+]);
 
 ```
 
@@ -8614,7 +8640,7 @@ Stores lender sync worker state for cross-restart persistence.
 
 *3 file(s).*
 
-### `lib/api-spec/openapi.yaml` (823 lines)
+### `lib/api-spec/openapi.yaml` (1242 lines)
 
 ```yaml
 openapi: 3.1.0
@@ -8639,6 +8665,8 @@ tags:
     description: Audit log
   - name: lender
     description: Inventory Selector (lender program calculator)
+  - name: carfax
+    description: Carfax VHR management
 paths:
   /healthz:
     get:
@@ -8652,6 +8680,63 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+
+  /auth/google:
+    get:
+      operationId: authGoogle
+      tags: [auth]
+      summary: Kick off Google OAuth login flow (redirects to Google)
+      responses:
+        "302":
+          description: Redirects to Google OAuth consent screen
+
+  /auth/google/callback:
+    get:
+      operationId: authGoogleCallback
+      tags: [auth]
+      summary: Google OAuth callback (redirects to app)
+      parameters:
+        - name: code
+          in: query
+          schema:
+            type: string
+        - name: state
+          in: query
+          schema:
+            type: string
+      responses:
+        "302":
+          description: Redirects to app root on success or /?auth_error=1 on failure
+
+  /auth/logout:
+    get:
+      operationId: authLogout
+      tags: [auth]
+      summary: Destroy session and redirect to app root
+      responses:
+        "302":
+          description: Redirects to /
+
+  /auth/debug-callback:
+    get:
+      operationId: authDebugCallback
+      tags: [auth]
+      summary: Debug endpoint showing the computed OAuth callback URL
+      responses:
+        "200":
+          description: Callback URL info
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  callbackURL:
+                    type: string
+                  REPLIT_DOMAINS:
+                    type: string
+                required:
+                  - callbackURL
+                  - REPLIT_DOMAINS
 
   /me:
     get:
@@ -8713,6 +8798,56 @@ paths:
                 $ref: "#/components/schemas/CacheStatus"
         "401":
           description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /refresh:
+    post:
+      operationId: refreshCache
+      tags: [inventory]
+      summary: Webhook from Apps Script to trigger an immediate cache refresh (secret header auth)
+      parameters:
+        - name: x-refresh-secret
+          in: header
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Refresh triggered
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessMessageResponse"
+        "401":
+          description: Unauthorized — invalid or missing secret
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /refresh-blackbook:
+    post:
+      operationId: refreshBlackBook
+      tags: [inventory]
+      summary: Trigger manual Black Book refresh (owner only)
+      responses:
+        "200":
+          description: Refresh started or already running
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessMessageResponse"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: Owner only
           content:
             application/json:
               schema:
@@ -8872,7 +9007,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/LenderProgramsResponse"
         "403":
-          description: Owner only
+          description: Owner or Viewer only
           content:
             application/json:
               schema:
@@ -8891,7 +9026,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/LenderStatus"
         "403":
-          description: Owner only
+          description: Owner or Viewer only
           content:
             application/json:
               schema:
@@ -8941,6 +9076,43 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
         "403":
+          description: Owner or Viewer only
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Lender, program, or tier not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /lender-debug:
+    get:
+      operationId: getLenderDebug
+      tags: [lender]
+      summary: Diagnostic dump of cached lender program metadata (owner only)
+      responses:
+        "200":
+          description: Debug lender summary
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  updatedAt:
+                    type: string
+                    nullable: true
+                  lenders:
+                    type: array
+                    items:
+                      type: object
+                  calculatorVersion:
+                    type: string
+                  gitSha:
+                    type: string
+        "403":
           description: Owner only
           content:
             application/json:
@@ -8963,6 +9135,133 @@ paths:
                   $ref: "#/components/schemas/AuditLogEntry"
         "403":
           description: Owner only
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /carfax/batch-status:
+    get:
+      operationId: getCarfaxBatchStatus
+      tags: [carfax]
+      summary: Get current Carfax batch worker status (owner only)
+      responses:
+        "200":
+          description: Batch status
+          content:
+            application/json:
+              schema:
+                type: object
+        "403":
+          description: Owner only
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /carfax/run-batch:
+    post:
+      operationId: runCarfaxBatch
+      tags: [carfax]
+      summary: Trigger a manual Carfax batch run (owner only)
+      responses:
+        "200":
+          description: Batch started
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessMessageResponse"
+        "403":
+          description: Owner only
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "409":
+          description: Batch already running
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /carfax/test:
+    post:
+      operationId: runCarfaxTest
+      tags: [carfax]
+      summary: Run a targeted Carfax lookup for up to 10 VINs (owner only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                vins:
+                  type: array
+                  items:
+                    type: string
+              required:
+                - vins
+      responses:
+        "200":
+          description: Test results
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                  results:
+                    type: object
+                required:
+                  - ok
+                  - results
+        "400":
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: Owner only
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /price-lookup:
+    get:
+      operationId: priceLookup
+      tags: [inventory]
+      summary: Resolve a dealer listing URL to a live price via Typesense
+      parameters:
+        - name: url
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Resolved price (null if not found)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  price:
+                    type: string
+                    nullable: true
+                required:
+                  - price
+        "400":
+          description: Invalid URL
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Not authenticated
           content:
             application/json:
               schema:
@@ -9025,6 +9324,25 @@ components:
         bbAvgWholesale:
           type: string
           nullable: true
+        hasPhotos:
+          type: boolean
+        bbValues:
+          type: object
+          nullable: true
+          properties:
+            xclean:
+              type: number
+            clean:
+              type: number
+            avg:
+              type: number
+            rough:
+              type: number
+          required:
+            - xclean
+            - clean
+            - avg
+            - rough
       required:
         - location
         - vehicle
@@ -9041,9 +9359,18 @@ components:
           type: boolean
         count:
           type: integer
+        bbRunning:
+          type: boolean
+        bbLastRun:
+          type: string
+          nullable: true
+        bbCount:
+          type: integer
+          nullable: true
       required:
         - isRefreshing
         - count
+        - bbRunning
 
     VehicleImages:
       type: object
@@ -9054,6 +9381,9 @@ components:
           type: array
           items:
             type: string
+        websiteUrl:
+          type: string
+          nullable: true
       required:
         - vin
         - urls
@@ -9132,6 +9462,16 @@ components:
       properties:
         ok:
           type: boolean
+      required:
+        - ok
+
+    SuccessMessageResponse:
+      type: object
+      properties:
+        ok:
+          type: boolean
+        message:
+          type: string
       required:
         - ok
 
@@ -9333,6 +9673,10 @@ components:
           type: number
         adminFee:
           type: number
+        termStretchMonths:
+          type: integer
+        showAllWithDownPayment:
+          type: boolean
       required:
         - lenderCode
         - programId
@@ -9349,6 +9693,10 @@ components:
         location:
           type: string
         term:
+          type: integer
+        matrixTerm:
+          type: integer
+        termStretchApplied:
           type: integer
         conditionUsed:
           type: string
@@ -9374,15 +9722,28 @@ components:
           type: number
         profit:
           type: number
+        profitTarget:
+          type: number
+        qualificationTier:
+          type: string
         hasPhotos:
           type: boolean
         website:
           type: string
+        termStretched:
+          type: boolean
+        termStretchCappedReason:
+          type: string
+          nullable: true
+        requiredDownPayment:
+          type: number
       required:
         - vin
         - vehicle
         - location
         - term
+        - matrixTerm
+        - termStretchApplied
         - conditionUsed
         - bbWholesale
         - sellingPrice
@@ -9395,6 +9756,45 @@ components:
         - totalFinanced
         - monthlyPayment
         - profit
+        - profitTarget
+        - qualificationTier
+        - hasPhotos
+        - website
+        - termStretched
+
+    DebugCounts:
+      type: object
+      properties:
+        total:
+          type: integer
+        noYear:
+          type: integer
+        noKm:
+          type: integer
+        noTerm:
+          type: integer
+        noCondition:
+          type: integer
+        noBB:
+          type: integer
+        noBBVal:
+          type: integer
+        noPrice:
+          type: integer
+        ltvAdvance:
+          type: integer
+        ltvMinAftermarket:
+          type: integer
+        ltvAllIn:
+          type: integer
+        negFinanced:
+          type: integer
+        dealValue:
+          type: integer
+        maxPmtFilter:
+          type: integer
+        passed:
+          type: integer
 
     ProgramLimits:
       type: object
@@ -9408,10 +9808,39 @@ components:
         maxAdminFee:
           type: number
           nullable: true
+        maxGapMarkup:
+          type: number
         gapAllowed:
           type: boolean
+        allInOnly:
+          type: boolean
+        hasAdvanceCap:
+          type: boolean
+        hasAftermarketCap:
+          type: boolean
+        aftermarketBudgetIsDynamic:
+          type: boolean
+        aftermarketBase:
+          type: string
+        adminFeeInclusion:
+          type: string
+        capModelResolved:
+          type: string
+        capProfileKey:
+          type: string
+        noOnlineStrategy:
+          type: string
       required:
         - gapAllowed
+        - allInOnly
+        - hasAdvanceCap
+        - hasAftermarketCap
+        - aftermarketBudgetIsDynamic
+        - aftermarketBase
+        - adminFeeInclusion
+        - capModelResolved
+        - capProfileKey
+        - noOnlineStrategy
 
     LenderCalculateResponse:
       type: object
@@ -9422,10 +9851,20 @@ components:
           type: string
         tier:
           type: string
+        termStretchMonths:
+          type: integer
+        showAllWithDownPayment:
+          type: boolean
+        calculatorVersion:
+          type: string
+        gitSha:
+          type: string
         tierConfig:
           $ref: "#/components/schemas/LenderProgramTier"
         programLimits:
           $ref: "#/components/schemas/ProgramLimits"
+        debugCounts:
+          $ref: "#/components/schemas/DebugCounts"
         resultCount:
           type: integer
         results:
@@ -9436,7 +9875,13 @@ components:
         - lender
         - program
         - tier
+        - termStretchMonths
+        - showAllWithDownPayment
+        - calculatorVersion
+        - gitSha
         - tierConfig
+        - programLimits
+        - debugCounts
         - resultCount
         - results
 
@@ -9542,7 +9987,7 @@ export default defineConfig({
 <a id="codegen"></a>
 ## 5. Generated clients & Zod (Orval output)
 
-*36 file(s).*
+*49 file(s).*
 
 ### `lib/api-client-react/package.json` (16 lines)
 
@@ -9939,7 +10384,7 @@ export async function customFetch<T = unknown>(
 
 ```
 
-### `lib/api-client-react/src/generated/api.schemas.ts` (225 lines)
+### `lib/api-client-react/src/generated/api.schemas.ts` (304 lines)
 
 ```typescript
 /**
@@ -9961,6 +10406,13 @@ export interface User {
   role: string;
 }
 
+export type InventoryItemBbValues = {
+  xclean: number;
+  clean: number;
+  avg: number;
+  rough: number;
+} | null;
+
 export interface InventoryItem {
   location: string;
   vehicle: string;
@@ -9973,17 +10425,23 @@ export interface InventoryItem {
   matrixPrice?: string | null;
   cost?: string | null;
   bbAvgWholesale?: string | null;
+  hasPhotos?: boolean;
+  bbValues?: InventoryItemBbValues;
 }
 
 export interface CacheStatus {
   lastUpdated?: string | null;
   isRefreshing: boolean;
   count: number;
+  bbRunning: boolean;
+  bbLastRun?: string | null;
+  bbCount?: number | null;
 }
 
 export interface VehicleImages {
   vin: string;
   urls: string[];
+  websiteUrl?: string | null;
 }
 
 export interface AccessEntry {
@@ -10018,6 +10476,11 @@ export interface ErrorResponse {
 
 export interface SuccessResponse {
   ok: boolean;
+}
+
+export interface SuccessMessageResponse {
+  ok: boolean;
+  message?: string;
 }
 
 export interface LenderProgramTier {
@@ -10102,9 +10565,7 @@ export interface LenderCalculateRequest {
   tradeLien?: number;
   taxRate?: number;
   adminFee?: number;
-  /** 0, 6, or 12 — months added to matrix term */
   termStretchMonths?: number;
-  /** When true, include vehicles that need extra cash down to meet LTV / max payment */
   showAllWithDownPayment?: boolean;
 }
 
@@ -10113,12 +10574,8 @@ export interface LenderCalcResultItem {
   vehicle: string;
   location: string;
   term: number;
-  /** Vehicle term from lender matrix before exception stretch */
-  matrixTerm?: number;
-  /** Effective months added (0 / 6 / 12) after 84-month cap rules */
-  termStretchApplied?: 0 | 6 | 12;
-  /** When stretch was reduced (e.g. 78 cannot use +12; 84 matrix cannot stretch) */
-  termStretchCappedReason?: string;
+  matrixTerm: number;
+  termStretchApplied: number;
   conditionUsed: string;
   bbWholesale: number;
   sellingPrice: number;
@@ -10131,45 +10588,112 @@ export interface LenderCalcResultItem {
   totalFinanced: number;
   monthlyPayment: number;
   profit: number;
-  /** Target profit the deal aims to achieve (onlinePrice - pacCost for PATH A, 0 for PATH B) */
   profitTarget: number;
-  /** 1 = full deal at selling price, 2 = reduced price with product-based profit recovery */
-  qualificationTier: 1 | 2;
-  hasPhotos?: boolean;
-  website?: string;
-  termStretched?: boolean;
-  /** Extra cash down (beyond base downPayment) needed to fit program when showAllWithDownPayment is on */
+  qualificationTier: string;
+  hasPhotos: boolean;
+  website: string;
+  termStretched: boolean;
+  termStretchCappedReason?: string | null;
   requiredDownPayment?: number;
+}
+
+export interface DebugCounts {
+  total?: number;
+  noYear?: number;
+  noKm?: number;
+  noTerm?: number;
+  noCondition?: number;
+  noBB?: number;
+  noBBVal?: number;
+  noPrice?: number;
+  ltvAdvance?: number;
+  ltvMinAftermarket?: number;
+  ltvAllIn?: number;
+  negFinanced?: number;
+  dealValue?: number;
+  maxPmtFilter?: number;
+  passed?: number;
 }
 
 export interface ProgramLimits {
   maxWarrantyPrice?: number | null;
   maxGapPrice?: number | null;
   maxAdminFee?: number | null;
+  maxGapMarkup?: number;
   gapAllowed: boolean;
+  allInOnly: boolean;
+  hasAdvanceCap: boolean;
+  hasAftermarketCap: boolean;
+  aftermarketBudgetIsDynamic: boolean;
+  aftermarketBase: string;
+  adminFeeInclusion: string;
+  capModelResolved: string;
+  capProfileKey: string;
+  noOnlineStrategy: string;
 }
 
 export interface LenderCalculateResponse {
   lender: string;
   program: string;
   tier: string;
-  /** Echo: effective term stretch (0, 6, or 12 months added to matrix term) */
-  termStretchMonths?: 0 | 6 | 12;
-  /** Echo: server parsed show-all mode (see request `showAllWithDownPayment`) */
-  showAllWithDownPayment?: boolean;
+  termStretchMonths: number;
+  showAllWithDownPayment: boolean;
+  calculatorVersion: string;
+  gitSha: string;
   tierConfig: LenderProgramTier;
-  programLimits?: ProgramLimits;
+  programLimits: ProgramLimits;
+  debugCounts: DebugCounts;
   resultCount: number;
   results: LenderCalcResultItem[];
 }
+
+export type AuthGoogleCallbackParams = {
+  code?: string;
+  state?: string;
+};
+
+export type AuthDebugCallback200 = {
+  callbackURL: string;
+  REPLIT_DOMAINS: string;
+};
 
 export type GetVehicleImagesParams = {
   vin: string;
 };
 
+export type GetLenderDebug200LendersItem = { [key: string]: unknown };
+
+export type GetLenderDebug200 = {
+  updatedAt?: string | null;
+  lenders?: GetLenderDebug200LendersItem[];
+  calculatorVersion?: string;
+  gitSha?: string;
+};
+
+export type GetCarfaxBatchStatus200 = { [key: string]: unknown };
+
+export type RunCarfaxTestBody = {
+  vins: string[];
+};
+
+export type RunCarfaxTest200Results = { [key: string]: unknown };
+
+export type RunCarfaxTest200 = {
+  ok: boolean;
+  results: RunCarfaxTest200Results;
+};
+
+export type PriceLookupParams = {
+  url: string;
+};
+
+export type PriceLookup200 = {
+  price: string | null;
+};
+
 ```
 
-### `lib/api-client-react/src/generated/api.ts` (1155 lines)
+### `lib/api-client-react/src/generated/api.ts` (2055 lines)
 
 ```typescript
 /**
@@ -10194,8 +10718,12 @@ import type {
   AccessEntry,
   AddAccessRequest,
   AuditLogEntry,
+  AuthDebugCallback200,
+  AuthGoogleCallbackParams,
   CacheStatus,
   ErrorResponse,
+  GetCarfaxBatchStatus200,
+  GetLenderDebug200,
   GetVehicleImagesParams,
   HealthStatus,
   InventoryItem,
@@ -10203,6 +10731,11 @@ import type {
   LenderCalculateResponse,
   LenderProgramsResponse,
   LenderStatus,
+  PriceLookup200,
+  PriceLookupParams,
+  RunCarfaxTest200,
+  RunCarfaxTestBody,
+  SuccessMessageResponse,
   SuccessResponse,
   UpdateAccessRoleRequest,
   User,
@@ -10285,6 +10818,324 @@ export function useHealthCheck<
   request?: SecondParameter<typeof customFetch>;
 }): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
   const queryOptions = getHealthCheckQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Kick off Google OAuth login flow (redirects to Google)
+ */
+export const getAuthGoogleUrl = () => {
+  return `/api/auth/google`;
+};
+
+export const authGoogle = async (options?: RequestInit): Promise<unknown> => {
+  return customFetch<unknown>(getAuthGoogleUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getAuthGoogleQueryKey = () => {
+  return [`/api/auth/google`] as const;
+};
+
+export const getAuthGoogleQueryOptions = <
+  TData = Awaited<ReturnType<typeof authGoogle>>,
+  TError = ErrorType<void>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof authGoogle>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getAuthGoogleQueryKey();
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof authGoogle>>> = ({
+    signal,
+  }) => authGoogle({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof authGoogle>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type AuthGoogleQueryResult = NonNullable<
+  Awaited<ReturnType<typeof authGoogle>>
+>;
+export type AuthGoogleQueryError = ErrorType<void>;
+
+/**
+ * @summary Kick off Google OAuth login flow (redirects to Google)
+ */
+
+export function useAuthGoogle<
+  TData = Awaited<ReturnType<typeof authGoogle>>,
+  TError = ErrorType<void>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof authGoogle>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getAuthGoogleQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Google OAuth callback (redirects to app)
+ */
+export const getAuthGoogleCallbackUrl = (params?: AuthGoogleCallbackParams) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/auth/google/callback?${stringifiedParams}`
+    : `/api/auth/google/callback`;
+};
+
+export const authGoogleCallback = async (
+  params?: AuthGoogleCallbackParams,
+  options?: RequestInit,
+): Promise<unknown> => {
+  return customFetch<unknown>(getAuthGoogleCallbackUrl(params), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getAuthGoogleCallbackQueryKey = (
+  params?: AuthGoogleCallbackParams,
+) => {
+  return [`/api/auth/google/callback`, ...(params ? [params] : [])] as const;
+};
+
+export const getAuthGoogleCallbackQueryOptions = <
+  TData = Awaited<ReturnType<typeof authGoogleCallback>>,
+  TError = ErrorType<void>,
+>(
+  params?: AuthGoogleCallbackParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof authGoogleCallback>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getAuthGoogleCallbackQueryKey(params);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof authGoogleCallback>>
+  > = ({ signal }) => authGoogleCallback(params, { signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof authGoogleCallback>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type AuthGoogleCallbackQueryResult = NonNullable<
+  Awaited<ReturnType<typeof authGoogleCallback>>
+>;
+export type AuthGoogleCallbackQueryError = ErrorType<void>;
+
+/**
+ * @summary Google OAuth callback (redirects to app)
+ */
+
+export function useAuthGoogleCallback<
+  TData = Awaited<ReturnType<typeof authGoogleCallback>>,
+  TError = ErrorType<void>,
+>(
+  params?: AuthGoogleCallbackParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof authGoogleCallback>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getAuthGoogleCallbackQueryOptions(params, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Destroy session and redirect to app root
+ */
+export const getAuthLogoutUrl = () => {
+  return `/api/auth/logout`;
+};
+
+export const authLogout = async (options?: RequestInit): Promise<unknown> => {
+  return customFetch<unknown>(getAuthLogoutUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getAuthLogoutQueryKey = () => {
+  return [`/api/auth/logout`] as const;
+};
+
+export const getAuthLogoutQueryOptions = <
+  TData = Awaited<ReturnType<typeof authLogout>>,
+  TError = ErrorType<void>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof authLogout>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getAuthLogoutQueryKey();
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof authLogout>>> = ({
+    signal,
+  }) => authLogout({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof authLogout>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type AuthLogoutQueryResult = NonNullable<
+  Awaited<ReturnType<typeof authLogout>>
+>;
+export type AuthLogoutQueryError = ErrorType<void>;
+
+/**
+ * @summary Destroy session and redirect to app root
+ */
+
+export function useAuthLogout<
+  TData = Awaited<ReturnType<typeof authLogout>>,
+  TError = ErrorType<void>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof authLogout>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getAuthLogoutQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Debug endpoint showing the computed OAuth callback URL
+ */
+export const getAuthDebugCallbackUrl = () => {
+  return `/api/auth/debug-callback`;
+};
+
+export const authDebugCallback = async (
+  options?: RequestInit,
+): Promise<AuthDebugCallback200> => {
+  return customFetch<AuthDebugCallback200>(getAuthDebugCallbackUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getAuthDebugCallbackQueryKey = () => {
+  return [`/api/auth/debug-callback`] as const;
+};
+
+export const getAuthDebugCallbackQueryOptions = <
+  TData = Awaited<ReturnType<typeof authDebugCallback>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof authDebugCallback>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getAuthDebugCallbackQueryKey();
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof authDebugCallback>>
+  > = ({ signal }) => authDebugCallback({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof authDebugCallback>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type AuthDebugCallbackQueryResult = NonNullable<
+  Awaited<ReturnType<typeof authDebugCallback>>
+>;
+export type AuthDebugCallbackQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Debug endpoint showing the computed OAuth callback URL
+ */
+
+export function useAuthDebugCallback<
+  TData = Awaited<ReturnType<typeof authDebugCallback>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof authDebugCallback>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getAuthDebugCallbackQueryOptions(options);
 
   const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
     queryKey: QueryKey;
@@ -10505,6 +11356,168 @@ export function useGetCacheStatus<
 
   return { ...query, queryKey: queryOptions.queryKey };
 }
+
+/**
+ * @summary Webhook from Apps Script to trigger an immediate cache refresh (secret header auth)
+ */
+export const getRefreshCacheUrl = () => {
+  return `/api/refresh`;
+};
+
+export const refreshCache = async (
+  options?: RequestInit,
+): Promise<SuccessMessageResponse> => {
+  return customFetch<SuccessMessageResponse>(getRefreshCacheUrl(), {
+    ...options,
+    method: "POST",
+  });
+};
+
+export const getRefreshCacheMutationOptions = <
+  TError = ErrorType<ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof refreshCache>>,
+    TError,
+    void,
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof refreshCache>>,
+  TError,
+  void,
+  TContext
+> => {
+  const mutationKey = ["refreshCache"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof refreshCache>>,
+    void
+  > = () => {
+    return refreshCache(requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type RefreshCacheMutationResult = NonNullable<
+  Awaited<ReturnType<typeof refreshCache>>
+>;
+
+export type RefreshCacheMutationError = ErrorType<ErrorResponse>;
+
+/**
+ * @summary Webhook from Apps Script to trigger an immediate cache refresh (secret header auth)
+ */
+export const useRefreshCache = <
+  TError = ErrorType<ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof refreshCache>>,
+    TError,
+    void,
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof refreshCache>>,
+  TError,
+  void,
+  TContext
+> => {
+  return useMutation(getRefreshCacheMutationOptions(options));
+};
+
+/**
+ * @summary Trigger manual Black Book refresh (owner only)
+ */
+export const getRefreshBlackBookUrl = () => {
+  return `/api/refresh-blackbook`;
+};
+
+export const refreshBlackBook = async (
+  options?: RequestInit,
+): Promise<SuccessMessageResponse> => {
+  return customFetch<SuccessMessageResponse>(getRefreshBlackBookUrl(), {
+    ...options,
+    method: "POST",
+  });
+};
+
+export const getRefreshBlackBookMutationOptions = <
+  TError = ErrorType<ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof refreshBlackBook>>,
+    TError,
+    void,
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof refreshBlackBook>>,
+  TError,
+  void,
+  TContext
+> => {
+  const mutationKey = ["refreshBlackBook"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof refreshBlackBook>>,
+    void
+  > = () => {
+    return refreshBlackBook(requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type RefreshBlackBookMutationResult = NonNullable<
+  Awaited<ReturnType<typeof refreshBlackBook>>
+>;
+
+export type RefreshBlackBookMutationError = ErrorType<ErrorResponse>;
+
+/**
+ * @summary Trigger manual Black Book refresh (owner only)
+ */
+export const useRefreshBlackBook = <
+  TError = ErrorType<ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof refreshBlackBook>>,
+    TError,
+    void,
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof refreshBlackBook>>,
+  TError,
+  void,
+  TContext
+> => {
+  return useMutation(getRefreshBlackBookMutationOptions(options));
+};
 
 /**
  * @summary Get photo gallery URLs for a vehicle by VIN
@@ -10936,7 +11949,7 @@ export const useRemoveAccessEntry = <
 };
 
 /**
- * @summary Get cached lender program matrices (owner only)
+ * @summary Get cached lender program matrices (owner or viewer)
  */
 export const getGetLenderProgramsUrl = () => {
   return `/api/lender-programs`;
@@ -10987,7 +12000,7 @@ export type GetLenderProgramsQueryResult = NonNullable<
 export type GetLenderProgramsQueryError = ErrorType<ErrorResponse>;
 
 /**
- * @summary Get cached lender program matrices (owner only)
+ * @summary Get cached lender program matrices (owner or viewer)
  */
 
 export function useGetLenderPrograms<
@@ -11011,7 +12024,7 @@ export function useGetLenderPrograms<
 }
 
 /**
- * @summary Get lender sync status (owner only)
+ * @summary Get lender sync status (owner or viewer)
  */
 export const getGetLenderStatusUrl = () => {
   return `/api/lender-status`;
@@ -11062,7 +12075,7 @@ export type GetLenderStatusQueryResult = NonNullable<
 export type GetLenderStatusQueryError = ErrorType<ErrorResponse>;
 
 /**
- * @summary Get lender sync status (owner only)
+ * @summary Get lender sync status (owner or viewer)
  */
 
 export function useGetLenderStatus<
@@ -11167,7 +12180,7 @@ export const useRefreshLender = <
 };
 
 /**
- * @summary Calculate inventory affordability by lender/tier (owner only)
+ * @summary Calculate inventory affordability by lender/tier (owner or viewer)
  */
 export const getLenderCalculateUrl = () => {
   return `/api/lender-calculate`;
@@ -11230,7 +12243,7 @@ export type LenderCalculateMutationBody = BodyType<LenderCalculateRequest>;
 export type LenderCalculateMutationError = ErrorType<ErrorResponse>;
 
 /**
- * @summary Calculate inventory affordability by lender/tier (owner only)
+ * @summary Calculate inventory affordability by lender/tier (owner or viewer)
  */
 export const useLenderCalculate = <
   TError = ErrorType<ErrorResponse>,
@@ -11251,6 +12264,81 @@ export const useLenderCalculate = <
 > => {
   return useMutation(getLenderCalculateMutationOptions(options));
 };
+
+/**
+ * @summary Diagnostic dump of cached lender program metadata (owner only)
+ */
+export const getGetLenderDebugUrl = () => {
+  return `/api/lender-debug`;
+};
+
+export const getLenderDebug = async (
+  options?: RequestInit,
+): Promise<GetLenderDebug200> => {
+  return customFetch<GetLenderDebug200>(getGetLenderDebugUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetLenderDebugQueryKey = () => {
+  return [`/api/lender-debug`] as const;
+};
+
+export const getGetLenderDebugQueryOptions = <
+  TData = Awaited<ReturnType<typeof getLenderDebug>>,
+  TError = ErrorType<ErrorResponse>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getLenderDebug>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetLenderDebugQueryKey();
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof getLenderDebug>>> = ({
+    signal,
+  }) => getLenderDebug({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getLenderDebug>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetLenderDebugQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getLenderDebug>>
+>;
+export type GetLenderDebugQueryError = ErrorType<ErrorResponse>;
+
+/**
+ * @summary Diagnostic dump of cached lender program metadata (owner only)
+ */
+
+export function useGetLenderDebug<
+  TData = Awaited<ReturnType<typeof getLenderDebug>>,
+  TError = ErrorType<ErrorResponse>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getLenderDebug>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetLenderDebugQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
 
 /**
  * @summary Get audit log of access changes (owner only)
@@ -11327,6 +12415,342 @@ export function useGetAuditLog<
   return { ...query, queryKey: queryOptions.queryKey };
 }
 
+/**
+ * @summary Get current Carfax batch worker status (owner only)
+ */
+export const getGetCarfaxBatchStatusUrl = () => {
+  return `/api/carfax/batch-status`;
+};
+
+export const getCarfaxBatchStatus = async (
+  options?: RequestInit,
+): Promise<GetCarfaxBatchStatus200> => {
+  return customFetch<GetCarfaxBatchStatus200>(getGetCarfaxBatchStatusUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetCarfaxBatchStatusQueryKey = () => {
+  return [`/api/carfax/batch-status`] as const;
+};
+
+export const getGetCarfaxBatchStatusQueryOptions = <
+  TData = Awaited<ReturnType<typeof getCarfaxBatchStatus>>,
+  TError = ErrorType<ErrorResponse>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getCarfaxBatchStatus>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetCarfaxBatchStatusQueryKey();
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getCarfaxBatchStatus>>
+  > = ({ signal }) => getCarfaxBatchStatus({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getCarfaxBatchStatus>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetCarfaxBatchStatusQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getCarfaxBatchStatus>>
+>;
+export type GetCarfaxBatchStatusQueryError = ErrorType<ErrorResponse>;
+
+/**
+ * @summary Get current Carfax batch worker status (owner only)
+ */
+
+export function useGetCarfaxBatchStatus<
+  TData = Awaited<ReturnType<typeof getCarfaxBatchStatus>>,
+  TError = ErrorType<ErrorResponse>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getCarfaxBatchStatus>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetCarfaxBatchStatusQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Trigger a manual Carfax batch run (owner only)
+ */
+export const getRunCarfaxBatchUrl = () => {
+  return `/api/carfax/run-batch`;
+};
+
+export const runCarfaxBatch = async (
+  options?: RequestInit,
+): Promise<SuccessMessageResponse> => {
+  return customFetch<SuccessMessageResponse>(getRunCarfaxBatchUrl(), {
+    ...options,
+    method: "POST",
+  });
+};
+
+export const getRunCarfaxBatchMutationOptions = <
+  TError = ErrorType<ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof runCarfaxBatch>>,
+    TError,
+    void,
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof runCarfaxBatch>>,
+  TError,
+  void,
+  TContext
+> => {
+  const mutationKey = ["runCarfaxBatch"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof runCarfaxBatch>>,
+    void
+  > = () => {
+    return runCarfaxBatch(requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type RunCarfaxBatchMutationResult = NonNullable<
+  Awaited<ReturnType<typeof runCarfaxBatch>>
+>;
+
+export type RunCarfaxBatchMutationError = ErrorType<ErrorResponse>;
+
+/**
+ * @summary Trigger a manual Carfax batch run (owner only)
+ */
+export const useRunCarfaxBatch = <
+  TError = ErrorType<ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof runCarfaxBatch>>,
+    TError,
+    void,
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof runCarfaxBatch>>,
+  TError,
+  void,
+  TContext
+> => {
+  return useMutation(getRunCarfaxBatchMutationOptions(options));
+};
+
+/**
+ * @summary Run a targeted Carfax lookup for up to 10 VINs (owner only)
+ */
+export const getRunCarfaxTestUrl = () => {
+  return `/api/carfax/test`;
+};
+
+export const runCarfaxTest = async (
+  runCarfaxTestBody: RunCarfaxTestBody,
+  options?: RequestInit,
+): Promise<RunCarfaxTest200> => {
+  return customFetch<RunCarfaxTest200>(getRunCarfaxTestUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(runCarfaxTestBody),
+  });
+};
+
+export const getRunCarfaxTestMutationOptions = <
+  TError = ErrorType<ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof runCarfaxTest>>,
+    TError,
+    { data: BodyType<RunCarfaxTestBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof runCarfaxTest>>,
+  TError,
+  { data: BodyType<RunCarfaxTestBody> },
+  TContext
+> => {
+  const mutationKey = ["runCarfaxTest"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof runCarfaxTest>>,
+    { data: BodyType<RunCarfaxTestBody> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return runCarfaxTest(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type RunCarfaxTestMutationResult = NonNullable<
+  Awaited<ReturnType<typeof runCarfaxTest>>
+>;
+export type RunCarfaxTestMutationBody = BodyType<RunCarfaxTestBody>;
+export type RunCarfaxTestMutationError = ErrorType<ErrorResponse>;
+
+/**
+ * @summary Run a targeted Carfax lookup for up to 10 VINs (owner only)
+ */
+export const useRunCarfaxTest = <
+  TError = ErrorType<ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof runCarfaxTest>>,
+    TError,
+    { data: BodyType<RunCarfaxTestBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof runCarfaxTest>>,
+  TError,
+  { data: BodyType<RunCarfaxTestBody> },
+  TContext
+> => {
+  return useMutation(getRunCarfaxTestMutationOptions(options));
+};
+
+/**
+ * @summary Resolve a dealer listing URL to a live price via Typesense
+ */
+export const getPriceLookupUrl = (params: PriceLookupParams) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/price-lookup?${stringifiedParams}`
+    : `/api/price-lookup`;
+};
+
+export const priceLookup = async (
+  params: PriceLookupParams,
+  options?: RequestInit,
+): Promise<PriceLookup200> => {
+  return customFetch<PriceLookup200>(getPriceLookupUrl(params), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getPriceLookupQueryKey = (params?: PriceLookupParams) => {
+  return [`/api/price-lookup`, ...(params ? [params] : [])] as const;
+};
+
+export const getPriceLookupQueryOptions = <
+  TData = Awaited<ReturnType<typeof priceLookup>>,
+  TError = ErrorType<ErrorResponse>,
+>(
+  params: PriceLookupParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof priceLookup>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getPriceLookupQueryKey(params);
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof priceLookup>>> = ({
+    signal,
+  }) => priceLookup(params, { signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof priceLookup>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type PriceLookupQueryResult = NonNullable<
+  Awaited<ReturnType<typeof priceLookup>>
+>;
+export type PriceLookupQueryError = ErrorType<ErrorResponse>;
+
+/**
+ * @summary Resolve a dealer listing URL to a live price via Typesense
+ */
+
+export function usePriceLookup<
+  TData = Awaited<ReturnType<typeof priceLookup>>,
+  TError = ErrorType<ErrorResponse>,
+>(
+  params: PriceLookupParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof priceLookup>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getPriceLookupQueryOptions(params, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
 ```
 
 ### `lib/api-client-react/src/index.ts` (5 lines)
@@ -11375,7 +12799,7 @@ export type { AuthTokenGetter } from "./custom-fetch";
 
 ```
 
-### `lib/api-zod/src/generated/api.ts` (288 lines)
+### `lib/api-zod/src/generated/api.ts` (423 lines)
 
 ```typescript
 /**
@@ -11392,6 +12816,22 @@ import * as zod from "zod";
  */
 export const HealthCheckResponse = zod.object({
   status: zod.string(),
+});
+
+/**
+ * @summary Google OAuth callback (redirects to app)
+ */
+export const AuthGoogleCallbackQueryParams = zod.object({
+  code: zod.coerce.string().optional(),
+  state: zod.coerce.string().optional(),
+});
+
+/**
+ * @summary Debug endpoint showing the computed OAuth callback URL
+ */
+export const AuthDebugCallbackResponse = zod.object({
+  callbackURL: zod.string(),
+  REPLIT_DOMAINS: zod.string(),
 });
 
 /**
@@ -11420,6 +12860,15 @@ export const GetInventoryResponseItem = zod.object({
   matrixPrice: zod.string().nullish(),
   cost: zod.string().nullish(),
   bbAvgWholesale: zod.string().nullish(),
+  hasPhotos: zod.boolean().optional(),
+  bbValues: zod
+    .object({
+      xclean: zod.number(),
+      clean: zod.number(),
+      avg: zod.number(),
+      rough: zod.number(),
+    })
+    .nullish(),
 });
 export const GetInventoryResponse = zod.array(GetInventoryResponseItem);
 
@@ -11430,6 +12879,29 @@ export const GetCacheStatusResponse = zod.object({
   lastUpdated: zod.string().nullish(),
   isRefreshing: zod.boolean(),
   count: zod.number(),
+  bbRunning: zod.boolean(),
+  bbLastRun: zod.string().nullish(),
+  bbCount: zod.number().nullish(),
+});
+
+/**
+ * @summary Webhook from Apps Script to trigger an immediate cache refresh (secret header auth)
+ */
+export const RefreshCacheHeader = zod.object({
+  "x-refresh-secret": zod.string(),
+});
+
+export const RefreshCacheResponse = zod.object({
+  ok: zod.boolean(),
+  message: zod.string().optional(),
+});
+
+/**
+ * @summary Trigger manual Black Book refresh (owner only)
+ */
+export const RefreshBlackBookResponse = zod.object({
+  ok: zod.boolean(),
+  message: zod.string().optional(),
 });
 
 /**
@@ -11442,6 +12914,7 @@ export const GetVehicleImagesQueryParams = zod.object({
 export const GetVehicleImagesResponse = zod.object({
   vin: zod.string(),
   urls: zod.array(zod.string()),
+  websiteUrl: zod.string().nullish(),
 });
 
 /**
@@ -11500,7 +12973,7 @@ export const RemoveAccessEntryResponse = zod.object({
 });
 
 /**
- * @summary Get cached lender program matrices (owner only)
+ * @summary Get cached lender program matrices (owner or viewer)
  */
 export const GetLenderProgramsResponse = zod.object({
   programs: zod.array(
@@ -11568,10 +13041,11 @@ export const GetLenderProgramsResponse = zod.object({
     }),
   ),
   updatedAt: zod.string().nullish(),
+  role: zod.string().optional(),
 });
 
 /**
- * @summary Get lender sync status (owner only)
+ * @summary Get lender sync status (owner or viewer)
  */
 export const GetLenderStatusResponse = zod.object({
   running: zod.boolean(),
@@ -11590,7 +13064,7 @@ export const RefreshLenderResponse = zod.object({
 });
 
 /**
- * @summary Calculate inventory affordability by lender/tier (owner only)
+ * @summary Calculate inventory affordability by lender/tier (owner or viewer)
  */
 export const LenderCalculateBody = zod.object({
   lenderCode: zod.string(),
@@ -11602,17 +13076,19 @@ export const LenderCalculateBody = zod.object({
   tradeValue: zod.number().optional(),
   tradeLien: zod.number().optional(),
   taxRate: zod.number().optional(),
-  warrantyPrice: zod.number().optional(),
-  warrantyCost: zod.number().optional(),
-  gapPrice: zod.number().optional(),
-  gapCost: zod.number().optional(),
   adminFee: zod.number().optional(),
+  termStretchMonths: zod.number().optional(),
+  showAllWithDownPayment: zod.boolean().optional(),
 });
 
 export const LenderCalculateResponse = zod.object({
   lender: zod.string(),
   program: zod.string(),
   tier: zod.string(),
+  termStretchMonths: zod.number(),
+  showAllWithDownPayment: zod.boolean(),
+  calculatorVersion: zod.string(),
+  gitSha: zod.string(),
   tierConfig: zod.object({
     tierName: zod.string(),
     minRate: zod.number(),
@@ -11624,14 +13100,39 @@ export const LenderCalculateResponse = zod.object({
     creditorFee: zod.number(),
     dealerReserve: zod.number(),
   }),
-  programLimits: zod
-    .object({
-      maxWarrantyPrice: zod.number().nullish(),
-      maxGapPrice: zod.number().nullish(),
-      maxAdminFee: zod.number().nullish(),
-      gapAllowed: zod.boolean(),
-    })
-    .optional(),
+  programLimits: zod.object({
+    maxWarrantyPrice: zod.number().nullish(),
+    maxGapPrice: zod.number().nullish(),
+    maxAdminFee: zod.number().nullish(),
+    maxGapMarkup: zod.number().optional(),
+    gapAllowed: zod.boolean(),
+    allInOnly: zod.boolean(),
+    hasAdvanceCap: zod.boolean(),
+    hasAftermarketCap: zod.boolean(),
+    aftermarketBudgetIsDynamic: zod.boolean(),
+    aftermarketBase: zod.string(),
+    adminFeeInclusion: zod.string(),
+    capModelResolved: zod.string(),
+    capProfileKey: zod.string(),
+    noOnlineStrategy: zod.string(),
+  }),
+  debugCounts: zod.object({
+    total: zod.number().optional(),
+    noYear: zod.number().optional(),
+    noKm: zod.number().optional(),
+    noTerm: zod.number().optional(),
+    noCondition: zod.number().optional(),
+    noBB: zod.number().optional(),
+    noBBVal: zod.number().optional(),
+    noPrice: zod.number().optional(),
+    ltvAdvance: zod.number().optional(),
+    ltvMinAftermarket: zod.number().optional(),
+    ltvAllIn: zod.number().optional(),
+    negFinanced: zod.number().optional(),
+    dealValue: zod.number().optional(),
+    maxPmtFilter: zod.number().optional(),
+    passed: zod.number().optional(),
+  }),
   resultCount: zod.number(),
   results: zod.array(
     zod.object({
@@ -11639,17 +13140,39 @@ export const LenderCalculateResponse = zod.object({
       vehicle: zod.string(),
       location: zod.string(),
       term: zod.number(),
+      matrixTerm: zod.number(),
+      termStretchApplied: zod.number(),
       conditionUsed: zod.string(),
       bbWholesale: zod.number(),
       sellingPrice: zod.number(),
       priceSource: zod.string(),
+      adminFeeUsed: zod.number(),
+      warrantyPrice: zod.number(),
+      warrantyCost: zod.number(),
+      gapPrice: zod.number(),
+      gapCost: zod.number(),
       totalFinanced: zod.number(),
       monthlyPayment: zod.number(),
       profit: zod.number(),
-      hasPhotos: zod.boolean().optional(),
-      website: zod.string().optional(),
+      profitTarget: zod.number(),
+      qualificationTier: zod.string(),
+      hasPhotos: zod.boolean(),
+      website: zod.string(),
+      termStretched: zod.boolean(),
+      termStretchCappedReason: zod.string().nullish(),
+      requiredDownPayment: zod.number().optional(),
     }),
   ),
+});
+
+/**
+ * @summary Diagnostic dump of cached lender program metadata (owner only)
+ */
+export const GetLenderDebugResponse = zod.object({
+  updatedAt: zod.string().nullish(),
+  lenders: zod.array(zod.object({}).passthrough()).optional(),
+  calculatorVersion: zod.string().optional(),
+  gitSha: zod.string().optional(),
 });
 
 /**
@@ -11665,6 +13188,42 @@ export const GetAuditLogResponseItem = zod.object({
   timestamp: zod.string(),
 });
 export const GetAuditLogResponse = zod.array(GetAuditLogResponseItem);
+
+/**
+ * @summary Get current Carfax batch worker status (owner only)
+ */
+export const GetCarfaxBatchStatusResponse = zod.object({}).passthrough();
+
+/**
+ * @summary Trigger a manual Carfax batch run (owner only)
+ */
+export const RunCarfaxBatchResponse = zod.object({
+  ok: zod.boolean(),
+  message: zod.string().optional(),
+});
+
+/**
+ * @summary Run a targeted Carfax lookup for up to 10 VINs (owner only)
+ */
+export const RunCarfaxTestBody = zod.object({
+  vins: zod.array(zod.string()),
+});
+
+export const RunCarfaxTestResponse = zod.object({
+  ok: zod.boolean(),
+  results: zod.object({}).passthrough(),
+});
+
+/**
+ * @summary Resolve a dealer listing URL to a live price via Typesense
+ */
+export const PriceLookupQueryParams = zod.object({
+  url: zod.coerce.string(),
+});
+
+export const PriceLookupResponse = zod.object({
+  price: zod.string().nullable(),
+});
 
 ```
 
@@ -11729,7 +13288,43 @@ export interface AuditLogEntry {
 
 ```
 
-### `lib/api-zod/src/generated/types/cacheStatus.ts` (14 lines)
+### `lib/api-zod/src/generated/types/authDebugCallback200.ts` (13 lines)
+
+```typescript
+/**
+ * Generated by orval v8.5.3 🍺
+ * Do not edit manually.
+ * Api
+ * API specification
+ * OpenAPI spec version: 0.1.0
+ */
+
+export type AuthDebugCallback200 = {
+  callbackURL: string;
+  REPLIT_DOMAINS: string;
+};
+
+```
+
+### `lib/api-zod/src/generated/types/authGoogleCallbackParams.ts` (13 lines)
+
+```typescript
+/**
+ * Generated by orval v8.5.3 🍺
+ * Do not edit manually.
+ * Api
+ * API specification
+ * OpenAPI spec version: 0.1.0
+ */
+
+export type AuthGoogleCallbackParams = {
+  code?: string;
+  state?: string;
+};
+
+```
+
+### `lib/api-zod/src/generated/types/cacheStatus.ts` (17 lines)
 
 ```typescript
 /**
@@ -11744,6 +13339,40 @@ export interface CacheStatus {
   lastUpdated?: string | null;
   isRefreshing: boolean;
   count: number;
+  bbRunning: boolean;
+  bbLastRun?: string | null;
+  bbCount?: number | null;
+}
+
+```
+
+### `lib/api-zod/src/generated/types/debugCounts.ts` (26 lines)
+
+```typescript
+/**
+ * Generated by orval v8.5.3 🍺
+ * Do not edit manually.
+ * Api
+ * API specification
+ * OpenAPI spec version: 0.1.0
+ */
+
+export interface DebugCounts {
+  total?: number;
+  noYear?: number;
+  noKm?: number;
+  noTerm?: number;
+  noCondition?: number;
+  noBB?: number;
+  noBBVal?: number;
+  noPrice?: number;
+  ltvAdvance?: number;
+  ltvMinAftermarket?: number;
+  ltvAllIn?: number;
+  negFinanced?: number;
+  dealValue?: number;
+  maxPmtFilter?: number;
+  passed?: number;
 }
 
 ```
@@ -11762,6 +13391,57 @@ export interface CacheStatus {
 export interface ErrorResponse {
   error: string;
 }
+
+```
+
+### `lib/api-zod/src/generated/types/getCarfaxBatchStatus200.ts` (10 lines)
+
+```typescript
+/**
+ * Generated by orval v8.5.3 🍺
+ * Do not edit manually.
+ * Api
+ * API specification
+ * OpenAPI spec version: 0.1.0
+ */
+
+export type GetCarfaxBatchStatus200 = { [key: string]: unknown };
+
+```
+
+### `lib/api-zod/src/generated/types/getLenderDebug200.ts` (16 lines)
+
+```typescript
+/**
+ * Generated by orval v8.5.3 🍺
+ * Do not edit manually.
+ * Api
+ * API specification
+ * OpenAPI spec version: 0.1.0
+ */
+import type { GetLenderDebug200LendersItem } from "./getLenderDebug200LendersItem";
+
+export type GetLenderDebug200 = {
+  updatedAt?: string | null;
+  lenders?: GetLenderDebug200LendersItem[];
+  calculatorVersion?: string;
+  gitSha?: string;
+};
+
+```
+
+### `lib/api-zod/src/generated/types/getLenderDebug200LendersItem.ts` (10 lines)
+
+```typescript
+/**
+ * Generated by orval v8.5.3 🍺
+ * Do not edit manually.
+ * Api
+ * API specification
+ * OpenAPI spec version: 0.1.0
+ */
+
+export type GetLenderDebug200LendersItem = { [key: string]: unknown };
 
 ```
 
@@ -11799,7 +13479,7 @@ export interface HealthStatus {
 
 ```
 
-### `lib/api-zod/src/generated/types/index.ts` (34 lines)
+### `lib/api-zod/src/generated/types/index.ts` (47 lines)
 
 ```typescript
 /**
@@ -11813,11 +13493,18 @@ export interface HealthStatus {
 export * from "./accessEntry";
 export * from "./addAccessRequest";
 export * from "./auditLogEntry";
+export * from "./authDebugCallback200";
+export * from "./authGoogleCallbackParams";
 export * from "./cacheStatus";
+export * from "./debugCounts";
 export * from "./errorResponse";
+export * from "./getCarfaxBatchStatus200";
+export * from "./getLenderDebug200";
+export * from "./getLenderDebug200LendersItem";
 export * from "./getVehicleImagesParams";
 export * from "./healthStatus";
 export * from "./inventoryItem";
+export * from "./inventoryItemBbValues";
 export * from "./kmRange";
 export * from "./lenderCalcResultItem";
 export * from "./lenderCalculateRequest";
@@ -11827,7 +13514,13 @@ export * from "./lenderProgramGuide";
 export * from "./lenderProgramsResponse";
 export * from "./lenderProgramTier";
 export * from "./lenderStatus";
+export * from "./priceLookup200";
+export * from "./priceLookupParams";
 export * from "./programLimits";
+export * from "./runCarfaxTest200";
+export * from "./runCarfaxTest200Results";
+export * from "./runCarfaxTestBody";
+export * from "./successMessageResponse";
 export * from "./successResponse";
 export * from "./updateAccessRoleRequest";
 export * from "./user";
@@ -11838,7 +13531,7 @@ export * from "./vehicleTermMatrixEntry";
 
 ```
 
-### `lib/api-zod/src/generated/types/inventoryItem.ts` (22 lines)
+### `lib/api-zod/src/generated/types/inventoryItem.ts` (25 lines)
 
 ```typescript
 /**
@@ -11848,6 +13541,7 @@ export * from "./vehicleTermMatrixEntry";
  * API specification
  * OpenAPI spec version: 0.1.0
  */
+import type { InventoryItemBbValues } from "./inventoryItemBbValues";
 
 export interface InventoryItem {
   location: string;
@@ -11861,7 +13555,29 @@ export interface InventoryItem {
   matrixPrice?: string | null;
   cost?: string | null;
   bbAvgWholesale?: string | null;
+  hasPhotos?: boolean;
+  bbValues?: InventoryItemBbValues;
 }
+
+```
+
+### `lib/api-zod/src/generated/types/inventoryItemBbValues.ts` (15 lines)
+
+```typescript
+/**
+ * Generated by orval v8.5.3 🍺
+ * Do not edit manually.
+ * Api
+ * API specification
+ * OpenAPI spec version: 0.1.0
+ */
+
+export type InventoryItemBbValues = {
+  xclean: number;
+  clean: number;
+  avg: number;
+  rough: number;
+} | null;
 
 ```
 
@@ -11883,7 +13599,7 @@ export interface KmRange {
 
 ```
 
-### `lib/api-zod/src/generated/types/lenderCalcResultItem.ts` (24 lines)
+### `lib/api-zod/src/generated/types/lenderCalcResultItem.ts` (36 lines)
 
 ```typescript
 /**
@@ -11899,20 +13615,32 @@ export interface LenderCalcResultItem {
   vehicle: string;
   location: string;
   term: number;
+  matrixTerm: number;
+  termStretchApplied: number;
   conditionUsed: string;
   bbWholesale: number;
   sellingPrice: number;
   priceSource: string;
+  adminFeeUsed: number;
+  warrantyPrice: number;
+  warrantyCost: number;
+  gapPrice: number;
+  gapCost: number;
   totalFinanced: number;
   monthlyPayment: number;
   profit: number;
-  hasPhotos?: boolean;
-  website?: string;
+  profitTarget: number;
+  qualificationTier: string;
+  hasPhotos: boolean;
+  website: string;
+  termStretched: boolean;
+  termStretchCappedReason?: string | null;
+  requiredDownPayment?: number;
 }
 
 ```
 
-### `lib/api-zod/src/generated/types/lenderCalculateRequest.ts` (25 lines)
+### `lib/api-zod/src/generated/types/lenderCalculateRequest.ts` (23 lines)
 
 ```typescript
 /**
@@ -11933,16 +13661,14 @@ export interface LenderCalculateRequest {
   tradeValue?: number;
   tradeLien?: number;
   taxRate?: number;
-  warrantyPrice?: number;
-  warrantyCost?: number;
-  gapPrice?: number;
-  gapCost?: number;
   adminFee?: number;
+  termStretchMonths?: number;
+  showAllWithDownPayment?: boolean;
 }
 
 ```
 
-### `lib/api-zod/src/generated/types/lenderCalculateResponse.ts` (21 lines)
+### `lib/api-zod/src/generated/types/lenderCalculateResponse.ts` (27 lines)
 
 ```typescript
 /**
@@ -11952,6 +13678,7 @@ export interface LenderCalculateRequest {
  * API specification
  * OpenAPI spec version: 0.1.0
  */
+import type { DebugCounts } from "./debugCounts";
 import type { LenderCalcResultItem } from "./lenderCalcResultItem";
 import type { LenderProgramTier } from "./lenderProgramTier";
 import type { ProgramLimits } from "./programLimits";
@@ -11960,8 +13687,13 @@ export interface LenderCalculateResponse {
   lender: string;
   program: string;
   tier: string;
+  termStretchMonths: number;
+  showAllWithDownPayment: boolean;
+  calculatorVersion: string;
+  gitSha: string;
   tierConfig: LenderProgramTier;
-  programLimits?: ProgramLimits;
+  programLimits: ProgramLimits;
+  debugCounts: DebugCounts;
   resultCount: number;
   results: LenderCalcResultItem[];
 }
@@ -12018,7 +13750,7 @@ export interface LenderProgramGuide {
 
 ```
 
-### `lib/api-zod/src/generated/types/lenderProgramsResponse.ts` (14 lines)
+### `lib/api-zod/src/generated/types/lenderProgramsResponse.ts` (15 lines)
 
 ```typescript
 /**
@@ -12033,6 +13765,7 @@ import type { LenderProgram } from "./lenderProgram";
 export interface LenderProgramsResponse {
   programs: LenderProgram[];
   updatedAt?: string | null;
+  role?: string;
 }
 
 ```
@@ -12084,7 +13817,41 @@ export interface LenderStatus {
 
 ```
 
-### `lib/api-zod/src/generated/types/programLimits.ts` (15 lines)
+### `lib/api-zod/src/generated/types/priceLookup200.ts` (12 lines)
+
+```typescript
+/**
+ * Generated by orval v8.5.3 🍺
+ * Do not edit manually.
+ * Api
+ * API specification
+ * OpenAPI spec version: 0.1.0
+ */
+
+export type PriceLookup200 = {
+  price: string | null;
+};
+
+```
+
+### `lib/api-zod/src/generated/types/priceLookupParams.ts` (12 lines)
+
+```typescript
+/**
+ * Generated by orval v8.5.3 🍺
+ * Do not edit manually.
+ * Api
+ * API specification
+ * OpenAPI spec version: 0.1.0
+ */
+
+export type PriceLookupParams = {
+  url: string;
+};
+
+```
+
+### `lib/api-zod/src/generated/types/programLimits.ts` (25 lines)
 
 ```typescript
 /**
@@ -12099,7 +13866,86 @@ export interface ProgramLimits {
   maxWarrantyPrice?: number | null;
   maxGapPrice?: number | null;
   maxAdminFee?: number | null;
+  maxGapMarkup?: number;
   gapAllowed: boolean;
+  allInOnly: boolean;
+  hasAdvanceCap: boolean;
+  hasAftermarketCap: boolean;
+  aftermarketBudgetIsDynamic: boolean;
+  aftermarketBase: string;
+  adminFeeInclusion: string;
+  capModelResolved: string;
+  capProfileKey: string;
+  noOnlineStrategy: string;
+}
+
+```
+
+### `lib/api-zod/src/generated/types/runCarfaxTest200.ts` (14 lines)
+
+```typescript
+/**
+ * Generated by orval v8.5.3 🍺
+ * Do not edit manually.
+ * Api
+ * API specification
+ * OpenAPI spec version: 0.1.0
+ */
+import type { RunCarfaxTest200Results } from "./runCarfaxTest200Results";
+
+export type RunCarfaxTest200 = {
+  ok: boolean;
+  results: RunCarfaxTest200Results;
+};
+
+```
+
+### `lib/api-zod/src/generated/types/runCarfaxTest200Results.ts` (10 lines)
+
+```typescript
+/**
+ * Generated by orval v8.5.3 🍺
+ * Do not edit manually.
+ * Api
+ * API specification
+ * OpenAPI spec version: 0.1.0
+ */
+
+export type RunCarfaxTest200Results = { [key: string]: unknown };
+
+```
+
+### `lib/api-zod/src/generated/types/runCarfaxTestBody.ts` (12 lines)
+
+```typescript
+/**
+ * Generated by orval v8.5.3 🍺
+ * Do not edit manually.
+ * Api
+ * API specification
+ * OpenAPI spec version: 0.1.0
+ */
+
+export type RunCarfaxTestBody = {
+  vins: string[];
+};
+
+```
+
+### `lib/api-zod/src/generated/types/successMessageResponse.ts` (13 lines)
+
+```typescript
+/**
+ * Generated by orval v8.5.3 🍺
+ * Do not edit manually.
+ * Api
+ * API specification
+ * OpenAPI spec version: 0.1.0
+ */
+
+export interface SuccessMessageResponse {
+  ok: boolean;
+  message?: string;
 }
 
 ```
@@ -12181,7 +14027,7 @@ export interface VehicleConditionMatrixEntry {
 
 ```
 
-### `lib/api-zod/src/generated/types/vehicleImages.ts` (13 lines)
+### `lib/api-zod/src/generated/types/vehicleImages.ts` (14 lines)
 
 ```typescript
 /**
@@ -12195,6 +14041,7 @@ export interface VehicleConditionMatrixEntry {
 export interface VehicleImages {
   vin: string;
   urls: string[];
+  websiteUrl?: string | null;
 }
 
 ```
@@ -12333,7 +14180,7 @@ To regenerate after changing `openapi.yaml`, run the Orval codegen from `lib/api
 <a id="server-bootstrap"></a>
 ## 7. API server — bootstrap & application shell
 
-*5 file(s).*
+*6 file(s).*
 
 ### `artifacts/api-server/build.mjs` (130 lines)
 
@@ -12470,6 +14317,33 @@ buildAll().catch((err) => {
 
 ```
 
+### `artifacts/api-server/eslint.config.mjs` (22 lines)
+
+```javascript
+export default [
+  {
+    files: ["src/**/*.ts"],
+    rules: {
+      "no-restricted-properties": [
+        "error",
+        {
+          object: "process",
+          property: "env",
+          message: "Use `env` from lib/env.ts instead of process.env directly.",
+        },
+      ],
+    },
+  },
+  {
+    files: ["src/lib/env.ts"],
+    rules: {
+      "no-restricted-properties": "off",
+    },
+  },
+];
+
+```
+
 ### `artifacts/api-server/package.json` (50 lines)
 
 ```json
@@ -12525,10 +14399,10 @@ buildAll().catch((err) => {
 
 ```
 
-### `artifacts/api-server/src/app.ts` (76 lines)
+### `artifacts/api-server/src/app.ts` (82 lines)
 
 ```typescript
-import express, { type Express } from "express";
+import express, { type Express, type Request, type Response, type NextFunction } from "express";
 import cors from "cors";
 import pinoHttp from "pino-http";
 import session from "express-session";
@@ -12602,11 +14476,17 @@ const apiLimiter = rateLimit({
 app.use("/api", apiLimiter);
 app.use("/api", router);
 
+// Global error handler — Express 5 propagates async rejections here automatically
+app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
+  logger.error({ err }, "Unhandled route error");
+  if (!res.headersSent) res.status(500).json({ error: "Internal server error" });
+});
+
 export default app;
 
 ```
 
-### `artifacts/api-server/src/index.ts` (40 lines)
+### `artifacts/api-server/src/index.ts` (36 lines)
 
 ```typescript
 import app from "./app";
@@ -12634,19 +14514,15 @@ startBackgroundRefresh().then(() => {
   // Lender sync worker — caches lender program matrices from CreditApp GraphQL
   scheduleLenderSync();
 
-  app.listen(port, (err) => {
-    if (err) {
-      logger.error({ err }, "Error listening on port");
-      process.exit(1);
-    }
-    logger.info({ port }, "Server listening");
-  });
+  const server = app.listen(port, () => logger.info({ port }, "Server listening"));
+  server.on("error", (err) => { logger.error({ err }, "Listen failed"); process.exit(1); });
 }).catch((err) => {
   logger.error({ err }, "Failed to initialise inventory cache — starting anyway");
   if (!isProduction) scheduleCarfaxWorker();
   scheduleBlackBookWorker();
   scheduleLenderSync();
-  app.listen(port, () => logger.info({ port }, "Server listening (cache init failed)"));
+  const server = app.listen(port, () => logger.info({ port }, "Server listening (cache init failed)"));
+  server.on("error", (err) => { logger.error({ err }, "Listen failed"); process.exit(1); });
 });
 
 ```
@@ -12679,9 +14555,9 @@ startBackgroundRefresh().then(() => {
 <a id="auth-access"></a>
 ## 8. API server — auth & access control
 
-*4 file(s).*
+*5 file(s).*
 
-### `artifacts/api-server/src/lib/auth.ts` (110 lines)
+### `artifacts/api-server/src/lib/auth.ts` (114 lines)
 
 ```typescript
 import passport from "passport";
@@ -12700,7 +14576,7 @@ const CLIENT_SECRET = env.GOOGLE_CLIENT_SECRET;
 function getCallbackUrl(): string {
   const domain = env.REPLIT_DOMAINS?.split(",")[0]?.trim();
   if (domain) return `https://${domain}/api/auth/google/callback`;
-  return "http://localhost:8080/api/auth/google/callback";
+  return `http://localhost:${env.PORT}/api/auth/google/callback`;
 }
 
 export function isOwner(email: string): boolean {
@@ -12709,8 +14585,8 @@ export function isOwner(email: string): boolean {
 
 export type UserRole = "owner" | "viewer" | "guest";
 
-/** Resolve calling user's role from owner check + access_list DB lookup. */
-export async function getUserRole(req: Request): Promise<UserRole> {
+/** Resolve calling user's role. Returns null if user is not on the access list. */
+export async function getUserRole(req: Request): Promise<UserRole | null> {
   const email = req.user!.email.toLowerCase();
   if (isOwner(email)) return "owner";
   const [entry] = await db
@@ -12718,7 +14594,8 @@ export async function getUserRole(req: Request): Promise<UserRole> {
     .from(accessListTable)
     .where(eq(accessListTable.email, email))
     .limit(1);
-  return (entry?.role as UserRole) ?? "viewer";
+  if (!entry) return null;
+  return (entry.role === "viewer" || entry.role === "guest") ? entry.role : "viewer";
 }
 
 /** Reject unauthenticated requests. */
@@ -12730,7 +14607,7 @@ function requireAuth(req: Request, res: Response): boolean {
   return true;
 }
 
-/** Owner-only middleware (DB role lookup for access-list owners too). */
+/** Owner-only middleware. */
 export async function requireOwner(req: Request, res: Response, next: NextFunction) {
   if (!requireAuth(req, res)) return;
   const role = await getUserRole(req);
@@ -12741,11 +14618,11 @@ export async function requireOwner(req: Request, res: Response, next: NextFuncti
   next();
 }
 
-/** Owner or viewer — sets req._role for downstream use. */
+/** Owner or viewer — rejects users not on the access list. Sets req._role. */
 export async function requireOwnerOrViewer(req: Request, res: Response, next: NextFunction) {
   if (!requireAuth(req, res)) return;
   const role = await getUserRole(req);
-  if (role !== "owner" && role !== "viewer") {
+  if (role === null || (role !== "owner" && role !== "viewer")) {
     res.status(403).json({ error: "Access denied" });
     return;
   }
@@ -12756,15 +14633,12 @@ export async function requireOwnerOrViewer(req: Request, res: Response, next: Ne
 /** Any authenticated user on the access list (owner, viewer, or guest). */
 export async function requireAccess(req: Request, res: Response, next: NextFunction) {
   if (!requireAuth(req, res)) return;
-  const email = req.user!.email.toLowerCase();
-  if (isOwner(email)) { next(); return; }
-  const [entry] = await db
-    .select()
-    .from(accessListTable)
-    .where(eq(accessListTable.email, email))
-    .limit(1);
-  if (entry) { next(); return; }
-  res.status(403).json({ error: "Access denied" });
+  const role = await getUserRole(req);
+  if (role === null) {
+    res.status(403).json({ error: "Access denied" });
+    return;
+  }
+  next();
 }
 
 export function configurePassport() {
@@ -12791,7 +14665,13 @@ export function configurePassport() {
   );
 
   passport.serializeUser((user, done) => done(null, user));
-  passport.deserializeUser((user, done) => done(null, user as Express.User));
+  passport.deserializeUser((user: unknown, done) => {
+    if (user && typeof user === "object" && typeof (user as Record<string, unknown>).email === "string") {
+      done(null, user as Express.User);
+    } else {
+      done(new Error("Invalid session data"));
+    }
+  });
 }
 
 ```
@@ -12852,7 +14732,37 @@ export async function sendInvitationEmail(
 
 ```
 
-### `artifacts/api-server/src/routes/access.ts` (129 lines)
+### `artifacts/api-server/src/lib/roleFilter.ts` (25 lines)
+
+```typescript
+import type { InventoryItem } from "./inventoryCache.js";
+import type { UserRole } from "./auth.js";
+
+/**
+ * Strip inventory fields based on user role.
+ * Owner sees everything; viewer hides cost/matrixPrice; guest additionally hides
+ * BB values and price.
+ */
+export function filterInventoryByRole(
+  items: InventoryItem[],
+  role: UserRole,
+): Partial<InventoryItem>[] {
+  return items.map((item) => {
+    if (role === "owner") return item;
+
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const { matrixPrice, cost, ...rest } = item;
+    if (role === "viewer") return rest;
+
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const { bbAvgWholesale, bbValues, ...guestRest } = rest;
+    return { ...guestRest, price: "" };
+  });
+}
+
+```
+
+### `artifacts/api-server/src/routes/access.ts` (132 lines)
 
 ```typescript
 import { Router } from "express";
@@ -12862,6 +14772,7 @@ import { eq, desc } from "drizzle-orm";
 import { requireOwner } from "../lib/auth.js";
 import { sendInvitationEmail } from "../lib/emailService.js";
 import { validateBody, validateParams } from "../lib/validate.js";
+import { logger } from "../lib/logger.js";
 import {
   AddAccessEntryBody,
   UpdateAccessRoleBody,
@@ -12886,8 +14797,8 @@ async function writeAudit(
       roleFrom:  roleFrom  ?? null,
       roleTo:    roleTo    ?? null,
     });
-  } catch (_err) {
-    // Audit failures are non-fatal
+  } catch (err) {
+    logger.warn({ err }, "Audit write failed");
   }
 }
 
@@ -12967,7 +14878,9 @@ router.delete("/access/:email", requireOwner, validateParams(RemoveAccessEntryPa
       `DELETE FROM "session" WHERE sess->'passport'->'user'->>'email' = $1`,
       [email],
     );
-  } catch (_err) {}
+  } catch (err) {
+    logger.warn({ err }, "Session cleanup failed");
+  }
 
   res.json({ ok: true });
 });
@@ -12986,7 +14899,7 @@ export default router;
 
 ```
 
-### `artifacts/api-server/src/routes/auth.ts` (76 lines)
+### `artifacts/api-server/src/routes/auth.ts` (78 lines)
 
 ```typescript
 import { Router } from "express";
@@ -12995,17 +14908,19 @@ import { db } from "@workspace/db";
 import { accessListTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { isOwner } from "../lib/auth.js";
-import { env } from "../lib/env.js";
+import { env, isProduction } from "../lib/env.js";
 
 const router = Router();
 
-router.get("/auth/debug-callback", (_req, res) => {
-  const domain = env.REPLIT_DOMAINS?.split(",")[0]?.trim();
-  const callbackURL = domain
-    ? `https://${domain}/api/auth/google/callback`
-    : "http://localhost:8080/api/auth/google/callback";
-  res.json({ callbackURL, REPLIT_DOMAINS: env.REPLIT_DOMAINS || "(not set)" });
-});
+if (!isProduction) {
+  router.get("/auth/debug-callback", (_req, res) => {
+    const domain = env.REPLIT_DOMAINS?.split(",")[0]?.trim();
+    const callbackURL = domain
+      ? `https://${domain}/api/auth/google/callback`
+      : "http://localhost:8080/api/auth/google/callback";
+    res.json({ callbackURL, REPLIT_DOMAINS: env.REPLIT_DOMAINS || "(not set)" });
+  });
+}
 
 // Kick off Google OAuth
 router.get("/auth/google", passport.authenticate("google", { scope: ["email", "profile"] }));
@@ -13074,7 +14989,7 @@ export default router;
 
 *3 file(s).*
 
-### `artifacts/api-server/src/lib/inventoryCache.ts` (495 lines)
+### `artifacts/api-server/src/lib/inventoryCache.ts` (485 lines)
 
 ```typescript
 import { db, inventoryCacheTable } from "@workspace/db";
@@ -13114,6 +15029,15 @@ const state: CacheState = {
   lastUpdated:  null,
   isRefreshing: false,
 };
+
+let mutexPromise: Promise<void> = Promise.resolve();
+
+function withCacheLock<T>(fn: () => Promise<T>): Promise<T> {
+  const prev = mutexPromise;
+  let resolve: () => void;
+  mutexPromise = new Promise<void>((r) => { resolve = r; });
+  return prev.then(fn).finally(() => resolve!());
+}
 
 export function getCacheState(): CacheState {
   return state;
@@ -13289,138 +15213,136 @@ async function fetchOnlinePricesFromTypesense(): Promise<Map<string, string>> {
  * Called hourly by startBackgroundRefresh, and on-demand via webhook.
  */
 export async function refreshCache(): Promise<void> {
-  if (state.isRefreshing) return;
-  state.isRefreshing = true;
+  return withCacheLock(async () => {
+    if (state.isRefreshing) return;
+    state.isRefreshing = true;
 
-  try {
-    const dataUrl = env.INVENTORY_DATA_URL;
-    if (!dataUrl) {
-      logger.warn("INVENTORY_DATA_URL is not set — cache not populated");
-      return;
-    }
-
-    const response = await fetch(dataUrl, { signal: AbortSignal.timeout(45_000) });
-    if (!response.ok) throw new Error(`Upstream HTTP ${response.status}`);
-
-    const raw: any = await response.json();
-
-    if (!Array.isArray(raw)) {
-      logger.error({ type: typeof raw }, "Apps Script returned non-array — keeping stale cache");
-      return;
-    }
-    if (raw.length === 0) {
-      logger.warn("Apps Script returned empty array — keeping stale cache");
-      return;
-    }
-
-    const existingBb = new Map<string, string>();
-    const existingBbDetail = new Map<string, { xclean: number; clean: number; avg: number; rough: number }>();
-    for (const old of state.data) {
-      if (old.bbAvgWholesale) existingBb.set(old.vin.toUpperCase(), old.bbAvgWholesale);
-      if (old.bbValues) existingBbDetail.set(old.vin.toUpperCase(), old.bbValues);
-    }
     try {
-      // Lazy load: defers GCS client initialization
-      const { loadBbValuesFromStore, parseBbEntry } = await import("./bbObjectStore.js");
-      const blob = await loadBbValuesFromStore();
-      if (blob?.values) {
-        for (const [vin, raw] of Object.entries(blob.values)) {
-          if (!raw) continue;
-          const entry = parseBbEntry(raw);
-          if (entry) {
-            existingBb.set(vin.toUpperCase(), entry.avg);
-            if (entry.xclean || entry.clean || entry.average || entry.rough) {
-              existingBbDetail.set(vin.toUpperCase(), { xclean: entry.xclean, clean: entry.clean, avg: entry.average, rough: entry.rough });
+      const dataUrl = env.INVENTORY_DATA_URL;
+      if (!dataUrl) {
+        logger.warn("INVENTORY_DATA_URL is not set — cache not populated");
+        return;
+      }
+
+      const response = await fetch(dataUrl, { signal: AbortSignal.timeout(45_000) });
+      if (!response.ok) throw new Error(`Upstream HTTP ${response.status}`);
+
+      const raw: any = await response.json();
+
+      if (!Array.isArray(raw)) {
+        logger.error({ type: typeof raw }, "Apps Script returned non-array — keeping stale cache");
+        return;
+      }
+      if (raw.length === 0) {
+        logger.warn("Apps Script returned empty array — keeping stale cache");
+        return;
+      }
+
+      const existingBb = new Map<string, string>();
+      const existingBbDetail = new Map<string, { xclean: number; clean: number; avg: number; rough: number }>();
+      const existingPhotos = new Set<string>();
+      for (const old of state.data) {
+        if (old.bbAvgWholesale) existingBb.set(old.vin.toUpperCase(), old.bbAvgWholesale);
+        if (old.bbValues) existingBbDetail.set(old.vin.toUpperCase(), old.bbValues);
+        if (old.hasPhotos) existingPhotos.add(old.vin.toUpperCase());
+      }
+      try {
+        const { loadBbValuesFromStore, parseBbEntry } = await import("./bbObjectStore.js");
+        const blob = await loadBbValuesFromStore();
+        if (blob?.values) {
+          for (const [vin, raw] of Object.entries(blob.values)) {
+            if (!raw) continue;
+            const entry = parseBbEntry(raw);
+            if (entry) {
+              existingBb.set(vin.toUpperCase(), entry.avg);
+              if (entry.xclean || entry.clean || entry.average || entry.rough) {
+                existingBbDetail.set(vin.toUpperCase(), { xclean: entry.xclean, clean: entry.clean, avg: entry.average, rough: entry.rough });
+              }
             }
           }
+          logger.info({ count: Object.keys(blob.values).length }, "Inventory: BB values loaded from shared object storage");
         }
-        logger.info({ count: Object.keys(blob.values).length }, "Inventory: BB values loaded from shared object storage");
-      }
-    } catch (err: any) {
-      logger.warn({ err: err.message }, "Inventory: could not load BB values from object storage (non-fatal)");
-    }
-
-    // Normalise each item — guard against differing field names / missing keys
-    const items: InventoryItem[] = [];
-    for (const r of raw) {
-      if (!r || typeof r !== "object") {
-        logger.warn({ r }, "Skipping malformed inventory item");
-        continue;
-      }
-      const vin = String(r.vin ?? "").trim().toUpperCase();
-      items.push({
-        location:       String(r.location    ?? "").trim(),
-        vehicle:        String(r.vehicle     ?? "").trim(),
-        vin,
-        price:          String(r.price       ?? "").trim(),
-        km:             String(r.km          ?? "").trim(),
-        carfax:         String(r.carfax      ?? "").trim(),
-        website:        String(r.website     ?? "").trim(),
-        onlinePrice:    String(r.onlinePrice ?? "").trim(),
-        matrixPrice:    String(r.matrixPrice ?? "").trim(), // Column F
-        cost:           String(r.cost        ?? "").trim(), // Column G
-        hasPhotos:      false,
-        bbAvgWholesale: existingBb.get(vin),
-        bbValues:       existingBbDetail.get(vin),
-      });
-    }
-
-    // -----------------------------------------------------------------------
-    // Enrich with Typesense data (prices + website URLs) in a single pass
-    // -----------------------------------------------------------------------
-    const needEnrichment = items.some(
-      (item) =>
-        !item.onlinePrice || item.onlinePrice === "NOT FOUND" ||
-        !item.website     || item.website     === "NOT FOUND",
-    );
-
-    if (needEnrichment) {
-      const { prices, website, photos } = await fetchFromTypesense();
-
-      for (const item of items) {
-        if (!item.onlinePrice || item.onlinePrice === "NOT FOUND") {
-          const fetched = prices.get(item.vin.toUpperCase());
-          if (fetched) item.onlinePrice = fetched;
-        }
-        if (!item.website || item.website === "NOT FOUND") {
-          const fetched = website.get(item.vin.toUpperCase());
-          if (fetched) item.website = fetched;
-        }
-        item.hasPhotos = photos.has(item.vin.toUpperCase());
+      } catch (err: any) {
+        logger.warn({ err: err.message }, "Inventory: could not load BB values from object storage (non-fatal)");
       }
 
-      logger.info(
-        { prices: prices.size, websiteUrls: website.size, total: items.length },
-        "Typesense enrichment complete",
+      const items: InventoryItem[] = [];
+      for (const r of raw) {
+        if (!r || typeof r !== "object") {
+          logger.warn({ r }, "Skipping malformed inventory item");
+          continue;
+        }
+        const vin = String(r.vin ?? "").trim().toUpperCase();
+        items.push({
+          location:       String(r.location    ?? "").trim(),
+          vehicle:        String(r.vehicle     ?? "").trim(),
+          vin,
+          price:          String(r.price       ?? "").trim(),
+          km:             String(r.km          ?? "").trim(),
+          carfax:         String(r.carfax      ?? "").trim(),
+          website:        String(r.website     ?? "").trim(),
+          onlinePrice:    String(r.onlinePrice ?? "").trim(),
+          matrixPrice:    String(r.matrixPrice ?? "").trim(),
+          cost:           String(r.cost        ?? "").trim(),
+          hasPhotos:      existingPhotos.has(vin),
+          bbAvgWholesale: existingBb.get(vin),
+          bbValues:       existingBbDetail.get(vin),
+        });
+      }
+
+      const needEnrichment = items.some(
+        (item) =>
+          !item.onlinePrice || item.onlinePrice === "NOT FOUND" ||
+          !item.website     || item.website     === "NOT FOUND",
       );
-    }
 
-    const previousVins = new Set(state.data.map(i => i.vin.toUpperCase()).filter(v => v.length > 0));
+      if (needEnrichment) {
+        const { prices, website, photos } = await fetchFromTypesense();
 
-    state.data        = items;
-    state.lastUpdated = new Date();
-    logger.info({ count: items.length }, "Inventory cache refreshed");
+        for (const item of items) {
+          if (!item.onlinePrice || item.onlinePrice === "NOT FOUND") {
+            const fetched = prices.get(item.vin.toUpperCase());
+            if (fetched) item.onlinePrice = fetched;
+          }
+          if (!item.website || item.website === "NOT FOUND") {
+            const fetched = website.get(item.vin.toUpperCase());
+            if (fetched) item.website = fetched;
+          }
+          item.hasPhotos = photos.has(item.vin.toUpperCase());
+        }
 
-    // Persist the fresh data to the database so future restarts load instantly
-    await persistToDb();
-
-    if (previousVins.size > 0) {
-      const newVins = [...new Set(
-        items
-          .map(i => i.vin.toUpperCase())
-          .filter(v => v.length >= 10 && !previousVins.has(v)),
-      )];
-
-      if (newVins.length > 0) {
-        logger.info({ count: newVins.length, vins: newVins }, "New VINs detected during inventory refresh");
-        triggerNewVinLookups(newVins);
+        logger.info(
+          { prices: prices.size, websiteUrls: website.size, total: items.length },
+          "Typesense enrichment complete",
+        );
       }
+
+      const previousVins = new Set(state.data.map(i => i.vin.toUpperCase()).filter(v => v.length > 0));
+
+      state.data        = items;
+      state.lastUpdated = new Date();
+      logger.info({ count: items.length }, "Inventory cache refreshed");
+
+      await persistToDb();
+
+      if (previousVins.size > 0) {
+        const newVins = [...new Set(
+          items
+            .map(i => i.vin.toUpperCase())
+            .filter(v => v.length >= 10 && !previousVins.has(v)),
+        )];
+
+        if (newVins.length > 0) {
+          logger.info({ count: newVins.length, vins: newVins }, "New VINs detected during inventory refresh");
+          triggerNewVinLookups(newVins);
+        }
+      }
+    } catch (err) {
+      logger.error({ err }, "Inventory cache refresh failed — serving stale data");
+    } finally {
+      state.isRefreshing = false;
     }
-  } catch (err) {
-    logger.error({ err }, "Inventory cache refresh failed — serving stale data");
-  } finally {
-    state.isRefreshing = false;
-  }
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -13428,24 +15350,26 @@ export async function refreshCache(): Promise<void> {
 // ---------------------------------------------------------------------------
 
 export async function applyCarfaxResults(results: Map<string, string>): Promise<void> {
-  if (results.size === 0) return;
-  if (!state.lastUpdated) {
-    logger.warn("Carfax results received but inventory cache not yet loaded — skipping");
-    return;
-  }
-  let updated = 0;
-  for (const item of state.data) {
-    const vinKey = item.vin.toUpperCase();
-    const val = results.get(vinKey);
-    if (val !== undefined) {
-      item.carfax = val;
-      updated++;
+  return withCacheLock(async () => {
+    if (results.size === 0) return;
+    if (!state.lastUpdated) {
+      logger.warn("Carfax results received but inventory cache not yet loaded — skipping");
+      return;
     }
-  }
-  if (updated > 0) {
-    await persistToDb();
-    logger.info({ updated, total: state.data.length }, "Carfax results applied to inventory cache");
-  }
+    let updated = 0;
+    for (const item of state.data) {
+      const vinKey = item.vin.toUpperCase();
+      const val = results.get(vinKey);
+      if (val !== undefined) {
+        item.carfax = val;
+        updated++;
+      }
+    }
+    if (updated > 0) {
+      await persistToDb();
+      logger.info({ updated, total: state.data.length }, "Carfax results applied to inventory cache");
+    }
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -13481,26 +15405,28 @@ export async function applyBlackBookValues(
   bbMap: Map<string, string>,
   bbDetailMap?: Map<string, { xclean: number; clean: number; avg: number; rough: number }>,
 ): Promise<void> {
-  if (bbMap.size === 0) return;
-  if (!state.lastUpdated) {
-    logger.warn("BB values received but inventory cache not yet loaded — skipping persist");
-    return;
-  }
-  let updated = 0;
-  for (const item of state.data) {
-    const vinKey = item.vin.toUpperCase();
-    const val = bbMap.get(vinKey);
-    if (val !== undefined) {
-      item.bbAvgWholesale = val;
-      const detail = bbDetailMap?.get(vinKey);
-      if (detail) item.bbValues = detail;
-      updated++;
+  return withCacheLock(async () => {
+    if (bbMap.size === 0) return;
+    if (!state.lastUpdated) {
+      logger.warn("BB values received but inventory cache not yet loaded — skipping persist");
+      return;
     }
-  }
-  if (updated > 0) {
-    await persistToDb();
-    logger.info({ updated, total: state.data.length }, "Black Book values applied to inventory");
-  }
+    let updated = 0;
+    for (const item of state.data) {
+      const vinKey = item.vin.toUpperCase();
+      const val = bbMap.get(vinKey);
+      if (val !== undefined) {
+        item.bbAvgWholesale = val;
+        const detail = bbDetailMap?.get(vinKey);
+        if (detail) item.bbValues = detail;
+        updated++;
+      }
+    }
+    if (updated > 0) {
+      await persistToDb();
+      logger.info({ updated, total: state.data.length }, "Black Book values applied to inventory");
+    }
+  });
 }
 
 /**
@@ -13550,37 +15476,17 @@ export async function startBackgroundRefresh(intervalMs = 60 * 60 * 1000): Promi
   }, intervalMs);
 }
 
-/**
- * Strip inventory fields based on user role.
- * Owner sees everything; viewer hides cost/matrixPrice; guest additionally hides
- * BB values and price.
- */
-export function filterInventoryByRole(
-  items: InventoryItem[],
-  role: "owner" | "viewer" | "guest",
-): Partial<InventoryItem>[] {
-  return items.map((item) => {
-    if (role === "owner") return item;
-
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    const { matrixPrice, cost, ...rest } = item;
-    if (role === "viewer") return rest;
-
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    const { bbAvgWholesale, bbValues, ...guestRest } = rest;
-    return { ...guestRest, price: "" };
-  });
-}
 
 ```
 
-### `artifacts/api-server/src/routes/inventory.ts` (128 lines)
+### `artifacts/api-server/src/routes/inventory.ts` (129 lines)
 
 ```typescript
 import { Router } from "express";
 import { getUserRole, requireAccess } from "../lib/auth.js";
 import { logger } from "../lib/logger.js";
-import { getCacheState, refreshCache, filterInventoryByRole } from "../lib/inventoryCache.js";
+import { getCacheState, refreshCache } from "../lib/inventoryCache.js";
+import { filterInventoryByRole } from "../lib/roleFilter.js";
 import { runBlackBookWorker, getBlackBookStatus } from "../lib/blackBookWorker.js";
 import {
   TYPESENSE_HOST,
@@ -13597,7 +15503,7 @@ const router = Router();
 
 // GET /inventory — instant response from server-side cache, role-filtered
 router.get("/inventory", requireAccess, async (req, res) => {
-  const role = await getUserRole(req);
+  const role = await getUserRole(req) ?? "guest";
   const { data } = getCacheState();
   res.set("Cache-Control", "no-store");
   res.json(filterInventoryByRole(data, role));
@@ -13620,7 +15526,7 @@ router.get("/cache-status", requireAccess, (_req, res) => {
 
 // POST /refresh-blackbook — owner only, triggers manual Black Book refresh
 router.post("/refresh-blackbook", requireAccess, async (req, res) => {
-  const role = await getUserRole(req);
+  const role = await getUserRole(req) ?? "guest";
   if (role !== "owner") {
     res.status(403).json({ error: "Owner only" });
     return;
@@ -13694,8 +15600,8 @@ router.get("/vehicle-images", requireAccess, validateQuery(GetVehicleImagesQuery
       websiteUrl = extractWebsiteUrl(doc, dealer.siteUrl);
 
       break; // Stop after first successful collection
-    } catch (_err) {
-      // Silently continue to next collection
+    } catch (err) {
+      logger.warn({ err }, "Typesense image fetch failed for collection");
     }
   }
 
@@ -13730,7 +15636,7 @@ router.get("/price-lookup", async (req, res) => {
   // Never cache — prices change and we must always serve a fresh Typesense result
   res.set("Cache-Control", "no-store");
 
-  const url = (req.query.url as string ?? "").trim();
+  const url = String(req.query.url ?? "").trim();
   if (!url || !url.startsWith("http")) {
     res.status(400).json({ error: "Invalid URL" });
     return;
@@ -13811,7 +15717,7 @@ export default router;
 
 *8 file(s).*
 
-### `artifacts/api-server/src/lib/lenderAuth.ts` (900 lines)
+### `artifacts/api-server/src/lib/lenderAuth.ts` (881 lines)
 
 ```typescript
 import { logger } from "./logger.js";
@@ -13856,26 +15762,7 @@ import {
 const LENDER_EMAIL         = env.LENDER_CREDITAPP_EMAIL;
 const LENDER_PASSWORD      = env.LENDER_CREDITAPP_PASSWORD;
 const LENDER_TOTP_SECRET   = env.LENDER_CREDITAPP_TOTP_SECRET;
-const LENDER_2FA_CODE_ENV  = env.LENDER_CREDITAPP_2FA_CODE;
 
-async function getLatestRecoveryCode(): Promise<string> {
-  try {
-    const fetch = (await import("node-fetch")).default; // Lazy: optional recovery-code fetch
-    const OBJ_BASE = "http://127.0.0.1:1106";
-    const bucket = env.DEFAULT_OBJECT_STORAGE_BUCKET_ID;
-    const dir = env.PRIVATE_OBJECT_DIR || "";
-    const key = `${dir}/lender-recovery-code.json`;
-    const res = await fetch(`${OBJ_BASE}/buckets/${bucket}/objects/${encodeURIComponent(key)}`);
-    if (res.ok) {
-      const data = (await res.json()) as { code?: string };
-      if (data.code) {
-        logger.info({ capturedCodeLen: data.code.length }, "Lender auth: using stored recovery code from object storage");
-        return data.code;
-      }
-    }
-  } catch (_) {}
-  return LENDER_2FA_CODE_ENV;
-}
 export const LENDER_ENABLED = !!(LENDER_EMAIL && LENDER_PASSWORD);
 
 const CREDITAPP_HOME = "https://admin.creditapp.ca";
@@ -14716,7 +16603,7 @@ export async function getLenderAuthCookies(): Promise<{ appSession: string; csrf
 
 ```
 
-### `artifacts/api-server/src/lib/lenderCalcEngine.ts` (265 lines)
+### `artifacts/api-server/src/lib/lenderCalcEngine.ts` (266 lines)
 
 ```typescript
 import type { VehicleTermMatrixEntry, VehicleConditionMatrixEntry } from "./bbObjectStore.js";
@@ -14946,6 +16833,7 @@ export function resolveEffectiveTermStretch(
 }
 
 export function pmt(rate: number, nper: number, pv: number): number {
+  if (nper <= 0) return 0;
   if (rate === 0) return pv / nper;
   const r = rate / 12;
   return (pv * r * Math.pow(1 + r, nper)) / (Math.pow(1 + r, nper) - 1);
@@ -15527,7 +17415,7 @@ function readGitSha(): string {
     }).trim();
     if (sha.length >= 7) return sha;
   } catch {
-    // git not installed or not a checkout
+    /* git not available */
   }
 
   return "unknown";
@@ -15592,12 +17480,14 @@ export default router;
 
 ```
 
-### `artifacts/api-server/src/routes/lender/lender-calculate.ts` (595 lines)
+### `artifacts/api-server/src/routes/lender/lender-calculate.ts` (597 lines)
 
 ```typescript
 import { Router } from "express";
 import { requireOwnerOrViewer } from "../../lib/auth.js";
 import { logger } from "../../lib/logger.js";
+import { validateBody } from "../../lib/validate.js";
+import { LenderCalculateBody } from "@workspace/api-zod";
 import { getCacheState, type InventoryItem } from "../../lib/inventoryCache.js";
 import { getCachedLenderPrograms } from "../../lib/lenderWorker.js";
 import {
@@ -15639,7 +17529,7 @@ const conditionToBBField: Record<ConditionBucket, keyof NonNullable<InventoryIte
   rough:      "rough",
 };
 
-router.post("/lender-calculate", requireOwnerOrViewer, async (req, res) => {
+router.post("/lender-calculate", requireOwnerOrViewer, validateBody(LenderCalculateBody), async (req, res) => {
   const params = req.body as CalcParams;
 
   if (!params.lenderCode || !params.tierName || !params.programId) {
@@ -16301,7 +18191,7 @@ export default router;
 
 *5 file(s).*
 
-### `artifacts/api-server/src/lib/bbObjectStore.ts` (217 lines)
+### `artifacts/api-server/src/lib/bbObjectStore.ts` (224 lines)
 
 ```typescript
 /**
@@ -16356,9 +18246,16 @@ async function readJson<T>(name: string): Promise<T | null> {
 
 async function writeJson(name: string, data: unknown): Promise<void> {
   try {
-    await bucket().file(name).save(JSON.stringify(data), {
-      contentType: "application/json",
-    });
+    await bucket().file(name).save(JSON.stringify(data), { contentType: "application/json" });
+  } catch (err: any) {
+    logger.error({ err: err.message, name }, "bbObjectStore: write failed");
+    throw err;
+  }
+}
+
+async function writeJsonBestEffort(name: string, data: unknown): Promise<void> {
+  try {
+    await bucket().file(name).save(JSON.stringify(data), { contentType: "application/json" });
   } catch (err: any) {
     logger.warn({ err: err.message, name }, "bbObjectStore: write failed");
   }
@@ -16378,7 +18275,7 @@ export async function loadSessionFromStore(): Promise<BbSessionBlob | null> {
 }
 
 export async function saveSessionToStore(cookies: any[]): Promise<void> {
-  await writeJson("bb-session.json", {
+  await writeJsonBestEffort("bb-session.json", {
     cookies,
     updatedAt: new Date().toISOString(),
   });
@@ -16436,7 +18333,7 @@ export async function loadLenderSessionFromStore(): Promise<BbSessionBlob | null
 }
 
 export async function saveLenderSessionToStore(cookies: any[]): Promise<void> {
-  await writeJson("lender-session.json", {
+  await writeJsonBestEffort("lender-session.json", {
     cookies,
     updatedAt: new Date().toISOString(),
   });
@@ -18608,7 +20505,7 @@ runCarfaxWorkerForVins(vins).then((results) => {
 
 *10 file(s).*
 
-### `artifacts/api-server/src/lib/env.ts` (77 lines)
+### `artifacts/api-server/src/lib/env.ts` (88 lines)
 
 ```typescript
 /**
@@ -18622,10 +20519,11 @@ const optStr = z.string().trim().optional().default("");
 
 const envSchema = z.object({
   PORT:                          z.coerce.number().int().positive().default(3000),
+  NODE_ENV:                      z.string().trim().default("development"),
   REPLIT_DEPLOYMENT:             z.enum(["0", "1"]).default("0"),
   REPLIT_DOMAINS:                optStr,
 
-  SESSION_SECRET:                z.string().trim().default("dev-secret-change-me"),
+  SESSION_SECRET:                z.string().trim().optional(),
   OWNER_EMAIL:                   z.string().trim().toLowerCase().default(""),
 
   GOOGLE_CLIENT_ID:              optStr,
@@ -18654,6 +20552,12 @@ const envSchema = z.object({
                                    .transform((v) => v === "true")
                                    .default("false"),
 
+  TYPESENSE_HOST:                z.string().trim().default("v6eba1srpfohj89dp-1.a1.typesense.net"),
+  TYPESENSE_KEY_PARKDALE:        optStr,
+  TYPESENSE_KEY_MATRIX:          optStr,
+  TYPESENSE_COLLECTION_PARKDALE: z.string().trim().default("37042ac7ece3a217b1a41d6f54ba6855"),
+  TYPESENSE_COLLECTION_MATRIX:   z.string().trim().default("cebacbca97920d818d57c6f0526d7413"),
+
   APPS_SCRIPT_WEB_APP_URL:       optStr,
 
   RESEND_API_KEY:                optStr,
@@ -18664,14 +20568,18 @@ const envSchema = z.object({
 
   LOG_LEVEL:                     z.string().trim().default("info"),
 }).superRefine((data, ctx) => {
-  if (data.REPLIT_DEPLOYMENT === "1" && data.SESSION_SECRET === "dev-secret-change-me") {
+  const isProd = data.REPLIT_DEPLOYMENT === "1" || data.NODE_ENV === "production";
+  if (isProd && !data.SESSION_SECRET) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
       path: ["SESSION_SECRET"],
-      message: "SESSION_SECRET must be explicitly set in production",
+      message: "SESSION_SECRET is required in production",
     });
   }
-});
+}).transform((data) => ({
+  ...data,
+  SESSION_SECRET: data.SESSION_SECRET || "dev-secret-change-me",
+}));
 
 function parseEnv() {
   const result = envSchema.safeParse(process.env);
@@ -18686,7 +20594,7 @@ function parseEnv() {
 }
 
 export const env = parseEnv();
-export const isProduction = env.REPLIT_DEPLOYMENT === "1";
+export const isProduction = env.REPLIT_DEPLOYMENT === "1" || env.NODE_ENV === "production";
 
 ```
 
@@ -18715,7 +20623,7 @@ export const logger = pino({
 
 ```
 
-### `artifacts/api-server/src/lib/randomScheduler.ts` (164 lines)
+### `artifacts/api-server/src/lib/randomScheduler.ts` (169 lines)
 
 ```typescript
 import { logger } from "./logger.js";
@@ -18851,15 +20759,20 @@ export function scheduleRandomDaily(opts: ScheduleOptions): void {
     logger.info({ name, scheduledFor: timeStr, delayMs }, `${name}: scheduled for ${timeStr} MT today`);
 
     setTimeout(async () => {
-      const stillNeeded = !(await hasRunToday());
-      if (!stillNeeded) {
-        logger.info({ name }, `${name}: already ran (manual trigger?) — skipping scheduled fire`);
+      try {
+        const stillNeeded = !(await hasRunToday());
+        if (!stillNeeded) {
+          logger.info({ name }, `${name}: already ran (manual trigger?) — skipping scheduled fire`);
+          scheduleNextDay(getMountainComponents());
+          return;
+        }
+        logger.info({ name }, `${name}: randomized schedule firing now`);
+        execute("randomized schedule");
         scheduleNextDay(getMountainComponents());
-        return;
+      } catch (err) {
+        logger.warn({ err, name }, `${name}: scheduled fire failed`);
+        scheduleNextDay(getMountainComponents());
       }
-      logger.info({ name }, `${name}: randomized schedule firing now`);
-      execute("randomized schedule");
-      scheduleNextDay(getMountainComponents());
     }, delayMs);
   };
 
@@ -18995,15 +20908,18 @@ lenderAuth.ts ──cookies──▶ lenderWorker.ts ──programs──▶ rou
 
 ```
 
-### `artifacts/api-server/src/lib/typesense.ts` (75 lines)
+### `artifacts/api-server/src/lib/typesense.ts` (78 lines)
 
 ```typescript
 /**
  * Single source of truth for Typesense config, dealer collections, and URL helpers.
  * All Typesense consumers import from here — no duplication.
+ * API keys and collection IDs come from env.ts; rotate keys in the
+ * Typesense dashboard if they were ever committed to git history.
  */
+import { env } from "./env.js";
 
-export const TYPESENSE_HOST = "v6eba1srpfohj89dp-1.a1.typesense.net";
+export const TYPESENSE_HOST = env.TYPESENSE_HOST;
 
 export interface DealerCollection {
   name:       string;
@@ -19015,14 +20931,14 @@ export interface DealerCollection {
 export const DEALER_COLLECTIONS: readonly DealerCollection[] = [
   {
     name:       "Parkdale",
-    collection: "37042ac7ece3a217b1a41d6f54ba6855",
-    apiKey:     "bENlSmdIaVJWNGhTcjBnZ3BaN2JxajBINWcvdzREZ21hQnFMZWM3OWJBRT1oZmUweyJmaWx0ZXJfYnkiOiJzdGF0dXM6W0luc3RvY2tdICYmIHZpc2liaWxpdHk6PjAgJiYgZGVsZXRlZF9hdDo9MCJ9",
+    collection: env.TYPESENSE_COLLECTION_PARKDALE,
+    apiKey:     env.TYPESENSE_KEY_PARKDALE,
     siteUrl:    "https://www.parkdalemotors.ca",
   },
   {
     name:       "Matrix",
-    collection: "cebacbca97920d818d57c6f0526d7413",
-    apiKey:     "ZWoxa3NxVmJLWFBOK2dWcUFBM1V0aTJyb09wUDhFZ0R5Vnc1blc2RW9Kdz1oZmUweyJmaWx0ZXJfYnkiOiJzdGF0dXM6W0luc3RvY2ssIFNvbGRdICYmIHZpc2liaWxpdHk6PjAgJiYgZGVsZXRlZF9hdDo9MCJ9",
+    collection: env.TYPESENSE_COLLECTION_MATRIX,
+    apiKey:     env.TYPESENSE_KEY_MATRIX,
     siteUrl:    "https://www.matrixmotorsyeg.ca",
   },
 ];
@@ -26236,7 +28152,7 @@ export default function Admin() {
   const updateRoleMutation = useUpdateAccessRole();
 
   if (error) {
-    const status = (error as any)?.response?.status;
+    const status = (error as any)?.status;
     if (status === 401 || status === 403) { setLocation("/"); return null; }
   }
 
@@ -26253,7 +28169,7 @@ export default function Admin() {
     setErrorMsg("");
     addMutation.mutate(
       { data: { email: newEmail.toLowerCase().trim(), role: newRole } },
-      { onSuccess: () => { setNewEmail(""); invalidateAll(); }, onError: (err: any) => setErrorMsg(err.response?.data?.error || "Failed to add user.") }
+      { onSuccess: () => { setNewEmail(""); invalidateAll(); }, onError: (err: any) => setErrorMsg(err.data?.error || "Failed to add user.") }
     );
   };
 
@@ -27438,7 +29354,7 @@ export default function LenderCalculator() {
   const handleCalculateRef = useRef<() => void>(() => {});
 
   const handleRefresh = () => {
-    refreshMutation.mutate(undefined as any, {
+    refreshMutation.mutate(undefined, {
       onSuccess: () => {
         setTimeout(() => { refetchStatus(); refetchPrograms(); }, 2000);
       },
@@ -35818,7 +37734,7 @@ pnpm --filter db push
 
 ```
 
-### `scripts/src/generate-complete-source-md.ts` (398 lines)
+### `scripts/src/generate-complete-source-md.ts` (400 lines)
 
 ```typescript
 /**
@@ -35949,6 +37865,7 @@ const DOMAIN_SECTIONS: readonly {
       r === "artifacts/api-server/package.json" ||
       r === "artifacts/api-server/tsconfig.json" ||
       r === "artifacts/api-server/build.mjs" ||
+      r === "artifacts/api-server/eslint.config.mjs" ||
       r === "artifacts/api-server/src/index.ts" ||
       r === "artifacts/api-server/src/app.ts",
   },
@@ -35959,7 +37876,8 @@ const DOMAIN_SECTIONS: readonly {
       r === "artifacts/api-server/src/routes/auth.ts" ||
       r === "artifacts/api-server/src/routes/access.ts" ||
       r === "artifacts/api-server/src/lib/auth.ts" ||
-      r === "artifacts/api-server/src/lib/emailService.ts",
+      r === "artifacts/api-server/src/lib/emailService.ts" ||
+      r === "artifacts/api-server/src/lib/roleFilter.ts",
   },
   {
     id: "inventory",
@@ -36791,6 +38709,7 @@ run().catch((err) => {
 - `.replit`
 - `AGENTS.md`
 - `artifacts/api-server/build.mjs`
+- `artifacts/api-server/eslint.config.mjs`
 - `artifacts/api-server/package.json`
 - `artifacts/api-server/src/app.ts`
 - `artifacts/api-server/src/index.ts`
@@ -36807,6 +38726,7 @@ run().catch((err) => {
 - `artifacts/api-server/src/lib/logger.ts`
 - `artifacts/api-server/src/lib/randomScheduler.ts`
 - `artifacts/api-server/src/lib/README.md`
+- `artifacts/api-server/src/lib/roleFilter.ts`
 - `artifacts/api-server/src/lib/runtimeFingerprint.ts`
 - `artifacts/api-server/src/lib/typesense.ts`
 - `artifacts/api-server/src/lib/validate.ts`
@@ -36984,12 +38904,19 @@ run().catch((err) => {
 - `lib/api-zod/src/generated/types/accessEntry.ts`
 - `lib/api-zod/src/generated/types/addAccessRequest.ts`
 - `lib/api-zod/src/generated/types/auditLogEntry.ts`
+- `lib/api-zod/src/generated/types/authDebugCallback200.ts`
+- `lib/api-zod/src/generated/types/authGoogleCallbackParams.ts`
 - `lib/api-zod/src/generated/types/cacheStatus.ts`
+- `lib/api-zod/src/generated/types/debugCounts.ts`
 - `lib/api-zod/src/generated/types/errorResponse.ts`
+- `lib/api-zod/src/generated/types/getCarfaxBatchStatus200.ts`
+- `lib/api-zod/src/generated/types/getLenderDebug200.ts`
+- `lib/api-zod/src/generated/types/getLenderDebug200LendersItem.ts`
 - `lib/api-zod/src/generated/types/getVehicleImagesParams.ts`
 - `lib/api-zod/src/generated/types/healthStatus.ts`
 - `lib/api-zod/src/generated/types/index.ts`
 - `lib/api-zod/src/generated/types/inventoryItem.ts`
+- `lib/api-zod/src/generated/types/inventoryItemBbValues.ts`
 - `lib/api-zod/src/generated/types/kmRange.ts`
 - `lib/api-zod/src/generated/types/lenderCalcResultItem.ts`
 - `lib/api-zod/src/generated/types/lenderCalculateRequest.ts`
@@ -36999,7 +38926,13 @@ run().catch((err) => {
 - `lib/api-zod/src/generated/types/lenderProgramsResponse.ts`
 - `lib/api-zod/src/generated/types/lenderProgramTier.ts`
 - `lib/api-zod/src/generated/types/lenderStatus.ts`
+- `lib/api-zod/src/generated/types/priceLookup200.ts`
+- `lib/api-zod/src/generated/types/priceLookupParams.ts`
 - `lib/api-zod/src/generated/types/programLimits.ts`
+- `lib/api-zod/src/generated/types/runCarfaxTest200.ts`
+- `lib/api-zod/src/generated/types/runCarfaxTest200Results.ts`
+- `lib/api-zod/src/generated/types/runCarfaxTestBody.ts`
+- `lib/api-zod/src/generated/types/successMessageResponse.ts`
 - `lib/api-zod/src/generated/types/successResponse.ts`
 - `lib/api-zod/src/generated/types/updateAccessRoleRequest.ts`
 - `lib/api-zod/src/generated/types/user.ts`

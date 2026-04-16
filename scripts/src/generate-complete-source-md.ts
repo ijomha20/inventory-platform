@@ -126,6 +126,7 @@ const DOMAIN_SECTIONS: readonly {
       r === "artifacts/api-server/package.json" ||
       r === "artifacts/api-server/tsconfig.json" ||
       r === "artifacts/api-server/build.mjs" ||
+      r === "artifacts/api-server/eslint.config.mjs" ||
       r === "artifacts/api-server/src/index.ts" ||
       r === "artifacts/api-server/src/app.ts",
   },
@@ -136,7 +137,8 @@ const DOMAIN_SECTIONS: readonly {
       r === "artifacts/api-server/src/routes/auth.ts" ||
       r === "artifacts/api-server/src/routes/access.ts" ||
       r === "artifacts/api-server/src/lib/auth.ts" ||
-      r === "artifacts/api-server/src/lib/emailService.ts",
+      r === "artifacts/api-server/src/lib/emailService.ts" ||
+      r === "artifacts/api-server/src/lib/roleFilter.ts",
   },
   {
     id: "inventory",
