@@ -6,6 +6,7 @@ import accessRouter    from "./access.js";
 import carfaxRouter    from "./carfax.js";
 import lenderRouter      from "./lender/index.js";
 import priceLookupRouter from "./price-lookup.js";
+import opsRouter         from "./ops.js";
 
 const router: IRouter = Router();
 
@@ -16,5 +17,6 @@ router.use(accessRouter);
 router.use(carfaxRouter);
 router.use(lenderRouter);
 router.use(priceLookupRouter);
+router.use(opsRouter);
 
 export default router;

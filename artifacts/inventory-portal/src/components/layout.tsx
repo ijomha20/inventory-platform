@@ -1,9 +1,9 @@
 import { Link } from "wouter";
-import { useGetMe } from "@workspace/api-client-react";
+import { useGetMe, getGetMeQueryKey } from "@workspace/api-client-react";
 import { Car, LogOut, Settings, Calculator } from "lucide-react";
 
 export function Layout({ children, wide }: { children: React.ReactNode; wide?: boolean }) {
-  const { data: user } = useGetMe({ query: { retry: false } });
+  const { data: user } = useGetMe({ query: { queryKey: getGetMeQueryKey(), retry: false } });
 
   return (
     <div className="min-h-screen flex flex-col bg-gray-50">
@@ -22,7 +22,7 @@ export function Layout({ children, wide }: { children: React.ReactNode; wide?: b
 
             {user && (
               <div className="flex items-center gap-3">
-                {(user.isOwner || user.role === "viewer") && (
+                {user.isOwner && (
                   <Link
                     href="/calculator"
                     className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-900 transition-colors px-3 py-1.5 rounded-lg hover:bg-gray-100"

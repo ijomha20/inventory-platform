@@ -1,8 +1,8 @@
 import { ShieldAlert } from "lucide-react";
-import { useGetMe } from "@workspace/api-client-react";
+import { useGetMe, getGetMeQueryKey } from "@workspace/api-client-react";
 
 export default function AccessDenied() {
-  const { data: user } = useGetMe({ query: { retry: false } });
+  const { data: user } = useGetMe({ query: { queryKey: getGetMeQueryKey(), retry: false } });
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-50 px-4">

@@ -4,6 +4,9 @@ import {
   useGetCacheStatus,
   useGetVehicleImages,
   useGetMe,
+  getGetInventoryQueryKey,
+  getGetCacheStatusQueryKey,
+  getGetMeQueryKey,
 } from "@workspace/api-client-react";
 import {
   Search, ExternalLink, FileText, AlertCircle, ChevronUp, ChevronDown,
@@ -371,7 +374,7 @@ export default function Inventory() {
   const [, setLocation]               = useLocation();
   const lastKnownUpdate               = useRef<string | null>(null);
 
-  const { data: me } = useGetMe({ query: { retry: false } });
+  const { data: me } = useGetMe({ query: { queryKey: getGetMeQueryKey(), retry: false } });
   const isGuest = me?.role === "guest";
   const isOwner = me?.isOwner === true;
 
@@ -394,9 +397,13 @@ export default function Inventory() {
   const [bbClicked, setBbClicked] = useState(false);
   const bbCooldownRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const { data: inventory, isLoading, error, refetch: refetchInventory } = useGetInventory({ query: { retry: false } });
+  const { data: inventory, isLoading, error, refetch: refetchInventory } = useGetInventory({
+    query: { queryKey: getGetInventoryQueryKey(), retry: false },
+  });
 
-  const { data: cacheStatus } = useGetCacheStatus({ query: { refetchInterval: 60_000, retry: false } });
+  const { data: cacheStatus } = useGetCacheStatus({
+    query: { queryKey: getGetCacheStatusQueryKey(), refetchInterval: 60_000, retry: false },
+  });
 
   const bbRunning = (cacheStatus as any)?.bbRunning === true || bbClicked;
 
@@ -470,7 +477,7 @@ export default function Inventory() {
   const years = deduped.map((i) => extractYear(i.vehicle)).filter(Boolean);
   const dataYearMin = years.length ? Math.min(...years) : 2000;
   const dataYearMax = years.length ? Math.max(...years) : new Date().getFullYear();
-  const kms   = deduped.map((i) => parseNum(i.km)).filter(Boolean);
+  const kms   = deduped.map((i) => parseNum(i.km ?? "")).filter(Boolean);
   const dataKmMax = kms.length ? Math.max(...kms) : 300000;
   const prices = deduped.map((i) => parseNum(i.price)).filter(Boolean);
   const dataPriceMax = prices.length ? Math.max(...prices) : 100000;
@@ -489,7 +496,7 @@ export default function Inventory() {
     if (filters.yearMin && year && year < parseInt(filters.yearMin)) return false;
     if (filters.yearMax && year && year > parseInt(filters.yearMax)) return false;
     // KM
-    const km = parseNum(item.km);
+    const km = parseNum(item.km ?? "");
     if (filters.kmMax && km && km > parseNum(filters.kmMax)) return false;
     // Price (only for non-guests)
     if (!isGuest) {

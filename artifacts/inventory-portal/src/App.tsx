@@ -3,7 +3,7 @@ import { Switch, Route, Router as WouterRouter, useLocation } from "wouter";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { useGetMe } from "@workspace/api-client-react";
+import { useGetMe, getGetMeQueryKey } from "@workspace/api-client-react";
 
 import { Layout } from "@/components/layout";
 import { FullScreenSpinner } from "@/components/ui/spinner";
@@ -19,7 +19,7 @@ const queryClient = new QueryClient();
 // Auth Guard component to protect routes
 function RequireAuth({ children }: { children: React.ReactNode }) {
   const [, setLocation] = useLocation();
-  const { isLoading, error } = useGetMe({ query: { retry: false } });
+  const { isLoading, error } = useGetMe({ query: { queryKey: getGetMeQueryKey(), retry: false } });
 
   React.useEffect(() => {
     if (!error) return;
@@ -31,6 +31,18 @@ function RequireAuth({ children }: { children: React.ReactNode }) {
   if (isLoading) return <FullScreenSpinner />;
   if (error)     return null;
 
+  return <>{children}</>;
+}
+
+function RequireOwner({ children }: { children: React.ReactNode }) {
+  const [, setLocation] = useLocation();
+  const { data: user, isLoading } = useGetMe({ query: { queryKey: getGetMeQueryKey(), retry: false } });
+
+  React.useEffect(() => {
+    if (!isLoading && user && !user.isOwner) setLocation("/");
+  }, [isLoading, user, setLocation]);
+
+  if (isLoading || !user?.isOwner) return <FullScreenSpinner />;
   return <>{children}</>;
 }
 
@@ -59,9 +71,11 @@ function Router() {
 
       <Route path="/calculator">
         <RequireAuth>
-          <Layout wide>
-            <LenderCalculator />
-          </Layout>
+          <RequireOwner>
+            <Layout wide>
+              <LenderCalculator />
+            </Layout>
+          </RequireOwner>
         </RequireAuth>
       </Route>
 

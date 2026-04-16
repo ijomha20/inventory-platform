@@ -5,6 +5,9 @@ import {
   useGetLenderStatus,
   useRefreshLender,
   useLenderCalculate,
+  getGetMeQueryKey,
+  getGetLenderProgramsQueryKey,
+  getGetLenderStatusQueryKey,
 } from "@workspace/api-client-react";
 import type {
   LenderProgram,
@@ -40,6 +43,48 @@ function formatPayment(n: number): string {
 const COND_SHORT: Record<string, string> = { extraClean: "XC", clean: "C", average: "A", rough: "R" };
 
 const PRICE_SOURCE_LABEL: Record<string, string> = { online: "On", reduced: "Red", maximized: "Max", pac: "PAC" };
+
+interface OpsCheck {
+  pass: boolean;
+}
+
+interface OpsFunctionStatusResponse {
+  inventoryCount: number;
+  checks: {
+    blackBookUpdatedWithin24Hours: OpsCheck & {
+      lastRunAt: string | null;
+      running: boolean;
+      valuedInventoryCount: number;
+    };
+    carfaxLookupActivity: OpsCheck & {
+      attemptedCount: number;
+      foundUrlCount: number;
+      notFoundCount: number;
+    };
+    websiteLinkDiscovery: OpsCheck & {
+      foundUrlCount: number;
+      notFoundCount: number;
+      coveragePct: number;
+    };
+    lenderProgramsLoaded: OpsCheck & {
+      lenderProgramCount: number;
+      updatedAt: string | null;
+      running: boolean;
+      error: string | null;
+    };
+  };
+}
+
+function OpsCheckBadge({ pass }: { pass: boolean }) {
+  return (
+    <Badge
+      variant="outline"
+      className={pass ? "border-green-200 bg-green-50 text-green-700" : "border-red-200 bg-red-50 text-red-700"}
+    >
+      {pass ? "PASS" : "FAIL"}
+    </Badge>
+  );
+}
 
 function ResultRow({ item, rank, showDP }: { item: any; rank: number; showDP: boolean }) {
   const needsDP = (item.requiredDownPayment ?? 0) > 0;
@@ -112,14 +157,16 @@ function ResultRow({ item, rank, showDP }: { item: any; rank: number; showDP: bo
 
 export default function LenderCalculator() {
   const { data: programsData, isLoading: loadingPrograms, refetch: refetchPrograms } = useGetLenderPrograms({
-    query: { retry: false, refetchOnWindowFocus: false },
+    query: { queryKey: getGetLenderProgramsQueryKey(), retry: false, refetchOnWindowFocus: false },
   });
   const { data: statusData, refetch: refetchStatus } = useGetLenderStatus({
-    query: { retry: false, refetchInterval: 10_000 },
+    query: { queryKey: getGetLenderStatusQueryKey(), retry: false, refetchInterval: 10_000 },
   });
-  const { data: meData } = useGetMe({ query: { retry: false } });
+  const { data: meData } = useGetMe({ query: { queryKey: getGetMeQueryKey(), retry: false } });
   const refreshMutation = useRefreshLender();
   const calcMutation = useLenderCalculate();
+  const [opsStatus, setOpsStatus] = useState<OpsFunctionStatusResponse | null>(null);
+  const [opsError, setOpsError] = useState<string | null>(null);
 
   const [selectedLender, setSelectedLender] = useState("");
   const [selectedProgram, setSelectedProgram] = useState("");
@@ -167,6 +214,57 @@ export default function LenderCalculator() {
       setApprovedRate(String(selectedTierObj.minRate));
     }
   }, [selectedTierObj]);
+
+  useEffect(() => {
+    if (!isUserOwner) return;
+    let active = true;
+
+    async function loadOpsStatus() {
+      try {
+        const base = (import.meta.env.BASE_URL ?? "/").replace(/\/$/, "");
+        const candidates = Array.from(new Set([
+          `${base}/api/ops/function-status`,
+          "/api/ops/function-status",
+          "api/ops/function-status",
+        ]));
+
+        let body: OpsFunctionStatusResponse | null = null;
+        let lastStatus: number | null = null;
+
+        for (const url of candidates) {
+          const resp = await fetch(url, {
+            credentials: "include",
+            cache: "no-store",
+          });
+          if (resp.ok) {
+            body = await resp.json() as OpsFunctionStatusResponse;
+            break;
+          }
+          lastStatus = resp.status;
+        }
+
+        if (!body) {
+          throw new Error(lastStatus === 404
+            ? "HTTP 404 (ops route unavailable in current backend runtime)"
+            : `HTTP ${lastStatus ?? "unknown"}`);
+        }
+
+        if (!active) return;
+        setOpsStatus(body);
+        setOpsError(null);
+      } catch (err) {
+        if (!active) return;
+        setOpsError(err instanceof Error ? err.message : "Unknown error");
+      }
+    }
+
+    void loadOpsStatus();
+    const timer = setInterval(() => void loadOpsStatus(), 60_000);
+    return () => {
+      active = false;
+      clearInterval(timer);
+    };
+  }, [isUserOwner]);
 
   const hasCalculated = useRef(false);
   const handleCalculateRef = useRef<() => void>(() => {});
@@ -259,6 +357,74 @@ export default function LenderCalculator() {
           )}
         </div>
       </div>
+
+      {isUserOwner && (
+        <Card>
+          <CardContent className="pt-4 pb-4">
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="text-sm font-semibold text-gray-900">Ops Health</h2>
+              {opsStatus && <span className="text-xs text-gray-500">Inventory: {opsStatus.inventoryCount}</span>}
+            </div>
+
+            {opsError && (
+              <p className="text-xs text-red-600 mb-2">Unable to load ops status: {opsError}</p>
+            )}
+
+            {!opsStatus && !opsError && (
+              <p className="text-xs text-gray-500">Loading operational checks...</p>
+            )}
+
+            {opsStatus && (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
+                <div className="rounded border border-gray-200 p-3">
+                  <div className="flex items-center justify-between">
+                    <span className="font-medium text-gray-800">Black Book &lt; 24h</span>
+                    <OpsCheckBadge pass={opsStatus.checks.blackBookUpdatedWithin24Hours.pass} />
+                  </div>
+                  <p className="text-gray-500 mt-1">
+                    Last run: {opsStatus.checks.blackBookUpdatedWithin24Hours.lastRunAt
+                      ? new Date(opsStatus.checks.blackBookUpdatedWithin24Hours.lastRunAt).toLocaleString()
+                      : "none"}
+                  </p>
+                </div>
+
+                <div className="rounded border border-gray-200 p-3">
+                  <div className="flex items-center justify-between">
+                    <span className="font-medium text-gray-800">Carfax Activity</span>
+                    <OpsCheckBadge pass={opsStatus.checks.carfaxLookupActivity.pass} />
+                  </div>
+                  <p className="text-gray-500 mt-1">
+                    Attempts: {opsStatus.checks.carfaxLookupActivity.attemptedCount} · Found: {opsStatus.checks.carfaxLookupActivity.foundUrlCount}
+                  </p>
+                </div>
+
+                <div className="rounded border border-gray-200 p-3">
+                  <div className="flex items-center justify-between">
+                    <span className="font-medium text-gray-800">Website Link Discovery</span>
+                    <OpsCheckBadge pass={opsStatus.checks.websiteLinkDiscovery.pass} />
+                  </div>
+                  <p className="text-gray-500 mt-1">
+                    Coverage: {opsStatus.checks.websiteLinkDiscovery.coveragePct}% · Found: {opsStatus.checks.websiteLinkDiscovery.foundUrlCount}
+                  </p>
+                </div>
+
+                <div className="rounded border border-gray-200 p-3">
+                  <div className="flex items-center justify-between">
+                    <span className="font-medium text-gray-800">Lender Programs Loaded</span>
+                    <OpsCheckBadge pass={opsStatus.checks.lenderProgramsLoaded.pass} />
+                  </div>
+                  <p className="text-gray-500 mt-1">
+                    Programs: {opsStatus.checks.lenderProgramsLoaded.lenderProgramCount}
+                    {opsStatus.checks.lenderProgramsLoaded.updatedAt
+                      ? ` · Updated ${new Date(opsStatus.checks.lenderProgramsLoaded.updatedAt).toLocaleString()}`
+                      : ""}
+                  </p>
+                </div>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       {programs.length === 0 && !loadingPrograms && (
         <Card className="border-amber-200 bg-amber-50">

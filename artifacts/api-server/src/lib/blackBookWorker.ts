@@ -67,6 +67,22 @@ export function getBlackBookStatus(): BbStatus {
   return { ...status };
 }
 
+export async function getBlackBookLastRunAtIso(): Promise<string | null> {
+  try {
+    // Lazy: DB only needed for status/ops introspection
+    const { db, bbSessionTable } = await import("@workspace/db");
+    const { eq } = await import("drizzle-orm");
+    const rows = await db.select({ lastRunAt: bbSessionTable.lastRunAt })
+      .from(bbSessionTable)
+      .where(eq(bbSessionTable.id, "singleton"));
+    const lastRunAt = rows[0]?.lastRunAt ?? null;
+    return lastRunAt ? lastRunAt.toISOString() : null;
+  } catch (err) {
+    logger.warn({ err: String(err) }, "BB worker: could not read persistent last run timestamp");
+    return null;
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Utilities
 // ---------------------------------------------------------------------------
@@ -771,10 +787,14 @@ async function runBlackBookBatch(): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
-// Self-healing retry — infinite, no notifications
+// Self-healing retry — bounded; avoids wedging status.running forever
 // ---------------------------------------------------------------------------
 
 const PERMANENT_ERROR_PREFIX = "BB worker: session cookies expired in production";
+/** Matches runBlackBookBatch() when the in-memory inventory list is empty */
+const EMPTY_INVENTORY_MSG = "Inventory cache is empty";
+/** Cap transient retries so the worker cannot block all future runs indefinitely */
+const MAX_BATCH_ATTEMPTS = 20;
 
 async function runWithRetry(attempt = 1): Promise<void> {
   try {
@@ -785,6 +805,15 @@ async function runWithRetry(attempt = 1): Promise<void> {
     if (msg.includes(PERMANENT_ERROR_PREFIX)) {
       logger.warn({ err: msg }, "BB worker: no valid session — aborting (will recover after next dev nightly run)");
       return;
+    }
+    // Empty cache is not transient — retrying would wedge status.running until cache fills
+    if (msg.includes(EMPTY_INVENTORY_MSG)) {
+      logger.warn({ err: msg }, "BB worker: empty inventory — not retrying");
+      throw err;
+    }
+    if (attempt >= MAX_BATCH_ATTEMPTS) {
+      logger.error({ err: msg, attempt }, "BB worker: max transient retries exceeded — giving up");
+      throw err;
     }
     const waitMin = Math.min(attempt * 5, 30);
     logger.warn({ err: msg, attempt, waitMin }, "BB worker: run failed — self-healing, will retry");

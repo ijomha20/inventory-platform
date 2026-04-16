@@ -116,3 +116,15 @@ The lender route is split into focused modules under `routes/lender/`:
 **Lib dependencies:** `lib/typesense.ts` (client config + `extractWebsiteUrl`)
 
 **Note:** Mounted via `routes/index.ts`.
+
+---
+
+### `ops.ts`
+
+| Method | Path | Auth | Purpose |
+|--------|------|------|---------|
+| GET | `/ops/function-status` | Access list | Deterministic health checks for Black Book freshness, Carfax lookup activity, website-link discovery, and lender program availability |
+
+**Lib dependencies:** `lib/inventoryCache.ts`, `lib/blackBookWorker.ts`, `lib/lenderWorker.ts`
+
+**Why this exists:** Prevents ambiguous ops diagnosis by returning explicit pass/fail checks with supporting counts/timestamps.

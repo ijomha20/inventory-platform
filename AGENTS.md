@@ -58,6 +58,7 @@ All paths relative to `artifacts/api-server/src/`.
 | `lender/lender-calculate.ts` | `POST /lender-calculate` | Main calculator engine |
 | `lender/lender-admin.ts` | `POST /refresh-lender`, `GET /lender-debug` | Manual sync trigger + diagnostics |
 | `price-lookup.ts` | `GET /price-lookup?url=` | Resolve listing URL to live price via Typesense |
+| `ops.ts` | `GET /ops/function-status` | Explicit operational pass/fail checks for BB, Carfax, website links, and lender program readiness |
 
 ### Libraries (`lib/`)
 

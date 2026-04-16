@@ -87,9 +87,15 @@ export default function Admin() {
   const [errorMsg, setErrorMsg] = useState("");
   const [activeTab, setActiveTab] = useState<Tab>("users");
 
-  const { data: accessList, isLoading, error } = useGetAccessList({ query: { retry: false } });
+  const { data: accessList, isLoading, error } = useGetAccessList({
+    query: { queryKey: getGetAccessListQueryKey(), retry: false },
+  });
   const { data: auditLog,   isLoading: auditLoading } = useGetAuditLog({
-    query: { enabled: activeTab === "audit", retry: false },
+    query: {
+      queryKey: getGetAuditLogQueryKey(),
+      enabled: activeTab === "audit",
+      retry: false,
+    },
   });
 
   const addMutation        = useAddAccessEntry();
