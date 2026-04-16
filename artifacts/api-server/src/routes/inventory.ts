@@ -115,8 +115,8 @@ router.get("/vehicle-images", requireAccess, validateQuery(GetVehicleImagesQuery
       websiteUrl = extractWebsiteUrl(doc, dealer.siteUrl);
 
       break; // Stop after first successful collection
-    } catch (_err) {
-      // Silently continue to next collection
+    } catch (err) {
+      logger.warn({ err }, "Typesense image fetch failed for collection");
     }
   }
 

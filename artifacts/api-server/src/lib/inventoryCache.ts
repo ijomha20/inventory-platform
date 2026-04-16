@@ -36,6 +36,15 @@ const state: CacheState = {
   isRefreshing: false,
 };
 
+let mutexPromise: Promise<void> = Promise.resolve();
+
+function withCacheLock<T>(fn: () => Promise<T>): Promise<T> {
+  const prev = mutexPromise;
+  let resolve: () => void;
+  mutexPromise = new Promise<void>((r) => { resolve = r; });
+  return prev.then(fn).finally(() => resolve!());
+}
+
 export function getCacheState(): CacheState {
   return state;
 }
@@ -210,138 +219,134 @@ async function fetchOnlinePricesFromTypesense(): Promise<Map<string, string>> {
  * Called hourly by startBackgroundRefresh, and on-demand via webhook.
  */
 export async function refreshCache(): Promise<void> {
-  if (state.isRefreshing) return;
-  state.isRefreshing = true;
+  return withCacheLock(async () => {
+    if (state.isRefreshing) return;
+    state.isRefreshing = true;
 
-  try {
-    const dataUrl = env.INVENTORY_DATA_URL;
-    if (!dataUrl) {
-      logger.warn("INVENTORY_DATA_URL is not set — cache not populated");
-      return;
-    }
-
-    const response = await fetch(dataUrl, { signal: AbortSignal.timeout(45_000) });
-    if (!response.ok) throw new Error(`Upstream HTTP ${response.status}`);
-
-    const raw: any = await response.json();
-
-    if (!Array.isArray(raw)) {
-      logger.error({ type: typeof raw }, "Apps Script returned non-array — keeping stale cache");
-      return;
-    }
-    if (raw.length === 0) {
-      logger.warn("Apps Script returned empty array — keeping stale cache");
-      return;
-    }
-
-    const existingBb = new Map<string, string>();
-    const existingBbDetail = new Map<string, { xclean: number; clean: number; avg: number; rough: number }>();
-    for (const old of state.data) {
-      if (old.bbAvgWholesale) existingBb.set(old.vin.toUpperCase(), old.bbAvgWholesale);
-      if (old.bbValues) existingBbDetail.set(old.vin.toUpperCase(), old.bbValues);
-    }
     try {
-      // Lazy load: defers GCS client initialization
-      const { loadBbValuesFromStore, parseBbEntry } = await import("./bbObjectStore.js");
-      const blob = await loadBbValuesFromStore();
-      if (blob?.values) {
-        for (const [vin, raw] of Object.entries(blob.values)) {
-          if (!raw) continue;
-          const entry = parseBbEntry(raw);
-          if (entry) {
-            existingBb.set(vin.toUpperCase(), entry.avg);
-            if (entry.xclean || entry.clean || entry.average || entry.rough) {
-              existingBbDetail.set(vin.toUpperCase(), { xclean: entry.xclean, clean: entry.clean, avg: entry.average, rough: entry.rough });
+      const dataUrl = env.INVENTORY_DATA_URL;
+      if (!dataUrl) {
+        logger.warn("INVENTORY_DATA_URL is not set — cache not populated");
+        return;
+      }
+
+      const response = await fetch(dataUrl, { signal: AbortSignal.timeout(45_000) });
+      if (!response.ok) throw new Error(`Upstream HTTP ${response.status}`);
+
+      const raw: any = await response.json();
+
+      if (!Array.isArray(raw)) {
+        logger.error({ type: typeof raw }, "Apps Script returned non-array — keeping stale cache");
+        return;
+      }
+      if (raw.length === 0) {
+        logger.warn("Apps Script returned empty array — keeping stale cache");
+        return;
+      }
+
+      const existingBb = new Map<string, string>();
+      const existingBbDetail = new Map<string, { xclean: number; clean: number; avg: number; rough: number }>();
+      for (const old of state.data) {
+        if (old.bbAvgWholesale) existingBb.set(old.vin.toUpperCase(), old.bbAvgWholesale);
+        if (old.bbValues) existingBbDetail.set(old.vin.toUpperCase(), old.bbValues);
+      }
+      try {
+        const { loadBbValuesFromStore, parseBbEntry } = await import("./bbObjectStore.js");
+        const blob = await loadBbValuesFromStore();
+        if (blob?.values) {
+          for (const [vin, raw] of Object.entries(blob.values)) {
+            if (!raw) continue;
+            const entry = parseBbEntry(raw);
+            if (entry) {
+              existingBb.set(vin.toUpperCase(), entry.avg);
+              if (entry.xclean || entry.clean || entry.average || entry.rough) {
+                existingBbDetail.set(vin.toUpperCase(), { xclean: entry.xclean, clean: entry.clean, avg: entry.average, rough: entry.rough });
+              }
             }
           }
+          logger.info({ count: Object.keys(blob.values).length }, "Inventory: BB values loaded from shared object storage");
         }
-        logger.info({ count: Object.keys(blob.values).length }, "Inventory: BB values loaded from shared object storage");
-      }
-    } catch (err: any) {
-      logger.warn({ err: err.message }, "Inventory: could not load BB values from object storage (non-fatal)");
-    }
-
-    // Normalise each item — guard against differing field names / missing keys
-    const items: InventoryItem[] = [];
-    for (const r of raw) {
-      if (!r || typeof r !== "object") {
-        logger.warn({ r }, "Skipping malformed inventory item");
-        continue;
-      }
-      const vin = String(r.vin ?? "").trim().toUpperCase();
-      items.push({
-        location:       String(r.location    ?? "").trim(),
-        vehicle:        String(r.vehicle     ?? "").trim(),
-        vin,
-        price:          String(r.price       ?? "").trim(),
-        km:             String(r.km          ?? "").trim(),
-        carfax:         String(r.carfax      ?? "").trim(),
-        website:        String(r.website     ?? "").trim(),
-        onlinePrice:    String(r.onlinePrice ?? "").trim(),
-        matrixPrice:    String(r.matrixPrice ?? "").trim(), // Column F
-        cost:           String(r.cost        ?? "").trim(), // Column G
-        hasPhotos:      false,
-        bbAvgWholesale: existingBb.get(vin),
-        bbValues:       existingBbDetail.get(vin),
-      });
-    }
-
-    // -----------------------------------------------------------------------
-    // Enrich with Typesense data (prices + website URLs) in a single pass
-    // -----------------------------------------------------------------------
-    const needEnrichment = items.some(
-      (item) =>
-        !item.onlinePrice || item.onlinePrice === "NOT FOUND" ||
-        !item.website     || item.website     === "NOT FOUND",
-    );
-
-    if (needEnrichment) {
-      const { prices, website, photos } = await fetchFromTypesense();
-
-      for (const item of items) {
-        if (!item.onlinePrice || item.onlinePrice === "NOT FOUND") {
-          const fetched = prices.get(item.vin.toUpperCase());
-          if (fetched) item.onlinePrice = fetched;
-        }
-        if (!item.website || item.website === "NOT FOUND") {
-          const fetched = website.get(item.vin.toUpperCase());
-          if (fetched) item.website = fetched;
-        }
-        item.hasPhotos = photos.has(item.vin.toUpperCase());
+      } catch (err: any) {
+        logger.warn({ err: err.message }, "Inventory: could not load BB values from object storage (non-fatal)");
       }
 
-      logger.info(
-        { prices: prices.size, websiteUrls: website.size, total: items.length },
-        "Typesense enrichment complete",
+      const items: InventoryItem[] = [];
+      for (const r of raw) {
+        if (!r || typeof r !== "object") {
+          logger.warn({ r }, "Skipping malformed inventory item");
+          continue;
+        }
+        const vin = String(r.vin ?? "").trim().toUpperCase();
+        items.push({
+          location:       String(r.location    ?? "").trim(),
+          vehicle:        String(r.vehicle     ?? "").trim(),
+          vin,
+          price:          String(r.price       ?? "").trim(),
+          km:             String(r.km          ?? "").trim(),
+          carfax:         String(r.carfax      ?? "").trim(),
+          website:        String(r.website     ?? "").trim(),
+          onlinePrice:    String(r.onlinePrice ?? "").trim(),
+          matrixPrice:    String(r.matrixPrice ?? "").trim(),
+          cost:           String(r.cost        ?? "").trim(),
+          hasPhotos:      false,
+          bbAvgWholesale: existingBb.get(vin),
+          bbValues:       existingBbDetail.get(vin),
+        });
+      }
+
+      const needEnrichment = items.some(
+        (item) =>
+          !item.onlinePrice || item.onlinePrice === "NOT FOUND" ||
+          !item.website     || item.website     === "NOT FOUND",
       );
-    }
 
-    const previousVins = new Set(state.data.map(i => i.vin.toUpperCase()).filter(v => v.length > 0));
+      if (needEnrichment) {
+        const { prices, website, photos } = await fetchFromTypesense();
 
-    state.data        = items;
-    state.lastUpdated = new Date();
-    logger.info({ count: items.length }, "Inventory cache refreshed");
+        for (const item of items) {
+          if (!item.onlinePrice || item.onlinePrice === "NOT FOUND") {
+            const fetched = prices.get(item.vin.toUpperCase());
+            if (fetched) item.onlinePrice = fetched;
+          }
+          if (!item.website || item.website === "NOT FOUND") {
+            const fetched = website.get(item.vin.toUpperCase());
+            if (fetched) item.website = fetched;
+          }
+          item.hasPhotos = photos.has(item.vin.toUpperCase());
+        }
 
-    // Persist the fresh data to the database so future restarts load instantly
-    await persistToDb();
-
-    if (previousVins.size > 0) {
-      const newVins = [...new Set(
-        items
-          .map(i => i.vin.toUpperCase())
-          .filter(v => v.length >= 10 && !previousVins.has(v)),
-      )];
-
-      if (newVins.length > 0) {
-        logger.info({ count: newVins.length, vins: newVins }, "New VINs detected during inventory refresh");
-        triggerNewVinLookups(newVins);
+        logger.info(
+          { prices: prices.size, websiteUrls: website.size, total: items.length },
+          "Typesense enrichment complete",
+        );
       }
+
+      const previousVins = new Set(state.data.map(i => i.vin.toUpperCase()).filter(v => v.length > 0));
+
+      state.data        = items;
+      state.lastUpdated = new Date();
+      logger.info({ count: items.length }, "Inventory cache refreshed");
+
+      await persistToDb();
+
+      if (previousVins.size > 0) {
+        const newVins = [...new Set(
+          items
+            .map(i => i.vin.toUpperCase())
+            .filter(v => v.length >= 10 && !previousVins.has(v)),
+        )];
+
+        if (newVins.length > 0) {
+          logger.info({ count: newVins.length, vins: newVins }, "New VINs detected during inventory refresh");
+          triggerNewVinLookups(newVins);
+        }
+      }
+    } catch (err) {
+      logger.error({ err }, "Inventory cache refresh failed — serving stale data");
+    } finally {
+      state.isRefreshing = false;
     }
-  } catch (err) {
-    logger.error({ err }, "Inventory cache refresh failed — serving stale data");
-  } finally {
-    state.isRefreshing = false;
-  }
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -349,24 +354,26 @@ export async function refreshCache(): Promise<void> {
 // ---------------------------------------------------------------------------
 
 export async function applyCarfaxResults(results: Map<string, string>): Promise<void> {
-  if (results.size === 0) return;
-  if (!state.lastUpdated) {
-    logger.warn("Carfax results received but inventory cache not yet loaded — skipping");
-    return;
-  }
-  let updated = 0;
-  for (const item of state.data) {
-    const vinKey = item.vin.toUpperCase();
-    const val = results.get(vinKey);
-    if (val !== undefined) {
-      item.carfax = val;
-      updated++;
+  return withCacheLock(async () => {
+    if (results.size === 0) return;
+    if (!state.lastUpdated) {
+      logger.warn("Carfax results received but inventory cache not yet loaded — skipping");
+      return;
     }
-  }
-  if (updated > 0) {
-    await persistToDb();
-    logger.info({ updated, total: state.data.length }, "Carfax results applied to inventory cache");
-  }
+    let updated = 0;
+    for (const item of state.data) {
+      const vinKey = item.vin.toUpperCase();
+      const val = results.get(vinKey);
+      if (val !== undefined) {
+        item.carfax = val;
+        updated++;
+      }
+    }
+    if (updated > 0) {
+      await persistToDb();
+      logger.info({ updated, total: state.data.length }, "Carfax results applied to inventory cache");
+    }
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -402,26 +409,28 @@ export async function applyBlackBookValues(
   bbMap: Map<string, string>,
   bbDetailMap?: Map<string, { xclean: number; clean: number; avg: number; rough: number }>,
 ): Promise<void> {
-  if (bbMap.size === 0) return;
-  if (!state.lastUpdated) {
-    logger.warn("BB values received but inventory cache not yet loaded — skipping persist");
-    return;
-  }
-  let updated = 0;
-  for (const item of state.data) {
-    const vinKey = item.vin.toUpperCase();
-    const val = bbMap.get(vinKey);
-    if (val !== undefined) {
-      item.bbAvgWholesale = val;
-      const detail = bbDetailMap?.get(vinKey);
-      if (detail) item.bbValues = detail;
-      updated++;
+  return withCacheLock(async () => {
+    if (bbMap.size === 0) return;
+    if (!state.lastUpdated) {
+      logger.warn("BB values received but inventory cache not yet loaded — skipping persist");
+      return;
     }
-  }
-  if (updated > 0) {
-    await persistToDb();
-    logger.info({ updated, total: state.data.length }, "Black Book values applied to inventory");
-  }
+    let updated = 0;
+    for (const item of state.data) {
+      const vinKey = item.vin.toUpperCase();
+      const val = bbMap.get(vinKey);
+      if (val !== undefined) {
+        item.bbAvgWholesale = val;
+        const detail = bbDetailMap?.get(vinKey);
+        if (detail) item.bbValues = detail;
+        updated++;
+      }
+    }
+    if (updated > 0) {
+      await persistToDb();
+      logger.info({ updated, total: state.data.length }, "Black Book values applied to inventory");
+    }
+  });
 }
 
 /**

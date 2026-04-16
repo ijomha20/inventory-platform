@@ -50,9 +50,16 @@ async function readJson<T>(name: string): Promise<T | null> {
 
 async function writeJson(name: string, data: unknown): Promise<void> {
   try {
-    await bucket().file(name).save(JSON.stringify(data), {
-      contentType: "application/json",
-    });
+    await bucket().file(name).save(JSON.stringify(data), { contentType: "application/json" });
+  } catch (err: any) {
+    logger.error({ err: err.message, name }, "bbObjectStore: write failed");
+    throw err;
+  }
+}
+
+async function writeJsonBestEffort(name: string, data: unknown): Promise<void> {
+  try {
+    await bucket().file(name).save(JSON.stringify(data), { contentType: "application/json" });
   } catch (err: any) {
     logger.warn({ err: err.message, name }, "bbObjectStore: write failed");
   }
@@ -72,7 +79,7 @@ export async function loadSessionFromStore(): Promise<BbSessionBlob | null> {
 }
 
 export async function saveSessionToStore(cookies: any[]): Promise<void> {
-  await writeJson("bb-session.json", {
+  await writeJsonBestEffort("bb-session.json", {
     cookies,
     updatedAt: new Date().toISOString(),
   });
@@ -130,7 +137,7 @@ export async function loadLenderSessionFromStore(): Promise<BbSessionBlob | null
 }
 
 export async function saveLenderSessionToStore(cookies: any[]): Promise<void> {
-  await writeJson("lender-session.json", {
+  await writeJsonBestEffort("lender-session.json", {
     cookies,
     updatedAt: new Date().toISOString(),
   });

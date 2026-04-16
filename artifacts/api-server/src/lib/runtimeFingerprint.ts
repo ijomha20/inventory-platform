@@ -19,7 +19,7 @@ function readGitSha(): string {
     }).trim();
     if (sha.length >= 7) return sha;
   } catch {
-    // git not installed or not a checkout
+    /* git not available */
   }
 
   return "unknown";

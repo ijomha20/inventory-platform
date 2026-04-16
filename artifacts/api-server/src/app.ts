@@ -1,4 +1,4 @@
-import express, { type Express } from "express";
+import express, { type Express, type Request, type Response, type NextFunction } from "express";
 import cors from "cors";
 import pinoHttp from "pino-http";
 import session from "express-session";
@@ -71,5 +71,11 @@ const apiLimiter = rateLimit({
 
 app.use("/api", apiLimiter);
 app.use("/api", router);
+
+// Global error handler — Express 5 propagates async rejections here automatically
+app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
+  logger.error({ err }, "Unhandled route error");
+  if (!res.headersSent) res.status(500).json({ error: "Internal server error" });
+});
 
 export default app;

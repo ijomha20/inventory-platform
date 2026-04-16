@@ -5,6 +5,7 @@ import { eq, desc } from "drizzle-orm";
 import { requireOwner } from "../lib/auth.js";
 import { sendInvitationEmail } from "../lib/emailService.js";
 import { validateBody, validateParams } from "../lib/validate.js";
+import { logger } from "../lib/logger.js";
 import {
   AddAccessEntryBody,
   UpdateAccessRoleBody,
@@ -29,8 +30,8 @@ async function writeAudit(
       roleFrom:  roleFrom  ?? null,
       roleTo:    roleTo    ?? null,
     });
-  } catch (_err) {
-    // Audit failures are non-fatal
+  } catch (err) {
+    logger.warn({ err }, "Audit write failed");
   }
 }
 
@@ -110,7 +111,9 @@ router.delete("/access/:email", requireOwner, validateParams(RemoveAccessEntryPa
       `DELETE FROM "session" WHERE sess->'passport'->'user'->>'email' = $1`,
       [email],
     );
-  } catch (_err) {}
+  } catch (err) {
+    logger.warn({ err }, "Session cleanup failed");
+  }
 
   res.json({ ok: true });
 });

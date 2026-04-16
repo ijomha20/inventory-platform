@@ -131,15 +131,20 @@ export function scheduleRandomDaily(opts: ScheduleOptions): void {
     logger.info({ name, scheduledFor: timeStr, delayMs }, `${name}: scheduled for ${timeStr} MT today`);
 
     setTimeout(async () => {
-      const stillNeeded = !(await hasRunToday());
-      if (!stillNeeded) {
-        logger.info({ name }, `${name}: already ran (manual trigger?) — skipping scheduled fire`);
+      try {
+        const stillNeeded = !(await hasRunToday());
+        if (!stillNeeded) {
+          logger.info({ name }, `${name}: already ran (manual trigger?) — skipping scheduled fire`);
+          scheduleNextDay(getMountainComponents());
+          return;
+        }
+        logger.info({ name }, `${name}: randomized schedule firing now`);
+        execute("randomized schedule");
         scheduleNextDay(getMountainComponents());
-        return;
+      } catch (err) {
+        logger.warn({ err, name }, `${name}: scheduled fire failed`);
+        scheduleNextDay(getMountainComponents());
       }
-      logger.info({ name }, `${name}: randomized schedule firing now`);
-      execute("randomized schedule");
-      scheduleNextDay(getMountainComponents());
     }, delayMs);
   };
 
