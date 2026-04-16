@@ -35,7 +35,7 @@ Apps Script JSON feed
 |--------|-------------|-----------|--------|
 | **Auth & Access** | Google OAuth, sessions, role gating (owner/viewer/guest) | `routes/auth.ts`, `routes/access.ts`, `lib/auth.ts` | [routes/README.md](artifacts/api-server/src/routes/README.md) |
 | **Inventory** | Vehicle feed ingestion, caching, Typesense enrichment, BB/Carfax merge | `routes/inventory.ts`, `lib/inventoryCache.ts` | [lib/README.md](artifacts/api-server/src/lib/README.md) |
-| **Lender Calculator** | Program sync from CreditApp, LTV/payment/product calculation engine | `routes/lender.ts`, `lib/lenderCalcEngine.ts`, `lib/lenderWorker.ts`, `lib/lenderAuth.ts` | [routes/README.md](artifacts/api-server/src/routes/README.md) |
+| **Lender Calculator** | Program sync from CreditApp, LTV/payment/product calculation engine | `routes/lender/`, `lib/lenderCalcEngine.ts`, `lib/lenderWorker.ts`, `lib/lenderAuth.ts` | [routes/README.md](artifacts/api-server/src/routes/README.md) |
 | **Integrations** | Black Book valuations, Carfax VHR links, Typesense search index | `lib/blackBookWorker.ts`, `lib/carfaxWorker.ts`, `lib/bbObjectStore.ts` | [lib/README.md](artifacts/api-server/src/lib/README.md) |
 | **Admin & Audit** | User management, role changes, audit log | `routes/access.ts`, `lib/emailService.ts` | [routes/README.md](artifacts/api-server/src/routes/README.md) |
 | **Frontend Portal** | React SPA: inventory view, admin panel, lender calculator UI | `inventory-portal/src/pages/*`, `inventory-portal/src/App.tsx` | [portal/README.md](artifacts/inventory-portal/src/README.md) |
@@ -53,17 +53,20 @@ All paths relative to `artifacts/api-server/src/`.
 | `access.ts` | `GET /access`, `POST /access`, `PATCH /access/:email`, `DELETE /access/:email`, `GET /audit-log` | User CRUD + audit log |
 | `inventory.ts` | `GET /inventory`, `GET /cache-status`, `POST /refresh`, `POST /refresh-blackbook`, `GET /vehicle-images` | Inventory data, cache control, images |
 | `carfax.ts` | `GET /carfax/batch-status`, `POST /carfax/run-batch`, `POST /carfax/test` | Carfax VHR management |
-| `lender.ts` | `GET /lender-programs`, `GET /lender-status`, `POST /refresh-lender`, `POST /lender-calculate`, `GET /lender-debug` | Lender program data + calculator engine |
+| `lender/index.ts` | — | Router barrel — mounts lender-read, lender-calculate, lender-admin |
+| `lender/lender-read.ts` | `GET /lender-programs`, `GET /lender-status` | Cached lender program data + sync status |
+| `lender/lender-calculate.ts` | `POST /lender-calculate` | Main calculator engine |
+| `lender/lender-admin.ts` | `POST /refresh-lender`, `GET /lender-debug` | Manual sync trigger + diagnostics |
 | `price-lookup.ts` | `GET /price-lookup?url=` | Resolve listing URL to live price via Typesense |
 
 ### Libraries (`lib/`)
 
 | File | Purpose | Consumed By |
 |------|---------|-------------|
-| `auth.ts` | `isOwner()`, `configurePassport()` — Google OAuth setup | `app.ts`, all routes |
+| `auth.ts` | `isOwner()`, `getUserRole()`, `requireOwner`, `requireAccess`, `requireOwnerOrViewer`, `configurePassport()` — Google OAuth setup + shared auth middleware | `app.ts`, all routes |
 | `inventoryCache.ts` | In-memory + DB inventory cache, Typesense enrichment, BB/Carfax merge | `routes/inventory.ts`, workers |
-| `lenderCalcEngine.ts` | Cap profile resolver, no-online selling price logic | `routes/lender.ts` |
-| `lenderWorker.ts` | Syncs lender programs from CreditApp GraphQL, caches to GCS | `routes/lender.ts`, `index.ts` |
+| `lenderCalcEngine.ts` | Cap profile resolver, no-online selling price logic | `routes/lender/lender-calculate.ts` |
+| `lenderWorker.ts` | Syncs lender programs from CreditApp GraphQL, caches to GCS | `routes/lender/`, `index.ts` |
 | `lenderAuth.ts` | CreditApp auth cookies, GraphQL client | `lenderWorker.ts` |
 | `blackBookWorker.ts` | Canadian Black Book valuation via CreditApp browser automation | `routes/inventory.ts`, `index.ts` |
 | `carfaxWorker.ts` | Carfax VHR link resolution via dealer portal automation | `routes/carfax.ts`, `index.ts` |
@@ -71,7 +74,10 @@ All paths relative to `artifacts/api-server/src/`.
 | `emailService.ts` | Sends invitation emails via Resend | `routes/access.ts` |
 | `logger.ts` | Pino structured logger | All files |
 | `randomScheduler.ts` | Randomized daily scheduling within business hours (MT) | All workers |
-| `runtimeFingerprint.ts` | Calculator version + git SHA for response tracing | `routes/lender.ts` |
+| `typesense.ts` | Typesense client config + `extractWebsiteUrl()` helper | `inventoryCache.ts`, `routes/price-lookup.ts` |
+| `env.ts` | Zod-validated environment variables, `isProduction` flag | All files needing env access |
+| `validate.ts` | `validateBody(Schema)`, `validateQuery(Schema)`, `validateParams(Schema)` — Zod validation middleware | `routes/access.ts`, `routes/inventory.ts` |
+| `runtimeFingerprint.ts` | Calculator version + git SHA for response tracing | `routes/lender/` |
 
 ## Shared Libraries (`lib/`)
 
@@ -111,3 +117,12 @@ All paths relative to `artifacts/api-server/src/`.
 | `downloads/` | Markdown export snapshots — not live code; regenerate `inventory-platform-complete-source.md` with `pnpm --filter @workspace/scripts export:complete-md` |
 | `attached_assets/` | Captured CreditApp API payloads and reference documents — not live code |
 | `artifacts/mockup-sandbox/` | Standalone UI mockup preview app — not the production portal |
+
+## Anti-Patterns (DO NOT)
+
+- Do NOT define route-local auth middleware — use `lib/auth.ts` (`requireOwner`, `requireAccess`, `requireOwnerOrViewer`)
+- Do NOT hardcode Typesense config — use `lib/typesense.ts`
+- Do NOT read `process.env` directly — use `lib/env.ts`
+- Do NOT write ad-hoc request validation — use `validateBody(Schema)` / `validateQuery(Schema)` / `validateParams(Schema)` from `lib/validate.ts`
+- Do NOT define local `isProduction` — use `{ isProduction }` from `lib/env.ts`
+- Do NOT use `require()` — use static `import` or `await import()` with a comment explaining why

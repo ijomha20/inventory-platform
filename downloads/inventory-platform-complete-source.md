@@ -1,6 +1,6 @@
 # Inventory Platform — Complete source (domain-grouped, machine-generated)
 
-Generated: 2026-04-16T18:02:22 UTC
+Generated: 2026-04-16T18:58:22 UTC
 
 Produced by `pnpm --filter @workspace/scripts export:complete-md`. Body is ordered by **business domain** (same flow as the hand-curated export: navigation → workspace → DB → API contract → codegen → server domains → portal → mockup → templates → scripts). Within each domain, files are sorted by path. Session JSON and build artifacts are excluded; see *Included roots* below.
 
@@ -47,7 +47,7 @@ Produced by `pnpm --filter @workspace/scripts export:complete-md`. Body is order
 
 *2 file(s).*
 
-### `AGENTS.md` (114 lines)
+### `AGENTS.md` (129 lines)
 
 ```markdown
 # Inventory Platform -- Agent Navigation Guide
@@ -87,7 +87,7 @@ Apps Script JSON feed
 |--------|-------------|-----------|--------|
 | **Auth & Access** | Google OAuth, sessions, role gating (owner/viewer/guest) | `routes/auth.ts`, `routes/access.ts`, `lib/auth.ts` | [routes/README.md](artifacts/api-server/src/routes/README.md) |
 | **Inventory** | Vehicle feed ingestion, caching, Typesense enrichment, BB/Carfax merge | `routes/inventory.ts`, `lib/inventoryCache.ts` | [lib/README.md](artifacts/api-server/src/lib/README.md) |
-| **Lender Calculator** | Program sync from CreditApp, LTV/payment/product calculation engine | `routes/lender.ts`, `lib/lenderCalcEngine.ts`, `lib/lenderWorker.ts`, `lib/lenderAuth.ts` | [routes/README.md](artifacts/api-server/src/routes/README.md) |
+| **Lender Calculator** | Program sync from CreditApp, LTV/payment/product calculation engine | `routes/lender/`, `lib/lenderCalcEngine.ts`, `lib/lenderWorker.ts`, `lib/lenderAuth.ts` | [routes/README.md](artifacts/api-server/src/routes/README.md) |
 | **Integrations** | Black Book valuations, Carfax VHR links, Typesense search index | `lib/blackBookWorker.ts`, `lib/carfaxWorker.ts`, `lib/bbObjectStore.ts` | [lib/README.md](artifacts/api-server/src/lib/README.md) |
 | **Admin & Audit** | User management, role changes, audit log | `routes/access.ts`, `lib/emailService.ts` | [routes/README.md](artifacts/api-server/src/routes/README.md) |
 | **Frontend Portal** | React SPA: inventory view, admin panel, lender calculator UI | `inventory-portal/src/pages/*`, `inventory-portal/src/App.tsx` | [portal/README.md](artifacts/inventory-portal/src/README.md) |
@@ -105,17 +105,20 @@ All paths relative to `artifacts/api-server/src/`.
 | `access.ts` | `GET /access`, `POST /access`, `PATCH /access/:email`, `DELETE /access/:email`, `GET /audit-log` | User CRUD + audit log |
 | `inventory.ts` | `GET /inventory`, `GET /cache-status`, `POST /refresh`, `POST /refresh-blackbook`, `GET /vehicle-images` | Inventory data, cache control, images |
 | `carfax.ts` | `GET /carfax/batch-status`, `POST /carfax/run-batch`, `POST /carfax/test` | Carfax VHR management |
-| `lender.ts` | `GET /lender-programs`, `GET /lender-status`, `POST /refresh-lender`, `POST /lender-calculate`, `GET /lender-debug` | Lender program data + calculator engine |
+| `lender/index.ts` | — | Router barrel — mounts lender-read, lender-calculate, lender-admin |
+| `lender/lender-read.ts` | `GET /lender-programs`, `GET /lender-status` | Cached lender program data + sync status |
+| `lender/lender-calculate.ts` | `POST /lender-calculate` | Main calculator engine |
+| `lender/lender-admin.ts` | `POST /refresh-lender`, `GET /lender-debug` | Manual sync trigger + diagnostics |
 | `price-lookup.ts` | `GET /price-lookup?url=` | Resolve listing URL to live price via Typesense |
 
 ### Libraries (`lib/`)
 
 | File | Purpose | Consumed By |
 |------|---------|-------------|
-| `auth.ts` | `isOwner()`, `configurePassport()` — Google OAuth setup | `app.ts`, all routes |
+| `auth.ts` | `isOwner()`, `getUserRole()`, `requireOwner`, `requireAccess`, `requireOwnerOrViewer`, `configurePassport()` — Google OAuth setup + shared auth middleware | `app.ts`, all routes |
 | `inventoryCache.ts` | In-memory + DB inventory cache, Typesense enrichment, BB/Carfax merge | `routes/inventory.ts`, workers |
-| `lenderCalcEngine.ts` | Cap profile resolver, no-online selling price logic | `routes/lender.ts` |
-| `lenderWorker.ts` | Syncs lender programs from CreditApp GraphQL, caches to GCS | `routes/lender.ts`, `index.ts` |
+| `lenderCalcEngine.ts` | Cap profile resolver, no-online selling price logic | `routes/lender/lender-calculate.ts` |
+| `lenderWorker.ts` | Syncs lender programs from CreditApp GraphQL, caches to GCS | `routes/lender/`, `index.ts` |
 | `lenderAuth.ts` | CreditApp auth cookies, GraphQL client | `lenderWorker.ts` |
 | `blackBookWorker.ts` | Canadian Black Book valuation via CreditApp browser automation | `routes/inventory.ts`, `index.ts` |
 | `carfaxWorker.ts` | Carfax VHR link resolution via dealer portal automation | `routes/carfax.ts`, `index.ts` |
@@ -123,7 +126,10 @@ All paths relative to `artifacts/api-server/src/`.
 | `emailService.ts` | Sends invitation emails via Resend | `routes/access.ts` |
 | `logger.ts` | Pino structured logger | All files |
 | `randomScheduler.ts` | Randomized daily scheduling within business hours (MT) | All workers |
-| `runtimeFingerprint.ts` | Calculator version + git SHA for response tracing | `routes/lender.ts` |
+| `typesense.ts` | Typesense client config + `extractWebsiteUrl()` helper | `inventoryCache.ts`, `routes/price-lookup.ts` |
+| `env.ts` | Zod-validated environment variables, `isProduction` flag | All files needing env access |
+| `validate.ts` | `validateBody(Schema)`, `validateQuery(Schema)`, `validateParams(Schema)` — Zod validation middleware | `routes/access.ts`, `routes/inventory.ts` |
+| `runtimeFingerprint.ts` | Calculator version + git SHA for response tracing | `routes/lender/` |
 
 ## Shared Libraries (`lib/`)
 
@@ -164,6 +170,15 @@ All paths relative to `artifacts/api-server/src/`.
 | `attached_assets/` | Captured CreditApp API payloads and reference documents — not live code |
 | `artifacts/mockup-sandbox/` | Standalone UI mockup preview app — not the production portal |
 
+## Anti-Patterns (DO NOT)
+
+- Do NOT define route-local auth middleware — use `lib/auth.ts` (`requireOwner`, `requireAccess`, `requireOwnerOrViewer`)
+- Do NOT hardcode Typesense config — use `lib/typesense.ts`
+- Do NOT read `process.env` directly — use `lib/env.ts`
+- Do NOT write ad-hoc request validation — use `validateBody(Schema)` / `validateQuery(Schema)` / `validateParams(Schema)` from `lib/validate.ts`
+- Do NOT define local `isProduction` — use `{ isProduction }` from `lib/env.ts`
+- Do NOT use `require()` — use static `import` or `await import()` with a comment explaining why
+
 ```
 
 ### `downloads/README.md` (22 lines)
@@ -175,7 +190,7 @@ Reference snapshots and exports. These are **not** the live codebase; prefer `ar
 
 ## Single-file full tree
 
-- **`inventory-platform-complete-source.md`** — machine-generated bundle of all sources needed to rebuild the API, portal, mockup sandbox, shared packages, and scripts (including `pnpm-lock.yaml`, Orval output, and every `components/ui` file).
+- **`inventory-platform-complete-source.md`** — machine-generated bundle of all sources needed to rebuild the API, portal, mockup sandbox, shared packages, and scripts (including `pnpm-lock.yaml`, Orval output, and every `components/ui` file). Content is **domain-grouped** (navigation → workspace → DB → API → server areas → portal → mockup → scripts) with an alphabetical index appendix for lookup.
 
 Regenerate after substantive changes:
 
@@ -271,7 +286,7 @@ localPort = 3004
 
 ```
 
-### `pnpm-lock.yaml` (7683 lines)
+### `pnpm-lock.yaml` (7686 lines)
 
 ```yaml
 lockfileVersion: '9.0'
@@ -343,7 +358,7 @@ catalogs:
       specifier: ^7.3.0
       version: 7.3.1
     zod:
-      specifier: ^3.25.76
+      specifier: 3.25.76
       version: 3.25.76
 
 overrides:
@@ -502,6 +517,9 @@ importers:
       resend:
         specifier: ^6.10.0
         version: 6.10.0
+      zod:
+        specifier: 'catalog:'
+        version: 3.25.76
     devDependencies:
       '@types/connect-pg-simple':
         specifier: ^7.0.3
@@ -7959,13 +7977,12 @@ snapshots:
 
 ```
 
-### `pnpm-workspace.yaml` (127 lines)
+### `pnpm-workspace.yaml` (126 lines)
 
 ```yaml
 packages:
   - artifacts/*
   - lib/*
-
   - scripts
 
 autoInstallPeers: false
@@ -7991,7 +8008,7 @@ catalog:
   tailwindcss: ^4.1.14
   tsx: ^4.21.0
   vite: ^7.3.0
-  zod: ^3.25.76
+  zod: 3.25.76
 
 minimumReleaseAge: 1440
 
@@ -12217,11 +12234,10 @@ export interface VehicleTermMatrixEntry {
 
 ```
 
-### `lib/api-zod/src/index.ts` (3 lines)
+### `lib/api-zod/src/index.ts` (2 lines)
 
 ```typescript
 export * from "./generated/api";
-export * from "./generated/types";
 
 ```
 
@@ -12451,7 +12467,7 @@ buildAll().catch((err) => {
 
 ```
 
-### `artifacts/api-server/package.json` (49 lines)
+### `artifacts/api-server/package.json` (50 lines)
 
 ```json
 {
@@ -12485,7 +12501,8 @@ buildAll().catch((err) => {
     "puppeteer": "^24.40.0",
     "puppeteer-extra": "^3.3.6",
     "puppeteer-extra-plugin-stealth": "^2.11.2",
-    "resend": "^6.10.0"
+    "resend": "^6.10.0",
+    "zod": "catalog:"
   },
   "devDependencies": {
     "@types/connect-pg-simple": "^7.0.3",
@@ -12505,7 +12522,7 @@ buildAll().catch((err) => {
 
 ```
 
-### `artifacts/api-server/src/app.ts` (72 lines)
+### `artifacts/api-server/src/app.ts` (82 lines)
 
 ```typescript
 import express, { type Express } from "express";
@@ -12518,6 +12535,7 @@ import rateLimit from "express-rate-limit";
 import { pool } from "@workspace/db";
 import router from "./routes/index.js";
 import { logger } from "./lib/logger.js";
+import { isProduction } from "./lib/env.js";
 import { configurePassport } from "./lib/auth.js";
 
 const app: Express = express();
@@ -12536,7 +12554,15 @@ app.use(
   })
 );
 
-app.use(cors({ origin: true, credentials: true }));
+const allowedOrigins = process.env["REPLIT_DOMAINS"]
+  ? process.env["REPLIT_DOMAINS"].split(",").map((d) => `https://${d}`)
+  : undefined;
+app.use(
+  cors({
+    origin: allowedOrigins ?? true,
+    credentials: true,
+  }),
+);
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
@@ -12546,7 +12572,7 @@ app.use(
     store: new PgSession({ pool, createTableIfMissing: false }),
     secret: (() => {
       const s = process.env["SESSION_SECRET"];
-      if (!s && process.env["REPLIT_DEPLOYMENT"] === "1") {
+      if (!s && isProduction) {
         throw new Error("SESSION_SECRET is required in production");
       }
       return s || "dev-secret-change-me";
@@ -12554,7 +12580,8 @@ app.use(
     resave: false,
     saveUninitialized: false,
     cookie: {
-      secure: process.env["NODE_ENV"] === "production",
+      secure: isProduction,
+      sameSite: "lax",
       maxAge: 7 * 24 * 60 * 60 * 1000,
     },
   })
@@ -12572,7 +12599,7 @@ const apiLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: "Too many requests, please slow down." },
-  skip: (req) => req.path === "/api/healthz",
+  skip: (req) => req.path === "/healthz",
 });
 
 app.use("/api", apiLimiter);
@@ -12582,11 +12609,12 @@ export default app;
 
 ```
 
-### `artifacts/api-server/src/index.ts` (53 lines)
+### `artifacts/api-server/src/index.ts` (50 lines)
 
 ```typescript
 import app from "./app";
 import { logger } from "./lib/logger";
+import { isProduction } from "./lib/env";
 import { startBackgroundRefresh } from "./lib/inventoryCache";
 import { scheduleCarfaxWorker } from "./lib/carfaxWorker";
 import { scheduleBlackBookWorker } from "./lib/blackBookWorker";
@@ -12603,10 +12631,6 @@ const port = Number(rawPort);
 if (Number.isNaN(port) || port <= 0) {
   throw new Error(`Invalid PORT value: "${rawPort}"`);
 }
-
-// Carfax worker only runs in the dev environment — not on the production deployment.
-// Production containers start fresh with no session file, causing guaranteed login failures.
-const isProduction = process.env["REPLIT_DEPLOYMENT"] === "1";
 
 // Load inventory from DB first (instant), then start background refresh cycle.
 // await ensures the DB snapshot is in memory before we accept any requests.
@@ -12670,18 +12694,21 @@ startBackgroundRefresh().then(() => {
 
 *4 file(s).*
 
-### `artifacts/api-server/src/lib/auth.ts` (45 lines)
+### `artifacts/api-server/src/lib/auth.ts` (108 lines)
 
 ```typescript
 import passport from "passport";
 import { Strategy as GoogleStrategy } from "passport-google-oauth20";
+import type { Request, Response, NextFunction } from "express";
+import { db } from "@workspace/db";
+import { accessListTable } from "@workspace/db";
+import { eq } from "drizzle-orm";
 import { logger } from "./logger.js";
 
 const OWNER_EMAIL = (process.env["OWNER_EMAIL"] ?? "").toLowerCase().trim();
 const CLIENT_ID     = process.env["GOOGLE_CLIENT_ID"]     ?? "";
 const CLIENT_SECRET = process.env["GOOGLE_CLIENT_SECRET"] ?? "";
 
-// Derive callback URL from REPLIT_DOMAINS (works in both dev and prod)
 function getCallbackUrl(): string {
   const domain = process.env["REPLIT_DOMAINS"]?.split(",")[0]?.trim();
   if (domain) return `https://${domain}/api/auth/google/callback`;
@@ -12690,6 +12717,66 @@ function getCallbackUrl(): string {
 
 export function isOwner(email: string): boolean {
   return !!OWNER_EMAIL && email.toLowerCase() === OWNER_EMAIL;
+}
+
+export type UserRole = "owner" | "viewer" | "guest";
+
+/** Resolve calling user's role from owner check + access_list DB lookup. */
+export async function getUserRole(req: Request): Promise<UserRole> {
+  const email = req.user!.email.toLowerCase();
+  if (isOwner(email)) return "owner";
+  const [entry] = await db
+    .select()
+    .from(accessListTable)
+    .where(eq(accessListTable.email, email))
+    .limit(1);
+  return (entry?.role as UserRole) ?? "viewer";
+}
+
+/** Reject unauthenticated requests. */
+function requireAuth(req: Request, res: Response): boolean {
+  if (!req.isAuthenticated || !req.isAuthenticated()) {
+    res.status(401).json({ error: "Not authenticated" });
+    return false;
+  }
+  return true;
+}
+
+/** Owner-only middleware (DB role lookup for access-list owners too). */
+export async function requireOwner(req: Request, res: Response, next: NextFunction) {
+  if (!requireAuth(req, res)) return;
+  const role = await getUserRole(req);
+  if (role !== "owner") {
+    res.status(403).json({ error: "Owner only" });
+    return;
+  }
+  next();
+}
+
+/** Owner or viewer — sets req._role for downstream use. */
+export async function requireOwnerOrViewer(req: Request, res: Response, next: NextFunction) {
+  if (!requireAuth(req, res)) return;
+  const role = await getUserRole(req);
+  if (role !== "owner" && role !== "viewer") {
+    res.status(403).json({ error: "Access denied" });
+    return;
+  }
+  (req as any)._role = role;
+  next();
+}
+
+/** Any authenticated user on the access list (owner, viewer, or guest). */
+export async function requireAccess(req: Request, res: Response, next: NextFunction) {
+  if (!requireAuth(req, res)) return;
+  const email = req.user!.email.toLowerCase();
+  if (isOwner(email)) { next(); return; }
+  const [entry] = await db
+    .select()
+    .from(accessListTable)
+    .where(eq(accessListTable.email, email))
+    .limit(1);
+  if (entry) { next(); return; }
+  res.status(403).json({ error: "Access denied" });
 }
 
 export function configurePassport() {
@@ -12720,29 +12807,28 @@ export function configurePassport() {
 
 ```
 
-### `artifacts/api-server/src/lib/emailService.ts` (52 lines)
+### `artifacts/api-server/src/lib/emailService.ts` (51 lines)
 
 ```typescript
 import { Resend } from "resend";
 import { logger } from "./logger.js";
+import { env } from "./env.js";
 
-const RESEND_API_KEY = process.env["RESEND_API_KEY"]?.trim() ?? "";
-const APP_URL = (() => {
-  const domain = (process.env["REPLIT_DOMAINS"] ?? "").split(",")[0]?.trim();
-  return domain ? `https://${domain}` : "https://script-reviewer.replit.app";
-})();
+const APP_URL = env.REPLIT_DOMAINS
+  ? `https://${env.REPLIT_DOMAINS.split(",")[0]?.trim()}`
+  : "https://script-reviewer.replit.app";
 
 export async function sendInvitationEmail(
   toEmail: string,
   role: string,
   invitedBy: string,
 ): Promise<void> {
-  if (!RESEND_API_KEY) {
+  if (!env.RESEND_API_KEY) {
     logger.warn("RESEND_API_KEY not set — skipping invitation email");
     return;
   }
 
-  const resend = new Resend(RESEND_API_KEY);
+  const resend = new Resend(env.RESEND_API_KEY);
   const roleName = role === "guest" ? "Guest (prices hidden)" : "Viewer";
 
   try {
@@ -12777,30 +12863,24 @@ export async function sendInvitationEmail(
 
 ```
 
-### `artifacts/api-server/src/routes/access.ts` (144 lines)
+### `artifacts/api-server/src/routes/access.ts` (129 lines)
 
 ```typescript
 import { Router } from "express";
 import { db } from "@workspace/db";
 import { accessListTable, auditLogTable } from "@workspace/db";
 import { eq, desc } from "drizzle-orm";
-import { isOwner } from "../lib/auth.js";
+import { requireOwner } from "../lib/auth.js";
 import { sendInvitationEmail } from "../lib/emailService.js";
+import { validateBody, validateParams } from "../lib/validate.js";
+import {
+  AddAccessEntryBody,
+  UpdateAccessRoleBody,
+  UpdateAccessRoleParams,
+  RemoveAccessEntryParams,
+} from "@workspace/api-zod";
 
 const router = Router();
-
-function requireOwner(req: any, res: any, next: any) {
-  if (!req.isAuthenticated || !req.isAuthenticated()) {
-    res.status(401).json({ error: "Not authenticated" });
-    return;
-  }
-  const user = req.user as { email: string };
-  if (!isOwner(user.email)) {
-    res.status(403).json({ error: "Owner only" });
-    return;
-  }
-  next();
-}
 
 async function writeAudit(
   action: string,
@@ -12829,14 +12909,10 @@ router.get("/access", requireOwner, async (_req, res) => {
 });
 
 // POST /access — add a user (owner only)
-router.post("/access", requireOwner, async (req, res) => {
-  const rawEmail = (req.body?.email ?? "").toString().trim().toLowerCase();
-  if (!rawEmail || !rawEmail.includes("@")) {
-    res.status(400).json({ error: "Invalid email" });
-    return;
-  }
-  const role  = ["viewer", "guest"].includes(req.body?.role) ? req.body.role : "viewer";
-  const owner = (req.user as { email: string }).email;
+router.post("/access", requireOwner, validateBody(AddAccessEntryBody), async (req, res) => {
+  const rawEmail = req.body.email.trim().toLowerCase();
+  const role  = req.body.role ?? "viewer";
+  const owner = req.user!.email;
 
   const [entry] = await db
     .insert(accessListTable)
@@ -12855,14 +12931,9 @@ router.post("/access", requireOwner, async (req, res) => {
 });
 
 // PATCH /access/:email — update a user's role (owner only)
-router.patch("/access/:email", requireOwner, async (req, res) => {
-  const email   = decodeURIComponent(req.params.email ?? "").toLowerCase();
-  const newRole = (req.body?.role ?? "").toString().trim().toLowerCase();
-
-  if (!["viewer", "guest"].includes(newRole)) {
-    res.status(400).json({ error: "Role must be 'viewer' or 'guest'" });
-    return;
-  }
+router.patch("/access/:email", requireOwner, validateParams(UpdateAccessRoleParams), validateBody(UpdateAccessRoleBody), async (req, res) => {
+  const email   = decodeURIComponent(String(req.params.email ?? "")).toLowerCase();
+  const newRole = req.body.role;
 
   const [existing] = await db
     .select()
@@ -12881,16 +12952,16 @@ router.patch("/access/:email", requireOwner, async (req, res) => {
     .where(eq(accessListTable.email, email))
     .returning();
 
-  const owner = (req.user as { email: string }).email;
+  const owner = req.user!.email;
   await writeAudit("role_change", email, owner, existing.role, newRole);
 
   res.json(updated);
 });
 
 // DELETE /access/:email — remove a user (owner only)
-router.delete("/access/:email", requireOwner, async (req, res) => {
-  const email = decodeURIComponent(req.params.email ?? "").toLowerCase();
-  const owner = (req.user as { email: string }).email;
+router.delete("/access/:email", requireOwner, validateParams(RemoveAccessEntryParams), async (req, res) => {
+  const email = decodeURIComponent(String(req.params.email ?? "")).toLowerCase();
+  const owner = req.user!.email;
 
   const [existing] = await db
     .select()
@@ -12902,10 +12973,10 @@ router.delete("/access/:email", requireOwner, async (req, res) => {
   await writeAudit("remove", email, owner, existing?.role ?? null, null);
 
   try {
-    const { pool } = await import("@workspace/db");
+    const { pool } = await import("@workspace/db"); // Lazy: pool needed only for raw session cleanup query
     await pool.query(
-      `DELETE FROM "session" WHERE sess::text ILIKE $1`,
-      [`%${email}%`],
+      `DELETE FROM "session" WHERE sess->'passport'->'user'->>'email' = $1`,
+      [email],
     );
   } catch (_err) {}
 
@@ -12973,7 +13044,7 @@ router.get("/me", async (req, res) => {
     res.status(401).json({ error: "Not authenticated" });
     return;
   }
-  const user  = req.user as { email: string; name: string; picture: string };
+  const user  = req.user!;
   const email = user.email.toLowerCase();
   const owner = isOwner(email);
 
@@ -13014,12 +13085,13 @@ export default router;
 
 *3 file(s).*
 
-### `artifacts/api-server/src/lib/inventoryCache.ts` (496 lines)
+### `artifacts/api-server/src/lib/inventoryCache.ts` (472 lines)
 
 ```typescript
 import { db, inventoryCacheTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { logger } from "./logger.js";
+import { isProduction } from "./env.js";
 
 export interface InventoryItem {
   location:       string;
@@ -13083,6 +13155,7 @@ async function loadFromDb(): Promise<void> {
   }
 
   try {
+    // Lazy load: defers GCS client initialization
     const { loadBbValuesFromStore, parseBbEntry } = await import("./bbObjectStore.js");
     const blob = await loadBbValuesFromStore();
     if (blob?.values) {
@@ -13128,39 +13201,11 @@ async function persistToDb(): Promise<void> {
 // Typesense — batch enrichment (prices + website URLs)
 // ---------------------------------------------------------------------------
 
-const TYPESENSE_HOST = "v6eba1srpfohj89dp-1.a1.typesense.net";
-
-const TYPESENSE_COLLECTIONS = [
-  {
-    collection: "37042ac7ece3a217b1a41d6f54ba6855", // Parkdale (checked first — preferred)
-    apiKey:     "bENlSmdIaVJWNGhTcjBnZ3BaN2JxajBINWcvdzREZ21hQnFMZWM3OWJBRT1oZmUweyJmaWx0ZXJfYnkiOiJzdGF0dXM6W0luc3RvY2tdICYmIHZpc2liaWxpdHk6PjAgJiYgZGVsZXRlZF9hdDo9MCJ9",
-    siteUrl:    "https://www.parkdalemotors.ca",
-  },
-  {
-    collection: "cebacbca97920d818d57c6f0526d7413", // Matrix
-    apiKey:     "ZWoxa3NxVmJLWFBOK2dWcUFBM1V0aTJyb09wUDhFZ0R5Vnc1blc2RW9Kdz1oZmUweyJmaWx0ZXJfYnkiOiJzdGF0dXM6W0luc3RvY2ssIFNvbGRdICYmIHZpc2liaWxpdHk6PjAgJiYgZGVsZXRlZF9hdDo9MCJ9",
-    siteUrl:    "https://www.matrixmotorsyeg.ca",
-  },
-];
-
-// Keep the old alias so the price function below still compiles
-const PRICE_COLLECTIONS = TYPESENSE_COLLECTIONS;
-
-function extractWebsiteUrl(doc: any, siteUrl: string): string | null {
-  if (doc.page_url) {
-    const path = doc.page_url.toString().trim().replace(/^\/+|\/+$/g, "");
-    return `${siteUrl}/${path}/`;
-  }
-  const id   = doc.id || doc.post_id || doc.vehicle_id || "";
-  let   slug = doc.slug || doc.url_slug || "";
-  if (!slug && doc.year && doc.make && doc.model) {
-    slug = [doc.year, doc.make, doc.model, doc.trim || ""]
-      .filter((p: any) => String(p).trim() !== "")
-      .join(" ").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
-  }
-  if (!id || !slug) return null;
-  return `${siteUrl}/inventory/${slug}/${id}/`;
-}
+import {
+  TYPESENSE_HOST,
+  DEALER_COLLECTIONS,
+  extractWebsiteUrl,
+} from "./typesense.js";
 
 interface TypesenseMaps {
   prices:  Map<string, string>; // VIN → online price string
@@ -13178,7 +13223,7 @@ async function fetchFromTypesense(): Promise<TypesenseMaps> {
   const website = new Map<string, string>();
   const photos  = new Set<string>();
 
-  for (const col of TYPESENSE_COLLECTIONS) {
+  for (const col of DEALER_COLLECTIONS) {
     try {
       let page = 1;
       while (true) {
@@ -13285,6 +13330,7 @@ export async function refreshCache(): Promise<void> {
       if (old.bbValues) existingBbDetail.set(old.vin.toUpperCase(), old.bbValues);
     }
     try {
+      // Lazy load: defers GCS client initialization
       const { loadBbValuesFromStore, parseBbEntry } = await import("./bbObjectStore.js");
       const blob = await loadBbValuesFromStore();
       if (blob?.values) {
@@ -13417,8 +13463,8 @@ export async function applyCarfaxResults(results: Map<string, string>): Promise<
 // ---------------------------------------------------------------------------
 
 function triggerNewVinLookups(newVins: string[]): void {
-  const isProduction = process.env["REPLIT_DEPLOYMENT"] === "1";
 
+  // Breaks static cycle: blackBookWorker statically imports inventoryCache
   import("./blackBookWorker.js").then(({ runBlackBookForVins }) => {
     runBlackBookForVins(newVins).catch(err =>
       logger.error({ err }, "Targeted BB lookup for new VINs failed"),
@@ -13426,6 +13472,7 @@ function triggerNewVinLookups(newVins: string[]): void {
   }).catch(err => logger.error({ err }, "Failed to import blackBookWorker for targeted run"));
 
   if (!isProduction) {
+    // Breaks static cycle: carfaxWorker statically imports inventoryCache
     import("./carfaxWorker.js").then(({ runCarfaxForNewVins }) => {
       runCarfaxForNewVins(newVins).catch(err =>
         logger.error({ err }, "Targeted Carfax lookup for new VINs failed"),
@@ -13515,83 +13562,24 @@ export async function startBackgroundRefresh(intervalMs = 60 * 60 * 1000): Promi
 
 ```
 
-### `artifacts/api-server/src/routes/inventory.ts` (201 lines)
+### `artifacts/api-server/src/routes/inventory.ts` (142 lines)
 
 ```typescript
 import { Router } from "express";
-import { db } from "@workspace/db";
-import { accessListTable } from "@workspace/db";
-import { eq } from "drizzle-orm";
-import { isOwner } from "../lib/auth.js";
+import { getUserRole, requireAccess } from "../lib/auth.js";
 import { logger } from "../lib/logger.js";
 import { getCacheState, refreshCache } from "../lib/inventoryCache.js";
 import { runBlackBookWorker, getBlackBookStatus } from "../lib/blackBookWorker.js";
+import {
+  TYPESENSE_HOST,
+  DEALER_COLLECTIONS,
+  IMAGE_CDN_BASE,
+  extractWebsiteUrl,
+} from "../lib/typesense.js";
+import { validateQuery } from "../lib/validate.js";
+import { GetVehicleImagesQueryParams } from "@workspace/api-zod";
 
 const router = Router();
-
-const TYPESENSE_HOST = "v6eba1srpfohj89dp-1.a1.typesense.net";
-const IMAGE_CDN_BASE = "https://zopsoftware-asset.b-cdn.net";
-
-const DEALER_COLLECTIONS = [
-  {
-    name:       "Matrix",
-    collection: "cebacbca97920d818d57c6f0526d7413",
-    apiKey:     "ZWoxa3NxVmJLWFBOK2dWcUFBM1V0aTJyb09wUDhFZ0R5Vnc1blc2RW9Kdz1oZmUweyJmaWx0ZXJfYnkiOiJzdGF0dXM6W0luc3RvY2ssIFNvbGRdICYmIHZpc2liaWxpdHk6PjAgJiYgZGVsZXRlZF9hdDo9MCJ9",
-    siteUrl:    "https://www.matrixmotorsyeg.ca",
-  },
-  {
-    name:       "Parkdale",
-    collection: "37042ac7ece3a217b1a41d6f54ba6855",
-    apiKey:     "bENlSmdIaVJWNGhTcjBnZ3BaN2JxajBINWcvdzREZ21hQnFMZWM3OWJBRT1oZmUweyJmaWx0ZXJfYnkiOiJzdGF0dXM6W0luc3RvY2tdICYmIHZpc2liaWxpdHk6PjAgJiYgZGVsZXRlZF9hdDo9MCJ9",
-    siteUrl:    "https://www.parkdalemotors.ca",
-  },
-];
-
-function extractWebsiteUrl(doc: any, siteUrl: string): string | null {
-  if (doc.page_url) {
-    const path = doc.page_url.toString().trim().replace(/^\/+|\/+$/g, "");
-    return `${siteUrl}/${path}/`;
-  }
-  const id   = doc.id || doc.post_id || doc.vehicle_id || "";
-  let   slug = doc.slug || doc.url_slug || "";
-  if (!slug && doc.year && doc.make && doc.model) {
-    slug = [doc.year, doc.make, doc.model, doc.trim || ""]
-      .filter((p: any) => String(p).trim() !== "")
-      .join(" ").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
-  }
-  if (!id || !slug) return null;
-  return `${siteUrl}/inventory/${slug}/${id}/`;
-}
-
-// Determine the calling user's role ('owner' | 'viewer' | 'guest')
-async function getUserRole(req: any): Promise<string> {
-  const user  = req.user as { email: string };
-  const email = user.email.toLowerCase();
-  if (isOwner(email)) return "owner";
-  const [entry] = await db
-    .select()
-    .from(accessListTable)
-    .where(eq(accessListTable.email, email))
-    .limit(1);
-  return entry?.role ?? "viewer";
-}
-
-async function requireAccess(req: any, res: any, next: any) {
-  if (!req.isAuthenticated || !req.isAuthenticated()) {
-    res.status(401).json({ error: "Not authenticated" });
-    return;
-  }
-  const user  = req.user as { email: string };
-  const email = user.email.toLowerCase();
-  if (isOwner(email)) { next(); return; }
-  const [entry] = await db
-    .select()
-    .from(accessListTable)
-    .where(eq(accessListTable.email, email))
-    .limit(1);
-  if (entry) { next(); return; }
-  res.status(403).json({ error: "Access denied" });
-}
 
 // GET /inventory — instant response from server-side cache, role-filtered
 router.get("/inventory", requireAccess, async (req, res) => {
@@ -13669,7 +13657,7 @@ router.post("/refresh", (req, res) => {
 });
 
 // GET /vehicle-images?vin=XXX — fetch photo gallery from Typesense CDN
-router.get("/vehicle-images", requireAccess, async (req, res) => {
+router.get("/vehicle-images", requireAccess, validateQuery(GetVehicleImagesQueryParams), async (req, res) => {
   const vin = (req.query["vin"] as string ?? "").trim().toUpperCase();
   if (!vin || vin.length < 10) {
     res.json({ vin, urls: [] });
@@ -13721,27 +13709,14 @@ export default router;
 
 ```
 
-### `artifacts/api-server/src/routes/price-lookup.ts` (106 lines)
+### `artifacts/api-server/src/routes/price-lookup.ts` (92 lines)
 
 ```typescript
 import { Router } from "express";
 import { logger } from "../lib/logger.js";
+import { TYPESENSE_HOST, DEALER_BY_HOSTNAME } from "../lib/typesense.js";
 
 const router = Router();
-
-const TYPESENSE_HOST = "v6eba1srpfohj89dp-1.a1.typesense.net";
-
-// Dealer configs: hostname → { collection, apiKey }
-const DEALERS: Record<string, { collection: string; apiKey: string }> = {
-  "matrixmotorsyeg.ca": {
-    collection: "cebacbca97920d818d57c6f0526d7413",
-    apiKey: "ZWoxa3NxVmJLWFBOK2dWcUFBM1V0aTJyb09wUDhFZ0R5Vnc1blc2RW9Kdz1oZmUweyJmaWx0ZXJfYnkiOiJzdGF0dXM6W0luc3RvY2ssIFNvbGRdICYmIHZpc2liaWxpdHk6PjAgJiYgZGVsZXRlZF9hdDo9MCJ9",
-  },
-  "parkdalemotors.ca": {
-    collection: "37042ac7ece3a217b1a41d6f54ba6855",
-    apiKey: "bENlSmdIaVJWNGhTcjBnZ3BaN2JxajBINWcvdzREZ21hQnFMZWM3OWJBRT1oZmUweyJmaWx0ZXJfYnkiOiJzdGF0dXM6W0luc3RvY2tdICYmIHZpc2liaWxpdHk6PjAgJiYgZGVsZXRlZF9hdDo9MCJ9",
-  },
-};
 
 function formatPrice(n: number): string {
   return "$" + Math.round(n).toLocaleString("en-US");
@@ -13766,9 +13741,8 @@ router.get("/price-lookup", async (req, res) => {
   try {
     const parsed = new URL(url);
 
-    // Match dealer by hostname (strip www.)
     const hostname = parsed.hostname.replace(/^www\./, "");
-    const dealer = DEALERS[hostname];
+    const dealer = DEALER_BY_HOSTNAME.get(hostname);
 
     if (!dealer) {
       // Unknown dealer — fall back to null (no scraping attempt)
@@ -13837,12 +13811,13 @@ export default router;
 <a id="lender"></a>
 ## 10. API server — lender programs & calculator
 
-*5 file(s).*
+*8 file(s).*
 
-### `artifacts/api-server/src/lib/lenderAuth.ts` (898 lines)
+### `artifacts/api-server/src/lib/lenderAuth.ts` (900 lines)
 
 ```typescript
 import { logger } from "./logger.js";
+import { isProduction } from "./env.js";
 import * as fs from "fs";
 import * as path from "path";
 import * as crypto from "crypto";
@@ -13887,7 +13862,7 @@ const LENDER_2FA_CODE_ENV = process.env["LENDER_CREDITAPP_2FA_CODE"]?.trim() ?? 
 
 async function getLatestRecoveryCode(): Promise<string> {
   try {
-    const fetch = (await import("node-fetch")).default;
+    const fetch = (await import("node-fetch")).default; // Lazy: optional recovery-code fetch
     const OBJ_BASE = "http://127.0.0.1:1106";
     const bucket = process.env.DEFAULT_OBJECT_STORAGE_BUCKET_ID;
     const dir = process.env.PRIVATE_OBJECT_DIR || "";
@@ -13948,6 +13923,7 @@ function saveCookiesToFile(cookies: any[]): void {
 
 async function loadCookiesFromDb(): Promise<any[]> {
   try {
+    // Lazy: DB only needed for session/schedule bookkeeping
     const { db, lenderSessionTable } = await import("@workspace/db");
     const { eq } = await import("drizzle-orm");
     const rows = await db.select().from(lenderSessionTable).where(eq(lenderSessionTable.id, "singleton"));
@@ -13964,6 +13940,7 @@ async function loadCookiesFromDb(): Promise<any[]> {
 
 async function saveCookiesToDb(cookies: any[]): Promise<void> {
   try {
+    // Lazy: DB only needed for session/schedule bookkeeping
     const { db, lenderSessionTable } = await import("@workspace/db");
     await db
       .insert(lenderSessionTable)
@@ -14052,6 +14029,7 @@ export async function callGraphQL(
 }
 
 async function launchBrowser(): Promise<any> {
+  // Lazy: heavy deps loaded only when browser automation runs
   let puppeteer: any;
   try {
     puppeteer = (await import("puppeteer-extra")).default;
@@ -14646,8 +14624,6 @@ async function loginWithAuth0(page: any): Promise<boolean> {
 }
 
 export async function getLenderAuthCookies(): Promise<{ appSession: string; csrfToken: string }> {
-  const isProduction = process.env["REPLIT_DEPLOYMENT"] === "1";
-
   try {
     const blob = await loadLenderSessionFromStore();
     if (blob?.cookies?.length) {
@@ -14900,6 +14876,7 @@ import {
   type VehicleConditionMatrixEntry,
 } from "./bbObjectStore.js";
 import { getLenderAuthCookies, callGraphQL, LENDER_ENABLED } from "./lenderAuth.js";
+import { scheduleRandomDaily, toMountainDateStr } from "./randomScheduler.js";
 
 const CREDITOR_NAME_TO_CODE: Record<string, { code: string; name: string }> = {
   SANTANDER:  { code: "SAN", name: "Santander" },
@@ -15341,9 +15318,9 @@ export async function runLenderSync(): Promise<void> {
 
 async function getLastRunDateFromDb(): Promise<string> {
   try {
+    // Lazy: DB only needed for session/schedule bookkeeping
     const { db, lenderSessionTable } = await import("@workspace/db");
     const { eq } = await import("drizzle-orm");
-    const { toMountainDateStr } = await import("./randomScheduler.js");
     const rows = await db.select({ lastRunAt: lenderSessionTable.lastRunAt })
       .from(lenderSessionTable)
       .where(eq(lenderSessionTable.id, "singleton"));
@@ -15358,6 +15335,7 @@ async function getLastRunDateFromDb(): Promise<string> {
 
 async function recordRunDateToDb(): Promise<void> {
   try {
+    // Lazy: DB only needed for session/schedule bookkeeping
     const { db, lenderSessionTable } = await import("@workspace/db");
     await db
       .insert(lenderSessionTable)
@@ -15379,8 +15357,6 @@ async function recordRunDateToDb(): Promise<void> {
  * Called once from index.ts at server startup.
  */
 export function scheduleLenderSync(): void {
-  const { scheduleRandomDaily, toMountainDateStr } = require("./randomScheduler.js") as typeof import("./randomScheduler.js");
-
   loadLenderProgramsFromCache().catch(err =>
     logger.warn({ err: String(err) }, "Lender sync: could not preload programs from object storage"),
   );
@@ -15443,94 +15419,34 @@ export function getRuntimeFingerprint() {
 
 ```
 
-### `artifacts/api-server/src/routes/lender.ts` (857 lines)
+### `artifacts/api-server/src/routes/lender/index.ts` (11 lines)
 
 ```typescript
 import { Router } from "express";
-import { db } from "@workspace/db";
-import { accessListTable } from "@workspace/db";
-import { eq } from "drizzle-orm";
-import { isOwner } from "../lib/auth.js";
-import { logger } from "../lib/logger.js";
-import { getCacheState, type InventoryItem } from "../lib/inventoryCache.js";
-import {
-  getLenderSyncStatus,
-  getCachedLenderPrograms,
-  runLenderSync,
-} from "../lib/lenderWorker.js";
-import type { VehicleTermMatrixEntry, VehicleConditionMatrixEntry } from "../lib/bbObjectStore.js";
-import {
-  resolveCapProfile,
-  resolveNoOnlineSellingPrice,
-  NO_ONLINE_STRATEGY_BY_PROFILE,
-} from "../lib/lenderCalcEngine.js";
-import { getRuntimeFingerprint } from "../lib/runtimeFingerprint.js";
+import readRouter from "./lender-read.js";
+import calculateRouter from "./lender-calculate.js";
+import adminRouter from "./lender-admin.js";
 
 const router = Router();
+router.use(readRouter);
+router.use(calculateRouter);
+router.use(adminRouter);
+export default router;
 
-async function getUserRole(req: any): Promise<string> {
-  const user  = req.user as { email: string };
-  const email = user.email.toLowerCase();
-  if (isOwner(email)) return "owner";
-  const [entry] = await db
-    .select()
-    .from(accessListTable)
-    .where(eq(accessListTable.email, email))
-    .limit(1);
-  return entry?.role ?? "viewer";
-}
+```
 
-async function requireOwner(req: any, res: any, next: any) {
-  if (!req.isAuthenticated || !req.isAuthenticated()) {
-    res.status(401).json({ error: "Not authenticated" });
-    return;
-  }
-  const role = await getUserRole(req);
-  if (role !== "owner") {
-    res.status(403).json({ error: "Owner only" });
-    return;
-  }
-  next();
-}
+### `artifacts/api-server/src/routes/lender/lender-admin.ts` (29 lines)
 
-async function requireOwnerOrViewer(req: any, res: any, next: any) {
-  if (!req.isAuthenticated || !req.isAuthenticated()) {
-    res.status(401).json({ error: "Not authenticated" });
-    return;
-  }
-  const role = await getUserRole(req);
-  if (role !== "owner" && role !== "viewer") {
-    res.status(403).json({ error: "Access denied" });
-    return;
-  }
-  (req as any)._role = role;
-  next();
-}
+```typescript
+import { Router } from "express";
+import { requireOwner } from "../../lib/auth.js";
+import { logger } from "../../lib/logger.js";
+import {
+  getLenderSyncStatus,
+  runLenderSync,
+} from "../../lib/lenderWorker.js";
 
-router.get("/lender-programs", requireOwnerOrViewer, async (req, res) => {
-  const programs = getCachedLenderPrograms();
-  if (!programs) {
-    res.json({ programs: [], updatedAt: null, role: (req as any)._role });
-    return;
-  }
-  res.set("Cache-Control", "no-store");
-  res.json({ ...programs, role: (req as any)._role });
-});
-
-router.get("/lender-status", requireOwnerOrViewer, async (req, res) => {
-  const s = getLenderSyncStatus();
-  const programs = getCachedLenderPrograms();
-  res.set("Cache-Control", "no-store");
-  res.json({
-    running:      s.running,
-    startedAt:    s.startedAt,
-    lastRun:      s.lastRun,
-    lenderCount:  s.lastCount,
-    error:        s.error ?? null,
-    programsAge:  programs?.updatedAt ?? null,
-    role:         (req as any)._role,
-  });
-});
+const router = Router();
 
 router.post("/refresh-lender", requireOwner, async (_req, res) => {
   const s = getLenderSyncStatus();
@@ -15538,7 +15454,7 @@ router.post("/refresh-lender", requireOwner, async (_req, res) => {
     res.json({ ok: false, message: "Already running", running: true });
     return;
   }
-  const { LENDER_ENABLED } = await import("../lib/lenderAuth.js");
+  const { LENDER_ENABLED } = await import("../../lib/lenderAuth.js");
   if (!LENDER_ENABLED) {
     res.json({ ok: false, message: "Lender credentials not configured", running: false });
     return;
@@ -15548,6 +15464,27 @@ router.post("/refresh-lender", requireOwner, async (_req, res) => {
   );
   res.json({ ok: true, message: "Lender sync started", running: true });
 });
+
+export default router;
+
+```
+
+### `artifacts/api-server/src/routes/lender/lender-calculate.ts` (712 lines)
+
+```typescript
+import { Router } from "express";
+import { requireOwnerOrViewer } from "../../lib/auth.js";
+import { logger } from "../../lib/logger.js";
+import { getCacheState, type InventoryItem } from "../../lib/inventoryCache.js";
+import { getCachedLenderPrograms } from "../../lib/lenderWorker.js";
+import type { VehicleTermMatrixEntry, VehicleConditionMatrixEntry } from "../../lib/bbObjectStore.js";
+import {
+  resolveCapProfile,
+  NO_ONLINE_STRATEGY_BY_PROFILE,
+} from "../../lib/lenderCalcEngine.js";
+import { getRuntimeFingerprint } from "../../lib/runtimeFingerprint.js";
+
+const router = Router();
 
 interface CalcParams {
   lenderCode:    string;
@@ -16245,6 +16182,52 @@ router.post("/lender-calculate", requireOwnerOrViewer, async (req, res) => {
   });
 });
 
+export default router;
+
+```
+
+### `artifacts/api-server/src/routes/lender/lender-read.ts` (97 lines)
+
+```typescript
+import { Router } from "express";
+import { requireOwner, requireOwnerOrViewer } from "../../lib/auth.js";
+import {
+  getLenderSyncStatus,
+  getCachedLenderPrograms,
+} from "../../lib/lenderWorker.js";
+import {
+  resolveCapProfile,
+  NO_ONLINE_STRATEGY_BY_PROFILE,
+} from "../../lib/lenderCalcEngine.js";
+import { getRuntimeFingerprint } from "../../lib/runtimeFingerprint.js";
+
+const router = Router();
+
+router.get("/lender-programs", requireOwnerOrViewer, async (req, res) => {
+  const programs = getCachedLenderPrograms();
+  if (!programs) {
+    res.json({ programs: [], updatedAt: null, role: (req as any)._role });
+    return;
+  }
+  res.set("Cache-Control", "no-store");
+  res.json({ ...programs, role: (req as any)._role });
+});
+
+router.get("/lender-status", requireOwnerOrViewer, async (req, res) => {
+  const s = getLenderSyncStatus();
+  const programs = getCachedLenderPrograms();
+  res.set("Cache-Control", "no-store");
+  res.json({
+    running:      s.running,
+    startedAt:    s.startedAt,
+    lastRun:      s.lastRun,
+    lenderCount:  s.lastCount,
+    error:        s.error ?? null,
+    programsAge:  programs?.updatedAt ?? null,
+    role:         (req as any)._role,
+  });
+});
+
 // Diagnostic endpoint — dumps cached program metadata for debugging
 router.get("/lender-debug", requireOwner, async (_req, res) => {
   const runtime = getRuntimeFingerprint();
@@ -16534,7 +16517,7 @@ export async function saveLenderProgramsToStore(data: LenderProgramsBlob): Promi
 
 ```
 
-### `artifacts/api-server/src/lib/blackBookWorker.ts` (978 lines)
+### `artifacts/api-server/src/lib/blackBookWorker.ts` (980 lines)
 
 ```typescript
 /**
@@ -16558,6 +16541,7 @@ export async function saveLenderProgramsToStore(data: LenderProgramsBlob): Promi
  */
 
 import { logger }                         from "./logger.js";
+import { isProduction }                   from "./env.js";
 import * as fs                            from "fs";
 import * as path                          from "path";
 import { getCacheState, applyBlackBookValues } from "./inventoryCache.js";
@@ -16566,6 +16550,7 @@ import {
   saveSessionToStore,
   saveBbValuesToStore,
 } from "./bbObjectStore.js";
+import { scheduleRandomDaily, toMountainDateStr } from "./randomScheduler.js";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -16645,6 +16630,7 @@ function saveCookiesToFile(cookies: any[]): void {
 
 async function loadCookiesFromDb(): Promise<any[]> {
   try {
+    // Lazy: DB only needed for session/schedule bookkeeping
     const { db, bbSessionTable } = await import("@workspace/db");
     const { eq }                 = await import("drizzle-orm");
     const rows = await db.select().from(bbSessionTable).where(eq(bbSessionTable.id, "singleton"));
@@ -16667,6 +16653,7 @@ async function loadCookiesFromDb(): Promise<any[]> {
 
 async function saveCookiesToDb(cookies: any[]): Promise<void> {
   try {
+    // Lazy: DB only needed for session/schedule bookkeeping
     const { db, bbSessionTable } = await import("@workspace/db");
     await db
       .insert(bbSessionTable)
@@ -16697,8 +16684,6 @@ function extractAuthCookies(cookies: any[]): { appSession: string; csrfToken: st
  * cookies fresh in the shared object storage bucket.
  */
 async function getAuthCookies(): Promise<{ appSession: string; csrfToken: string }> {
-  const isProduction = process.env["REPLIT_DEPLOYMENT"] === "1";
-
   // 1. Object storage (shared between dev + prod — primary source)
   try {
     const blob = await loadSessionFromStore();
@@ -16787,6 +16772,7 @@ async function getAuthCookies(): Promise<{ appSession: string; csrfToken: string
 // ---------------------------------------------------------------------------
 
 async function launchBrowser(): Promise<any> {
+  // Lazy: heavy deps loaded only when browser automation runs
   let puppeteer: any;
   try {
     puppeteer = (await import("puppeteer-extra")).default;
@@ -17364,9 +17350,9 @@ export async function runBlackBookWorker(): Promise<void> {
 
 async function getLastRunDateFromDb(): Promise<string> {
   try {
+    // Lazy: DB only needed for session/schedule bookkeeping
     const { db, bbSessionTable } = await import("@workspace/db");
     const { eq }                 = await import("drizzle-orm");
-    const { toMountainDateStr }  = await import("./randomScheduler.js");
     const rows = await db.select({ lastRunAt: bbSessionTable.lastRunAt })
       .from(bbSessionTable)
       .where(eq(bbSessionTable.id, "singleton"));
@@ -17381,6 +17367,7 @@ async function getLastRunDateFromDb(): Promise<string> {
 
 async function recordRunDateToDb(): Promise<void> {
   try {
+    // Lazy: DB only needed for session/schedule bookkeeping
     const { db, bbSessionTable } = await import("@workspace/db");
     await db
       .insert(bbSessionTable)
@@ -17399,8 +17386,6 @@ async function recordRunDateToDb(): Promise<void> {
 // ---------------------------------------------------------------------------
 
 export function scheduleBlackBookWorker(): void {
-  const { scheduleRandomDaily, toMountainDateStr } = require("./randomScheduler.js") as typeof import("./randomScheduler.js");
-
   scheduleRandomDaily({
     name: "BB worker",
     hasRunToday: async () => {
@@ -17517,7 +17502,7 @@ export async function runBlackBookForVins(targetVins: string[]): Promise<void> {
 
 ```
 
-### `artifacts/api-server/src/lib/carfaxWorker.ts` (991 lines)
+### `artifacts/api-server/src/lib/carfaxWorker.ts` (990 lines)
 
 ```typescript
 /**
@@ -17536,6 +17521,7 @@ export async function runBlackBookForVins(targetVins: string[]): Promise<void> {
  */
 
 import { logger } from "./logger.js";
+import { scheduleRandomDaily, toMountainDateStr } from "./randomScheduler.js";
 import * as fs   from "fs";
 import * as path from "path";
 
@@ -17697,9 +17683,9 @@ function saveCookies(cookies: any[]): void {
 // ---------------------------------------------------------------------------
 
 async function launchBrowser(): Promise<any> {
+  // Lazy: heavy deps loaded only when browser automation runs
   let puppeteer: any;
   try {
-    // puppeteer-extra + stealth plugin — handles ~20 detection vectors automatically
     puppeteer = (await import("puppeteer-extra")).default;
     const StealthPlugin = (await import("puppeteer-extra-plugin-stealth")).default;
     puppeteer.use(StealthPlugin());
@@ -17716,7 +17702,7 @@ async function launchBrowser(): Promise<any> {
 
   let executablePath: string | undefined;
   try {
-    const { execSync } = await import("child_process");
+    const { execSync } = await import("child_process"); // Lazy: heavy deps loaded only when browser automation runs
     const found = execSync("which chromium 2>/dev/null || which chromium-browser 2>/dev/null", { encoding: "utf8" }).trim();
     if (found) {
       executablePath = found;
@@ -18385,8 +18371,6 @@ export async function runCarfaxWorkerForVins(vins: string[]): Promise<CarfaxTest
 export function scheduleCarfaxWorker(): void {
   let lastRunDate = "";
 
-  const { scheduleRandomDaily, toMountainDateStr } = require("./randomScheduler.js") as typeof import("./randomScheduler.js");
-
   scheduleRandomDaily({
     name: "Carfax worker",
     hasRunToday: () => {
@@ -18513,47 +18497,34 @@ export async function runCarfaxForNewVins(vins: string[]): Promise<void> {
 
 ```
 
-### `artifacts/api-server/src/routes/carfax.ts` (64 lines)
+### `artifacts/api-server/src/routes/carfax.ts` (51 lines)
 
 ```typescript
 import { Router } from "express";
-import { isOwner } from "../lib/auth.js";
+import { requireOwner } from "../lib/auth.js";
 import { runCarfaxWorkerForVins, runCarfaxWorker, getCarfaxBatchStatus } from "../lib/carfaxWorker.js";
 import { logger } from "../lib/logger.js";
 
 const router = Router();
 
-function requireOwner(req: any, res: any, next: any) {
-  if (!req.isAuthenticated || !req.isAuthenticated()) {
-    res.status(401).json({ error: "Not authenticated" });
-    return;
-  }
-  const user = req.user as { email: string };
-  if (!isOwner(user.email)) {
-    res.status(403).json({ error: "Owner only" });
-    return;
-  }
-  next();
-}
-
 router.get("/carfax/batch-status", requireOwner, (_req, res) => {
   res.json(getCarfaxBatchStatus());
 });
 
-router.post("/carfax/run-batch", requireOwner, (req: any, res: any) => {
+router.post("/carfax/run-batch", requireOwner, (req, res) => {
   const status = getCarfaxBatchStatus();
   if (status.running) {
     res.status(409).json({ ok: false, error: "A batch is already running", startedAt: status.startedAt });
     return;
   }
-  logger.info({ requestedBy: (req.user as any)?.email }, "Manual Carfax batch triggered via API");
+  logger.info({ requestedBy: req.user?.email }, "Manual Carfax batch triggered via API");
   runCarfaxWorker({ force: true }).catch((err) =>
     logger.error({ err }, "Manual Carfax batch failed")
   );
   res.json({ ok: true, message: "Carfax batch started. Check server logs for progress." });
 });
 
-router.post("/carfax/test", requireOwner, async (req: any, res: any) => {
+router.post("/carfax/test", requireOwner, async (req, res) => {
   const { vins } = req.body as { vins?: string[] };
 
   if (!Array.isArray(vins) || vins.length === 0) {
@@ -18567,14 +18538,14 @@ router.post("/carfax/test", requireOwner, async (req: any, res: any) => {
   }
 
   const cleanVins = vins.map((v) => String(v).trim().toUpperCase()).filter(Boolean);
-  logger.info({ vins: cleanVins, requestedBy: (req.user as any)?.email }, "Carfax test run requested via API");
+  logger.info({ vins: cleanVins, requestedBy: req.user?.email }, "Carfax test run requested via API");
 
   try {
     const results = await runCarfaxWorkerForVins(cleanVins);
     res.json({ ok: true, results });
-  } catch (err: any) {
+  } catch (err) {
     logger.error({ err }, "Carfax test endpoint error");
-    res.status(500).json({ ok: false, error: err.message });
+    res.status(500).json({ ok: false, error: err instanceof Error ? err.message : "Unknown error" });
   }
 });
 
@@ -18628,14 +18599,87 @@ runCarfaxWorkerForVins(vins).then((results) => {
 <a id="server-cross"></a>
 ## 12. API server — cross-cutting (health, routing, logging, types)
 
-*7 file(s).*
+*10 file(s).*
 
-### `artifacts/api-server/src/lib/logger.ts` (21 lines)
+### `artifacts/api-server/src/lib/env.ts` (69 lines)
+
+```typescript
+/**
+ * Centralized environment access. Import from here instead of process.env.
+ * Validated at import time — the server crashes immediately with a clear
+ * message if a required variable is missing or malformed.
+ */
+import { z } from "zod";
+
+const optStr = z.string().trim().optional().default("");
+
+const envSchema = z.object({
+  PORT:                          z.coerce.number().int().positive().default(3000),
+  REPLIT_DEPLOYMENT:             z.enum(["0", "1"]).default("0"),
+  REPLIT_DOMAINS:                optStr,
+
+  SESSION_SECRET:                z.string().trim().default("dev-secret-change-me"),
+  OWNER_EMAIL:                   z.string().trim().toLowerCase().default(""),
+
+  GOOGLE_CLIENT_ID:              optStr,
+  GOOGLE_CLIENT_SECRET:          optStr,
+
+  DATABASE_URL:                  z.string().trim().default(""),
+
+  INVENTORY_DATA_URL:            optStr,
+  REFRESH_SECRET:                optStr,
+
+  DEFAULT_OBJECT_STORAGE_BUCKET_ID: optStr,
+  PRIVATE_OBJECT_DIR:            optStr,
+
+  CREDITAPP_EMAIL:               optStr,
+  CREDITAPP_PASSWORD:            optStr,
+  BB_CBB_ENDPOINT:               optStr,
+
+  LENDER_CREDITAPP_EMAIL:        optStr,
+  LENDER_CREDITAPP_PASSWORD:     optStr,
+  LENDER_CREDITAPP_TOTP_SECRET:  optStr,
+  LENDER_CREDITAPP_2FA_CODE:     optStr,
+
+  CARFAX_EMAIL:                  optStr,
+  CARFAX_PASSWORD:               optStr,
+  CARFAX_ENABLED:                z.string().trim().toLowerCase()
+                                   .transform((v) => v === "true")
+                                   .default("false"),
+
+  APPS_SCRIPT_WEB_APP_URL:       optStr,
+
+  RESEND_API_KEY:                optStr,
+
+  GIT_SHA:                       optStr,
+  REPL_GIT_COMMIT:               optStr,
+  VERCEL_GIT_COMMIT_SHA:         optStr,
+
+  LOG_LEVEL:                     z.string().trim().default("info"),
+});
+
+function parseEnv() {
+  const result = envSchema.safeParse(process.env);
+  if (!result.success) {
+    const formatted = result.error.issues
+      .map((i) => `  ${i.path.join(".")}: ${i.message}`)
+      .join("\n");
+    console.error(`Environment validation failed:\n${formatted}`);
+    process.exit(1);
+  }
+  return result.data;
+}
+
+export const env = parseEnv();
+export const isProduction = env.REPLIT_DEPLOYMENT === "1";
+
+```
+
+### `artifacts/api-server/src/lib/logger.ts` (20 lines)
 
 ```typescript
 import pino from "pino";
-
-const isProduction = process.env.NODE_ENV === "production";
+import { isProduction } from "./env.js";
 
 export const logger = pino({
   level: process.env.LOG_LEVEL ?? "info",
@@ -18825,7 +18869,7 @@ export function scheduleRandomDaily(opts: ScheduleOptions): void {
 
 ```
 
-### `artifacts/api-server/src/lib/README.md` (91 lines)
+### `artifacts/api-server/src/lib/README.md` (106 lines)
 
 ```markdown
 # Backend Libraries
@@ -18835,25 +18879,25 @@ All paths relative to `artifacts/api-server/src/lib/`.
 ## File Index
 
 ### `auth.ts`
-- **Exports:** `isOwner(email)`, `configurePassport()`
-- **Purpose:** Google OAuth via Passport.js. Compares emails against `OWNER_EMAIL` env var.
-- **Consumed by:** `app.ts` (passport init), all route files (owner checks)
+- **Exports:** `isOwner(email)`, `getUserRole(email)`, `requireOwner`, `requireAccess`, `requireOwnerOrViewer`, `configurePassport()`, `UserRole` (type)
+- **Purpose:** Google OAuth via Passport.js. Compares emails against `OWNER_EMAIL` env var. Provides shared Express middleware for role-based route gating.
+- **Consumed by:** `app.ts` (passport init), all route files (auth middleware)
 
 ### `inventoryCache.ts`
 - **Exports:** `InventoryItem` (type), `getCacheState()`, `refreshCache()`, `applyCarfaxResults()`, `applyBlackBookValues()`, `startBackgroundRefresh()`
 - **Purpose:** Central inventory data store. Loads from DB on startup, refreshes hourly from Apps Script JSON feed, enriches with Typesense (prices/URLs/photos) and BB values.
-- **Consumed by:** `routes/inventory.ts`, `routes/lender.ts`, all workers (BB, Carfax)
+- **Consumed by:** `routes/inventory.ts`, `routes/lender/`, all workers (BB, Carfax)
 - **Data flow:** Apps Script feed → normalize → Typesense enrichment → merge BB/Carfax → persist to DB
 
 ### `lenderCalcEngine.ts`
 - **Exports:** `resolveCapProfile(input)`, `resolveNoOnlineSellingPrice(ctx)`, `NO_ONLINE_STRATEGY_BY_PROFILE`, type exports
 - **Purpose:** Determines how LTV caps combine (advance/aftermarket/allIn) using a 3-bit key system. Resolves maximized selling price when no online listing exists.
-- **Consumed by:** `routes/lender.ts` (calculator), `scripts/src/lender-engine.golden.test.ts` (tests)
+- **Consumed by:** `routes/lender/lender-calculate.ts` (calculator), `scripts/src/lender-engine.golden.test.ts` (tests)
 
 ### `lenderWorker.ts`
 - **Exports:** `getLenderSyncStatus()`, `getCachedLenderPrograms()`, `loadLenderProgramsFromCache()`, `runLenderSync()`, `scheduleLenderSync()`
 - **Purpose:** Syncs lender program matrices from CreditApp GraphQL API. Normalizes creditors (Santander, Eden Park, ACC, iAF, Quantifi, Rifco, in-house) into a uniform `LenderProgram[]` structure. Stores to GCS blob.
-- **Consumed by:** `routes/lender.ts` (reads cached programs), `index.ts` (schedules sync)
+- **Consumed by:** `routes/lender/` (reads cached programs), `index.ts` (schedules sync)
 - **Key mapping:** `CREDITOR_NAME_TO_CODE` maps CreditApp names → dealer codes (SAN, EPI, ACC, etc.)
 
 ### `lenderAuth.ts`
@@ -18896,15 +18940,30 @@ All paths relative to `artifacts/api-server/src/lib/`.
 - **Purpose:** Schedules daily tasks at random times within business hours (Mountain Time). Weekday window: 8:30 AM – 7 PM, weekend: 10 AM – 4 PM.
 - **Consumed by:** `blackBookWorker.ts`, `carfaxWorker.ts`, `lenderWorker.ts`
 
+### `typesense.ts`
+- **Exports:** Typesense client instance, `extractWebsiteUrl(document)`
+- **Purpose:** Centralizes Typesense connection config and provides a helper to extract the canonical website URL from a Typesense document.
+- **Consumed by:** `inventoryCache.ts`, `routes/price-lookup.ts`
+
+### `env.ts`
+- **Exports:** `env` (Zod-validated environment object), `isProduction`
+- **Purpose:** Single source of truth for environment variables. Validates all required env vars at startup via Zod schemas. Exports `isProduction` flag for environment-dependent behavior.
+- **Consumed by:** All files needing environment access
+
+### `validate.ts`
+- **Exports:** `validateBody(Schema)`, `validateQuery(Schema)`, `validateParams(Schema)`
+- **Purpose:** Express middleware factories that validate request body/query/params against a Zod schema, returning 400 with structured errors on failure.
+- **Consumed by:** `routes/access.ts`, `routes/inventory.ts`
+
 ### `runtimeFingerprint.ts`
 - **Exports:** `getRuntimeFingerprint()`
 - **Purpose:** Returns `{ calculatorVersion, gitSha }` for response tracing. Identifies which code version produced a calculation.
-- **Consumed by:** `routes/lender.ts`
+- **Consumed by:** `routes/lender/`
 
 ## Cross-Reference: Data Flow Between Files
 
 ```
-lenderAuth.ts ──cookies──▶ lenderWorker.ts ──programs──▶ routes/lender.ts
+lenderAuth.ts ──cookies──▶ lenderWorker.ts ──programs──▶ routes/lender/
                                                               │
                                                     lenderCalcEngine.ts
                                                     (cap profiles)
@@ -18918,6 +18977,139 @@ lenderAuth.ts ──cookies──▶ lenderWorker.ts ──programs──▶ rou
                                                │            │
                                     blackBookWorker.ts   carfaxWorker.ts
 ```
+
+```
+
+### `artifacts/api-server/src/lib/typesense.ts` (69 lines)
+
+```typescript
+/**
+ * Single source of truth for Typesense config, dealer collections, and URL helpers.
+ * All Typesense consumers import from here — no duplication.
+ */
+
+export const TYPESENSE_HOST = "v6eba1srpfohj89dp-1.a1.typesense.net";
+
+export interface DealerCollection {
+  name:       string;
+  collection: string;
+  apiKey:     string;
+  siteUrl:    string;
+}
+
+export const DEALER_COLLECTIONS: readonly DealerCollection[] = [
+  {
+    name:       "Parkdale",
+    collection: "37042ac7ece3a217b1a41d6f54ba6855",
+    apiKey:     "bENlSmdIaVJWNGhTcjBnZ3BaN2JxajBINWcvdzREZ21hQnFMZWM3OWJBRT1oZmUweyJmaWx0ZXJfYnkiOiJzdGF0dXM6W0luc3RvY2tdICYmIHZpc2liaWxpdHk6PjAgJiYgZGVsZXRlZF9hdDo9MCJ9",
+    siteUrl:    "https://www.parkdalemotors.ca",
+  },
+  {
+    name:       "Matrix",
+    collection: "cebacbca97920d818d57c6f0526d7413",
+    apiKey:     "ZWoxa3NxVmJLWFBOK2dWcUFBM1V0aTJyb09wUDhFZ0R5Vnc1blc2RW9Kdz1oZmUweyJmaWx0ZXJfYnkiOiJzdGF0dXM6W0luc3RvY2ssIFNvbGRdICYmIHZpc2liaWxpdHk6PjAgJiYgZGVsZXRlZF9hdDo9MCJ9",
+    siteUrl:    "https://www.matrixmotorsyeg.ca",
+  },
+];
+
+/** Map hostname (without www.) → DealerCollection for price-lookup matching. */
+export const DEALER_BY_HOSTNAME: ReadonlyMap<string, DealerCollection> = new Map(
+  DEALER_COLLECTIONS.map((d) => {
+    const host = new URL(d.siteUrl).hostname.replace(/^www\./, "");
+    return [host, d] as const;
+  }),
+);
+
+export const IMAGE_CDN_BASE = "https://zopsoftware-asset.b-cdn.net";
+
+/** Build a Typesense search URL for a given collection. */
+export function typesenseSearchUrl(
+  collection: string,
+  apiKey: string,
+  params: URLSearchParams,
+): string {
+  params.set("x-typesense-api-key", apiKey);
+  return `https://${TYPESENSE_HOST}/collections/${collection}/documents/search?${params}`;
+}
+
+/**
+ * Resolve a Typesense document to a dealer website listing URL.
+ * Tries page_url first, then builds from slug + id.
+ */
+export function extractWebsiteUrl(doc: any, siteUrl: string): string | null {
+  if (doc.page_url) {
+    const path = doc.page_url.toString().trim().replace(/^\/+|\/+$/g, "");
+    return `${siteUrl}/${path}/`;
+  }
+  const id   = doc.id || doc.post_id || doc.vehicle_id || "";
+  let   slug = doc.slug || doc.url_slug || "";
+  if (!slug && doc.year && doc.make && doc.model) {
+    slug = [doc.year, doc.make, doc.model, doc.trim || ""]
+      .filter((p: any) => String(p).trim() !== "")
+      .join(" ").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+  }
+  if (!id || !slug) return null;
+  return `${siteUrl}/inventory/${slug}/${id}/`;
+}
+
+```
+
+### `artifacts/api-server/src/lib/validate.ts` (54 lines)
+
+```typescript
+/**
+ * Express middleware factories for Zod schema validation.
+ * Use the generated schemas from @workspace/api-zod.
+ */
+import type { Request, Response, NextFunction } from "express";
+import type { ZodSchema } from "zod";
+
+export function validateBody(schema: ZodSchema) {
+  return (req: Request, res: Response, next: NextFunction) => {
+    const result = schema.safeParse(req.body);
+    if (!result.success) {
+      const details = result.error.issues.map((i) => ({
+        field: i.path.join("."),
+        message: i.message,
+      }));
+      res.status(400).json({ error: "Validation failed", details });
+      return;
+    }
+    req.body = result.data;
+    next();
+  };
+}
+
+export function validateQuery(schema: ZodSchema) {
+  return (req: Request, res: Response, next: NextFunction) => {
+    const result = schema.safeParse(req.query);
+    if (!result.success) {
+      const details = result.error.issues.map((i) => ({
+        field: i.path.join("."),
+        message: i.message,
+      }));
+      res.status(400).json({ error: "Validation failed", details });
+      return;
+    }
+    req.query = result.data;
+    next();
+  };
+}
+
+export function validateParams(schema: ZodSchema) {
+  return (req: Request, res: Response, next: NextFunction) => {
+    const result = schema.safeParse(req.params);
+    if (!result.success) {
+      const details = result.error.issues.map((i) => ({
+        field: i.path.join("."),
+        message: i.message,
+      }));
+      res.status(400).json({ error: "Validation failed", details });
+      return;
+    }
+    next();
+  };
+}
 
 ```
 
@@ -18938,7 +19130,7 @@ export default router;
 
 ```
 
-### `artifacts/api-server/src/routes/index.ts` (19 lines)
+### `artifacts/api-server/src/routes/index.ts` (21 lines)
 
 ```typescript
 import { Router, type IRouter } from "express";
@@ -18947,7 +19139,8 @@ import authRouter      from "./auth.js";
 import inventoryRouter from "./inventory.js";
 import accessRouter    from "./access.js";
 import carfaxRouter    from "./carfax.js";
-import lenderRouter    from "./lender.js";
+import lenderRouter      from "./lender/index.js";
+import priceLookupRouter from "./price-lookup.js";
 
 const router: IRouter = Router();
 
@@ -18957,12 +19150,13 @@ router.use(inventoryRouter);
 router.use(accessRouter);
 router.use(carfaxRouter);
 router.use(lenderRouter);
+router.use(priceLookupRouter);
 
 export default router;
 
 ```
 
-### `artifacts/api-server/src/routes/README.md` (114 lines)
+### `artifacts/api-server/src/routes/README.md` (119 lines)
 
 ```markdown
 # API Routes
@@ -19008,9 +19202,11 @@ Auth middleware patterns: `requireOwner` (owner email only), `requireAccess` (ow
 | DELETE | `/access/:email` | Owner | Remove user + destroy their sessions |
 | GET | `/audit-log` | Owner | Last 200 audit entries |
 
-**Lib dependencies:** `lib/auth.ts` (`isOwner`), `lib/emailService.ts` (`sendInvitationEmail`), `@workspace/db` (access_list + audit_log tables)
+**Lib dependencies:** `lib/auth.ts` (`requireOwner`), `lib/emailService.ts` (`sendInvitationEmail`), `lib/validate.ts` (`validateBody`, `validateParams`), `@workspace/db` (access_list + audit_log tables)
 
-**Side effects:** Writes to `audit_log` on every add/remove/role_change
+**Validation:** Request bodies and params are validated via Zod middleware (`AddAccessEntryBody`, etc.)
+
+**Side effects:** Writes to `audit_log` on every add/remove/role_change. Session delete uses exact jsonb match.
 
 ---
 
@@ -19024,7 +19220,9 @@ Auth middleware patterns: `requireOwner` (owner email only), `requireAccess` (ow
 | POST | `/refresh-blackbook` | Owner | Manual Black Book worker trigger |
 | GET | `/vehicle-images?vin=` | Access list | Photo gallery URLs from Typesense CDN |
 
-**Lib dependencies:** `lib/inventoryCache.ts` (`getCacheState`, `refreshCache`), `lib/blackBookWorker.ts` (`getBlackBookStatus`, `runBlackBookWorker`), `lib/auth.ts`
+**Lib dependencies:** `lib/inventoryCache.ts` (`getCacheState`, `refreshCache`), `lib/blackBookWorker.ts` (`getBlackBookStatus`, `runBlackBookWorker`), `lib/auth.ts`, `lib/validate.ts` (`validateQuery`)
+
+**Validation:** The `vehicle-images` query params are validated via Zod middleware.
 
 **Role-based field filtering:**
 - Owner: all fields
@@ -19045,19 +19243,20 @@ Auth middleware patterns: `requireOwner` (owner email only), `requireAccess` (ow
 
 ---
 
-### `lender.ts`
+### `lender/` (directory)
 
-| Method | Path | Auth | Purpose |
-|--------|------|------|---------|
-| GET | `/lender-programs` | Owner/Viewer | Returns cached lender program data |
-| GET | `/lender-status` | Owner/Viewer | Sync status + last run info |
-| POST | `/refresh-lender` | Owner | Trigger manual CreditApp sync |
-| POST | `/lender-calculate` | Owner/Viewer | **Main calculator engine** — evaluates inventory against lender rules |
-| GET | `/lender-debug` | Owner | Diagnostic dump of cached program metadata |
+The lender route is split into focused modules under `routes/lender/`:
 
-**Lib dependencies:** `lib/lenderWorker.ts` (program cache), `lib/lenderCalcEngine.ts` (cap profiles), `lib/inventoryCache.ts` (vehicle data), `lib/runtimeFingerprint.ts` (version tagging)
+| File | Endpoints | Purpose |
+|------|-----------|---------|
+| `index.ts` | — | Router barrel — mounts lender-read, lender-calculate, lender-admin |
+| `lender-read.ts` | `GET /lender-programs`, `GET /lender-status` | Cached lender program data + sync status |
+| `lender-calculate.ts` | `POST /lender-calculate` | **Main calculator engine** — evaluates inventory against lender rules |
+| `lender-admin.ts` | `POST /refresh-lender`, `GET /lender-debug` | Manual sync trigger + diagnostics (owner only) |
 
-**Calculator flow** (see JSDoc on individual functions in `lender.ts`):
+**Lib dependencies:** `lib/lenderWorker.ts` (program cache), `lib/lenderCalcEngine.ts` (cap profiles), `lib/inventoryCache.ts` (vehicle data), `lib/runtimeFingerprint.ts` (version tagging), `lib/auth.ts` (shared middleware)
+
+**Calculator flow** (see JSDoc on individual functions in `lender/lender-calculate.ts`):
 1. Validate params → load cached programs → find lender/program/tier
 2. Resolve cap profile (`lenderCalcEngine.ts`) → compute LTV ceilings
 3. Loop inventory: parse year/km → lookup term matrix → lookup condition matrix → get BB wholesale value
@@ -19075,9 +19274,9 @@ Auth middleware patterns: `requireOwner` (owner email only), `requireAccess` (ow
 |--------|------|------|---------|
 | GET | `/price-lookup?url=` | Session | Resolves a dealer listing URL to its current price via Typesense |
 
-**Lib dependencies:** None (self-contained Typesense query)
+**Lib dependencies:** `lib/typesense.ts` (client config + `extractWebsiteUrl`)
 
-**Note:** This route is defined as a standalone module but is not currently wired into `routes/index.ts`.
+**Note:** Mounted via `routes/index.ts`.
 
 ```
 
@@ -35593,7 +35792,7 @@ pnpm --filter db push
 
 ```
 
-### `scripts/src/generate-complete-source-md.ts` (395 lines)
+### `scripts/src/generate-complete-source-md.ts` (398 lines)
 
 ```typescript
 /**
@@ -35748,7 +35947,7 @@ const DOMAIN_SECTIONS: readonly {
     id: "lender",
     title: "10. API server — lender programs & calculator",
     match: (r) =>
-      r === "artifacts/api-server/src/routes/lender.ts" ||
+      r.startsWith("artifacts/api-server/src/routes/lender/") ||
       r === "artifacts/api-server/src/lib/lenderCalcEngine.ts" ||
       r === "artifacts/api-server/src/lib/lenderWorker.ts" ||
       r === "artifacts/api-server/src/lib/lenderAuth.ts" ||
@@ -35771,6 +35970,9 @@ const DOMAIN_SECTIONS: readonly {
       r === "artifacts/api-server/src/routes/health.ts" ||
       r === "artifacts/api-server/src/routes/index.ts" ||
       r === "artifacts/api-server/src/routes/README.md" ||
+      r === "artifacts/api-server/src/lib/env.ts" ||
+      r === "artifacts/api-server/src/lib/validate.ts" ||
+      r === "artifacts/api-server/src/lib/typesense.ts" ||
       r === "artifacts/api-server/src/lib/logger.ts" ||
       r === "artifacts/api-server/src/lib/randomScheduler.ts" ||
       r === "artifacts/api-server/src/lib/README.md" ||
@@ -36571,6 +36773,7 @@ run().catch((err) => {
 - `artifacts/api-server/src/lib/blackBookWorker.ts`
 - `artifacts/api-server/src/lib/carfaxWorker.ts`
 - `artifacts/api-server/src/lib/emailService.ts`
+- `artifacts/api-server/src/lib/env.ts`
 - `artifacts/api-server/src/lib/inventoryCache.ts`
 - `artifacts/api-server/src/lib/lenderAuth.ts`
 - `artifacts/api-server/src/lib/lenderCalcEngine.ts`
@@ -36579,13 +36782,18 @@ run().catch((err) => {
 - `artifacts/api-server/src/lib/randomScheduler.ts`
 - `artifacts/api-server/src/lib/README.md`
 - `artifacts/api-server/src/lib/runtimeFingerprint.ts`
+- `artifacts/api-server/src/lib/typesense.ts`
+- `artifacts/api-server/src/lib/validate.ts`
 - `artifacts/api-server/src/routes/access.ts`
 - `artifacts/api-server/src/routes/auth.ts`
 - `artifacts/api-server/src/routes/carfax.ts`
 - `artifacts/api-server/src/routes/health.ts`
 - `artifacts/api-server/src/routes/index.ts`
 - `artifacts/api-server/src/routes/inventory.ts`
-- `artifacts/api-server/src/routes/lender.ts`
+- `artifacts/api-server/src/routes/lender/index.ts`
+- `artifacts/api-server/src/routes/lender/lender-admin.ts`
+- `artifacts/api-server/src/routes/lender/lender-calculate.ts`
+- `artifacts/api-server/src/routes/lender/lender-read.ts`
 - `artifacts/api-server/src/routes/price-lookup.ts`
 - `artifacts/api-server/src/routes/README.md`
 - `artifacts/api-server/src/scripts/testCarfax.ts`

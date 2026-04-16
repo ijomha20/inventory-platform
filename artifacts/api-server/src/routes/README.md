@@ -41,9 +41,11 @@ Auth middleware patterns: `requireOwner` (owner email only), `requireAccess` (ow
 | DELETE | `/access/:email` | Owner | Remove user + destroy their sessions |
 | GET | `/audit-log` | Owner | Last 200 audit entries |
 
-**Lib dependencies:** `lib/auth.ts` (`isOwner`), `lib/emailService.ts` (`sendInvitationEmail`), `@workspace/db` (access_list + audit_log tables)
+**Lib dependencies:** `lib/auth.ts` (`requireOwner`), `lib/emailService.ts` (`sendInvitationEmail`), `lib/validate.ts` (`validateBody`, `validateParams`), `@workspace/db` (access_list + audit_log tables)
 
-**Side effects:** Writes to `audit_log` on every add/remove/role_change
+**Validation:** Request bodies and params are validated via Zod middleware (`AddAccessEntryBody`, etc.)
+
+**Side effects:** Writes to `audit_log` on every add/remove/role_change. Session delete uses exact jsonb match.
 
 ---
 
@@ -57,7 +59,9 @@ Auth middleware patterns: `requireOwner` (owner email only), `requireAccess` (ow
 | POST | `/refresh-blackbook` | Owner | Manual Black Book worker trigger |
 | GET | `/vehicle-images?vin=` | Access list | Photo gallery URLs from Typesense CDN |
 
-**Lib dependencies:** `lib/inventoryCache.ts` (`getCacheState`, `refreshCache`), `lib/blackBookWorker.ts` (`getBlackBookStatus`, `runBlackBookWorker`), `lib/auth.ts`
+**Lib dependencies:** `lib/inventoryCache.ts` (`getCacheState`, `refreshCache`), `lib/blackBookWorker.ts` (`getBlackBookStatus`, `runBlackBookWorker`), `lib/auth.ts`, `lib/validate.ts` (`validateQuery`)
+
+**Validation:** The `vehicle-images` query params are validated via Zod middleware.
 
 **Role-based field filtering:**
 - Owner: all fields
@@ -78,19 +82,20 @@ Auth middleware patterns: `requireOwner` (owner email only), `requireAccess` (ow
 
 ---
 
-### `lender.ts`
+### `lender/` (directory)
 
-| Method | Path | Auth | Purpose |
-|--------|------|------|---------|
-| GET | `/lender-programs` | Owner/Viewer | Returns cached lender program data |
-| GET | `/lender-status` | Owner/Viewer | Sync status + last run info |
-| POST | `/refresh-lender` | Owner | Trigger manual CreditApp sync |
-| POST | `/lender-calculate` | Owner/Viewer | **Main calculator engine** — evaluates inventory against lender rules |
-| GET | `/lender-debug` | Owner | Diagnostic dump of cached program metadata |
+The lender route is split into focused modules under `routes/lender/`:
 
-**Lib dependencies:** `lib/lenderWorker.ts` (program cache), `lib/lenderCalcEngine.ts` (cap profiles), `lib/inventoryCache.ts` (vehicle data), `lib/runtimeFingerprint.ts` (version tagging)
+| File | Endpoints | Purpose |
+|------|-----------|---------|
+| `index.ts` | — | Router barrel — mounts lender-read, lender-calculate, lender-admin |
+| `lender-read.ts` | `GET /lender-programs`, `GET /lender-status` | Cached lender program data + sync status |
+| `lender-calculate.ts` | `POST /lender-calculate` | **Main calculator engine** — evaluates inventory against lender rules |
+| `lender-admin.ts` | `POST /refresh-lender`, `GET /lender-debug` | Manual sync trigger + diagnostics (owner only) |
 
-**Calculator flow** (see JSDoc on individual functions in `lender.ts`):
+**Lib dependencies:** `lib/lenderWorker.ts` (program cache), `lib/lenderCalcEngine.ts` (cap profiles), `lib/inventoryCache.ts` (vehicle data), `lib/runtimeFingerprint.ts` (version tagging), `lib/auth.ts` (shared middleware)
+
+**Calculator flow** (see JSDoc on individual functions in `lender/lender-calculate.ts`):
 1. Validate params → load cached programs → find lender/program/tier
 2. Resolve cap profile (`lenderCalcEngine.ts`) → compute LTV ceilings
 3. Loop inventory: parse year/km → lookup term matrix → lookup condition matrix → get BB wholesale value
@@ -108,6 +113,6 @@ Auth middleware patterns: `requireOwner` (owner email only), `requireAccess` (ow
 |--------|------|------|---------|
 | GET | `/price-lookup?url=` | Session | Resolves a dealer listing URL to its current price via Typesense |
 
-**Lib dependencies:** None (self-contained Typesense query)
+**Lib dependencies:** `lib/typesense.ts` (client config + `extractWebsiteUrl`)
 
-**Note:** This route is defined as a standalone module but is not currently wired into `routes/index.ts`.
+**Note:** Mounted via `routes/index.ts`.

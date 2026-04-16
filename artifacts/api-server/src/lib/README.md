@@ -5,25 +5,25 @@ All paths relative to `artifacts/api-server/src/lib/`.
 ## File Index
 
 ### `auth.ts`
-- **Exports:** `isOwner(email)`, `configurePassport()`
-- **Purpose:** Google OAuth via Passport.js. Compares emails against `OWNER_EMAIL` env var.
-- **Consumed by:** `app.ts` (passport init), all route files (owner checks)
+- **Exports:** `isOwner(email)`, `getUserRole(email)`, `requireOwner`, `requireAccess`, `requireOwnerOrViewer`, `configurePassport()`, `UserRole` (type)
+- **Purpose:** Google OAuth via Passport.js. Compares emails against `OWNER_EMAIL` env var. Provides shared Express middleware for role-based route gating.
+- **Consumed by:** `app.ts` (passport init), all route files (auth middleware)
 
 ### `inventoryCache.ts`
 - **Exports:** `InventoryItem` (type), `getCacheState()`, `refreshCache()`, `applyCarfaxResults()`, `applyBlackBookValues()`, `startBackgroundRefresh()`
 - **Purpose:** Central inventory data store. Loads from DB on startup, refreshes hourly from Apps Script JSON feed, enriches with Typesense (prices/URLs/photos) and BB values.
-- **Consumed by:** `routes/inventory.ts`, `routes/lender.ts`, all workers (BB, Carfax)
+- **Consumed by:** `routes/inventory.ts`, `routes/lender/`, all workers (BB, Carfax)
 - **Data flow:** Apps Script feed → normalize → Typesense enrichment → merge BB/Carfax → persist to DB
 
 ### `lenderCalcEngine.ts`
 - **Exports:** `resolveCapProfile(input)`, `resolveNoOnlineSellingPrice(ctx)`, `NO_ONLINE_STRATEGY_BY_PROFILE`, type exports
 - **Purpose:** Determines how LTV caps combine (advance/aftermarket/allIn) using a 3-bit key system. Resolves maximized selling price when no online listing exists.
-- **Consumed by:** `routes/lender.ts` (calculator), `scripts/src/lender-engine.golden.test.ts` (tests)
+- **Consumed by:** `routes/lender/lender-calculate.ts` (calculator), `scripts/src/lender-engine.golden.test.ts` (tests)
 
 ### `lenderWorker.ts`
 - **Exports:** `getLenderSyncStatus()`, `getCachedLenderPrograms()`, `loadLenderProgramsFromCache()`, `runLenderSync()`, `scheduleLenderSync()`
 - **Purpose:** Syncs lender program matrices from CreditApp GraphQL API. Normalizes creditors (Santander, Eden Park, ACC, iAF, Quantifi, Rifco, in-house) into a uniform `LenderProgram[]` structure. Stores to GCS blob.
-- **Consumed by:** `routes/lender.ts` (reads cached programs), `index.ts` (schedules sync)
+- **Consumed by:** `routes/lender/` (reads cached programs), `index.ts` (schedules sync)
 - **Key mapping:** `CREDITOR_NAME_TO_CODE` maps CreditApp names → dealer codes (SAN, EPI, ACC, etc.)
 
 ### `lenderAuth.ts`
@@ -66,15 +66,30 @@ All paths relative to `artifacts/api-server/src/lib/`.
 - **Purpose:** Schedules daily tasks at random times within business hours (Mountain Time). Weekday window: 8:30 AM – 7 PM, weekend: 10 AM – 4 PM.
 - **Consumed by:** `blackBookWorker.ts`, `carfaxWorker.ts`, `lenderWorker.ts`
 
+### `typesense.ts`
+- **Exports:** Typesense client instance, `extractWebsiteUrl(document)`
+- **Purpose:** Centralizes Typesense connection config and provides a helper to extract the canonical website URL from a Typesense document.
+- **Consumed by:** `inventoryCache.ts`, `routes/price-lookup.ts`
+
+### `env.ts`
+- **Exports:** `env` (Zod-validated environment object), `isProduction`
+- **Purpose:** Single source of truth for environment variables. Validates all required env vars at startup via Zod schemas. Exports `isProduction` flag for environment-dependent behavior.
+- **Consumed by:** All files needing environment access
+
+### `validate.ts`
+- **Exports:** `validateBody(Schema)`, `validateQuery(Schema)`, `validateParams(Schema)`
+- **Purpose:** Express middleware factories that validate request body/query/params against a Zod schema, returning 400 with structured errors on failure.
+- **Consumed by:** `routes/access.ts`, `routes/inventory.ts`
+
 ### `runtimeFingerprint.ts`
 - **Exports:** `getRuntimeFingerprint()`
 - **Purpose:** Returns `{ calculatorVersion, gitSha }` for response tracing. Identifies which code version produced a calculation.
-- **Consumed by:** `routes/lender.ts`
+- **Consumed by:** `routes/lender/`
 
 ## Cross-Reference: Data Flow Between Files
 
 ```
-lenderAuth.ts ──cookies──▶ lenderWorker.ts ──programs──▶ routes/lender.ts
+lenderAuth.ts ──cookies──▶ lenderWorker.ts ──programs──▶ routes/lender/
                                                               │
                                                     lenderCalcEngine.ts
                                                     (cap profiles)

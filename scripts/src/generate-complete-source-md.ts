@@ -150,7 +150,7 @@ const DOMAIN_SECTIONS: readonly {
     id: "lender",
     title: "10. API server — lender programs & calculator",
     match: (r) =>
-      r === "artifacts/api-server/src/routes/lender.ts" ||
+      r.startsWith("artifacts/api-server/src/routes/lender/") ||
       r === "artifacts/api-server/src/lib/lenderCalcEngine.ts" ||
       r === "artifacts/api-server/src/lib/lenderWorker.ts" ||
       r === "artifacts/api-server/src/lib/lenderAuth.ts" ||
@@ -173,6 +173,9 @@ const DOMAIN_SECTIONS: readonly {
       r === "artifacts/api-server/src/routes/health.ts" ||
       r === "artifacts/api-server/src/routes/index.ts" ||
       r === "artifacts/api-server/src/routes/README.md" ||
+      r === "artifacts/api-server/src/lib/env.ts" ||
+      r === "artifacts/api-server/src/lib/validate.ts" ||
+      r === "artifacts/api-server/src/lib/typesense.ts" ||
       r === "artifacts/api-server/src/lib/logger.ts" ||
       r === "artifacts/api-server/src/lib/randomScheduler.ts" ||
       r === "artifacts/api-server/src/lib/README.md" ||
