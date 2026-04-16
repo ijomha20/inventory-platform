@@ -1,6 +1,8 @@
 import { Router } from "express";
 import { requireOwnerOrViewer } from "../../lib/auth.js";
 import { logger } from "../../lib/logger.js";
+import { validateBody } from "../../lib/validate.js";
+import { LenderCalculateBody } from "@workspace/api-zod";
 import { getCacheState, type InventoryItem } from "../../lib/inventoryCache.js";
 import { getCachedLenderPrograms } from "../../lib/lenderWorker.js";
 import {
@@ -42,7 +44,7 @@ const conditionToBBField: Record<ConditionBucket, keyof NonNullable<InventoryIte
   rough:      "rough",
 };
 
-router.post("/lender-calculate", requireOwnerOrViewer, async (req, res) => {
+router.post("/lender-calculate", requireOwnerOrViewer, validateBody(LenderCalculateBody), async (req, res) => {
   const params = req.body as CalcParams;
 
   if (!params.lenderCode || !params.tierName || !params.programId) {

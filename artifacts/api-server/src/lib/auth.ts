@@ -23,8 +23,8 @@ export function isOwner(email: string): boolean {
 
 export type UserRole = "owner" | "viewer" | "guest";
 
-/** Resolve calling user's role from owner check + access_list DB lookup. */
-export async function getUserRole(req: Request): Promise<UserRole> {
+/** Resolve calling user's role. Returns null if user is not on the access list. */
+export async function getUserRole(req: Request): Promise<UserRole | null> {
   const email = req.user!.email.toLowerCase();
   if (isOwner(email)) return "owner";
   const [entry] = await db
@@ -32,7 +32,8 @@ export async function getUserRole(req: Request): Promise<UserRole> {
     .from(accessListTable)
     .where(eq(accessListTable.email, email))
     .limit(1);
-  return (entry?.role as UserRole) ?? "viewer";
+  if (!entry) return null;
+  return (entry.role === "viewer" || entry.role === "guest") ? entry.role : "viewer";
 }
 
 /** Reject unauthenticated requests. */
@@ -44,7 +45,7 @@ function requireAuth(req: Request, res: Response): boolean {
   return true;
 }
 
-/** Owner-only middleware (DB role lookup for access-list owners too). */
+/** Owner-only middleware. */
 export async function requireOwner(req: Request, res: Response, next: NextFunction) {
   if (!requireAuth(req, res)) return;
   const role = await getUserRole(req);
@@ -55,11 +56,11 @@ export async function requireOwner(req: Request, res: Response, next: NextFuncti
   next();
 }
 
-/** Owner or viewer — sets req._role for downstream use. */
+/** Owner or viewer — rejects users not on the access list. Sets req._role. */
 export async function requireOwnerOrViewer(req: Request, res: Response, next: NextFunction) {
   if (!requireAuth(req, res)) return;
   const role = await getUserRole(req);
-  if (role !== "owner" && role !== "viewer") {
+  if (role === null || (role !== "owner" && role !== "viewer")) {
     res.status(403).json({ error: "Access denied" });
     return;
   }
@@ -70,15 +71,12 @@ export async function requireOwnerOrViewer(req: Request, res: Response, next: Ne
 /** Any authenticated user on the access list (owner, viewer, or guest). */
 export async function requireAccess(req: Request, res: Response, next: NextFunction) {
   if (!requireAuth(req, res)) return;
-  const email = req.user!.email.toLowerCase();
-  if (isOwner(email)) { next(); return; }
-  const [entry] = await db
-    .select()
-    .from(accessListTable)
-    .where(eq(accessListTable.email, email))
-    .limit(1);
-  if (entry) { next(); return; }
-  res.status(403).json({ error: "Access denied" });
+  const role = await getUserRole(req);
+  if (role === null) {
+    res.status(403).json({ error: "Access denied" });
+    return;
+  }
+  next();
 }
 
 export function configurePassport() {

@@ -18,7 +18,7 @@ const router = Router();
 
 // GET /inventory — instant response from server-side cache, role-filtered
 router.get("/inventory", requireAccess, async (req, res) => {
-  const role = await getUserRole(req);
+  const role = await getUserRole(req) ?? "guest";
   const { data } = getCacheState();
   res.set("Cache-Control", "no-store");
   res.json(filterInventoryByRole(data, role));
@@ -41,7 +41,7 @@ router.get("/cache-status", requireAccess, (_req, res) => {
 
 // POST /refresh-blackbook — owner only, triggers manual Black Book refresh
 router.post("/refresh-blackbook", requireAccess, async (req, res) => {
-  const role = await getUserRole(req);
+  const role = await getUserRole(req) ?? "guest";
   if (role !== "owner") {
     res.status(403).json({ error: "Owner only" });
     return;

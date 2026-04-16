@@ -9,10 +9,11 @@ const optStr = z.string().trim().optional().default("");
 
 const envSchema = z.object({
   PORT:                          z.coerce.number().int().positive().default(3000),
+  NODE_ENV:                      z.string().trim().default("development"),
   REPLIT_DEPLOYMENT:             z.enum(["0", "1"]).default("0"),
   REPLIT_DOMAINS:                optStr,
 
-  SESSION_SECRET:                z.string().trim().default("dev-secret-change-me"),
+  SESSION_SECRET:                z.string().trim().optional(),
   OWNER_EMAIL:                   z.string().trim().toLowerCase().default(""),
 
   GOOGLE_CLIENT_ID:              optStr,
@@ -51,14 +52,18 @@ const envSchema = z.object({
 
   LOG_LEVEL:                     z.string().trim().default("info"),
 }).superRefine((data, ctx) => {
-  if (data.REPLIT_DEPLOYMENT === "1" && data.SESSION_SECRET === "dev-secret-change-me") {
+  const isProd = data.REPLIT_DEPLOYMENT === "1" || data.NODE_ENV === "production";
+  if (isProd && !data.SESSION_SECRET) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
       path: ["SESSION_SECRET"],
-      message: "SESSION_SECRET must be explicitly set in production",
+      message: "SESSION_SECRET is required in production",
     });
   }
-});
+}).transform((data) => ({
+  ...data,
+  SESSION_SECRET: data.SESSION_SECRET || "dev-secret-change-me",
+}));
 
 function parseEnv() {
   const result = envSchema.safeParse(process.env);
@@ -73,4 +78,4 @@ function parseEnv() {
 }
 
 export const env = parseEnv();
-export const isProduction = env.REPLIT_DEPLOYMENT === "1";
+export const isProduction = env.REPLIT_DEPLOYMENT === "1" || env.NODE_ENV === "production";

@@ -225,6 +225,7 @@ export function resolveEffectiveTermStretch(
 }
 
 export function pmt(rate: number, nper: number, pv: number): number {
+  if (nper <= 0) return 0;
   if (rate === 0) return pv / nper;
   const r = rate / 12;
   return (pv * r * Math.pow(1 + r, nper)) / (Math.pow(1 + r, nper) - 1);
