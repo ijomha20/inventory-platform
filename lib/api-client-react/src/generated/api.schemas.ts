@@ -187,6 +187,10 @@ export interface LenderCalcResultItem {
   totalFinanced: number;
   monthlyPayment: number;
   profit: number;
+  /** Target profit the deal aims to achieve (onlinePrice - pacCost for PATH A, 0 for PATH B) */
+  profitTarget: number;
+  /** 1 = full deal at selling price, 2 = reduced price with product-based profit recovery */
+  qualificationTier: 1 | 2;
   hasPhotos?: boolean;
   website?: string;
   termStretched?: boolean;

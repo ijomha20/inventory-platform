@@ -349,18 +349,65 @@ router.post("/lender-calculate", requireOwnerOrViewer, async (req, res) => {
 
   interface Result {
     vin: string; vehicle: string; location: string; term: number;
-    /** Matrix term before exception stretch */
     matrixTerm: number;
-    /** Effective stretch applied (0 / 6 / 12) after 84-month rules */
     termStretchApplied: 0 | 6 | 12;
     conditionUsed: string; bbWholesale: number; sellingPrice: number;
     priceSource: string; adminFeeUsed: number; warrantyPrice: number;
     warrantyCost: number; gapPrice: number; gapCost: number;
     totalFinanced: number; monthlyPayment: number; profit: number;
+    profitTarget: number;
+    qualificationTier: 1 | 2;
     hasPhotos: boolean; website: string;
     termStretched: boolean;
     termStretchCappedReason?: string;
     requiredDownPayment?: number;
+  }
+
+  /** Stack products into available room: doc fee first, then warranty, then GAP. */
+  function stackProducts(allInRoom: number, aftermarketRoom: number, sellPrice: number) {
+    let room = isFinite(allInRoom) ? allInRoom : Infinity;
+    if (isFinite(aftermarketRoom)) room = Math.min(room, aftermarketRoom);
+    if (!isFinite(room) || room < 0) room = 0;
+
+    let admin = 0, war = 0, wCost = 0, gap = 0, gCost = 0;
+    let warGapRoom = room;
+
+    if (adminInclusion === "excluded") {
+      const adminFromCap = capAdmin != null ? Math.min(desiredAdmin, capAdmin) : desiredAdmin;
+      const allInAdminRoom = isFinite(allInRoom) ? Math.max(0, Math.floor(allInRoom)) : adminFromCap;
+      admin = Math.min(adminFromCap, allInAdminRoom);
+      if (isFinite(allInRoom)) {
+        warGapRoom = Math.min(warGapRoom, Math.max(0, allInRoom - admin));
+      }
+    } else {
+      const adminFromCap = capAdmin != null ? Math.min(desiredAdmin, capAdmin) : desiredAdmin;
+      admin = Math.min(adminFromCap, Math.floor(room));
+      room -= admin;
+      if (room < 0) room = 0;
+      warGapRoom = room;
+    }
+
+    if (warGapRoom >= Math.round(MIN_WARRANTY_COST * MARKUP)) {
+      war = capWarranty != null ? Math.min(warGapRoom, capWarranty) : warGapRoom;
+      war = Math.max(war, Math.round(MIN_WARRANTY_COST * MARKUP));
+      if (war > warGapRoom) war = 0;
+    }
+    wCost = war > 0 ? Math.round(war / MARKUP) : 0;
+    warGapRoom -= war;
+
+    if (gapAllowed && warGapRoom >= Math.round(MIN_GAP_COST * MARKUP)) {
+      const gapCeiling = Math.min(MAX_GAP_PRICE, capGap ?? MAX_GAP_PRICE);
+      gap = Math.min(warGapRoom, gapCeiling);
+      gap = Math.max(gap, Math.round(MIN_GAP_COST * MARKUP));
+      if (gap > warGapRoom) gap = 0;
+    }
+    gCost = gap > 0 ? Math.round(gap / MARKUP) : 0;
+
+    war = Math.round(war);
+    gap = Math.round(gap);
+
+    const profit = (war - wCost) + (gap - gCost) + admin + dealerReserve - creditorFee;
+    return { admin, war, wCost, gap, gCost, profit };
   }
 
   const results: Result[] = [];
@@ -399,11 +446,16 @@ router.post("/lender-calculate", requireOwnerOrViewer, async (req, res) => {
     const maxAllInPreTax = isFinite(maxAllInWithTax) ? (maxAllInWithTax / allInTaxMultiplier) : Infinity;
 
     // ============================================================
-    //  PATH A: Online price exists — price is fixed, stack products
-    //  PATH B: No online price + has advance cap — sell at advance
-    //          ceiling, stack products in remaining room
-    //  PATH C: No online price + all-in only — sell at all-in
-    //          ceiling, no products
+    //  Two-tier qualification logic
+    //
+    //  PATH A (online price): Tier 1 = sell at online price, max products.
+    //         Tier 2 = reduce price to LTV ceiling, recover profit via products.
+    //         Profit target = onlinePrice - pacCost.
+    //
+    //  PATH B (no online price): sell at PAC, stack products.
+    //         Profit target = 0 (break even).
+    //
+    //  Hard constraint: sellingPrice >= pacCost always.
     // ============================================================
 
     let sellingPrice = 0;
@@ -413,172 +465,114 @@ router.post("/lender-calculate", requireOwnerOrViewer, async (req, res) => {
     let warCost  = 0;
     let gapPr    = 0;
     let gCost    = 0;
+    let reqDP    = 0;
+    let profitTarget = 0;
+    let qualificationTier: 1 | 2 = 1;
 
-    let reqDP = 0;
-
-    if (rawOnline > 0) {
-      // --- PATH A: online price is fixed ---
-      sellingPrice = rawOnline;
-      priceSource  = "online";
-      if (sellingPrice < pacCost) { debugCounts.noPrice++; continue inventory; }
-
-      let lenderExposure = sellingPrice - downPayment - netTrade;
-      if (isFinite(maxAdvance) && lenderExposure > maxAdvance) {
-        if (!showAllDP) { debugCounts.ltvAdvance++; continue inventory; }
-        const needed = Math.ceil(lenderExposure - maxAdvance);
-        reqDP = Math.max(reqDP, needed);
-        lenderExposure = maxAdvance;
-      }
-
-      let allInRoom = isFinite(maxAllInPreTax) ? maxAllInPreTax - lenderExposure - creditorFee : Infinity;
-      if (isFinite(allInRoom) && allInRoom < 0) {
-        if (!showAllDP) { debugCounts.ltvAllIn++; continue inventory; }
-        const needed = Math.ceil(-allInRoom);
-        reqDP = Math.max(reqDP, needed);
-        allInRoom = 0;
-      }
-
-      // Product room: limited by aftermarket LTV and/or all-in room
-      const aftermarketBaseValue = guide.aftermarketBase === "salePrice" ? sellingPrice : bbWholesale;
-      const aftermarketCap = hasAftermarketCap ? aftermarketBaseValue * maxAftermarketLTV : Infinity;
-      let productRoom = isFinite(allInRoom) ? allInRoom : Infinity;
-      if (isFinite(aftermarketCap)) productRoom = Math.min(productRoom, aftermarketCap);
-
-      if (!isFinite(productRoom)) {
-        productRoom = 0;
-      }
-
-      // Room for warranty+GAP after admin takes priority
-      let warGapRoom = productRoom;
-
-      // Admin fee (first priority)
-      if (adminInclusion === "excluded") {
-        const adminFromCap = capAdmin != null ? Math.min(desiredAdmin, capAdmin) : desiredAdmin;
-        const allInAdminRoom = isFinite(allInRoom) ? Math.max(0, Math.floor(allInRoom)) : adminFromCap;
-        effectiveAdmin = Math.min(adminFromCap, allInAdminRoom);
-        if (isFinite(allInRoom)) {
-          warGapRoom = Math.min(warGapRoom, Math.max(0, allInRoom - effectiveAdmin));
-        }
-      } else {
-        const adminFromCap = capAdmin != null ? Math.min(desiredAdmin, capAdmin) : desiredAdmin;
-        effectiveAdmin = Math.min(adminFromCap, Math.floor(productRoom));
-        productRoom -= effectiveAdmin;
-        if (productRoom < 0) productRoom = 0;
-        warGapRoom = productRoom;
-      }
-
-      // Warranty (second priority)
-      if (warGapRoom >= Math.round(MIN_WARRANTY_COST * MARKUP)) {
-        warPrice = capWarranty != null ? Math.min(warGapRoom, capWarranty) : warGapRoom;
-        warPrice = Math.max(warPrice, Math.round(MIN_WARRANTY_COST * MARKUP));
-        if (warPrice > warGapRoom) warPrice = 0;
-      }
-      warCost = warPrice > 0 ? Math.round(warPrice / MARKUP) : 0;
-      warGapRoom -= warPrice;
-
-      // GAP (third priority, max $1500 markup)
-      if (gapAllowed && warGapRoom >= Math.round(MIN_GAP_COST * MARKUP)) {
-        const gapCeiling = Math.min(MAX_GAP_PRICE, capGap ?? MAX_GAP_PRICE);
-        gapPr = Math.min(warGapRoom, gapCeiling);
-        gapPr = Math.max(gapPr, Math.round(MIN_GAP_COST * MARKUP));
-        if (gapPr > warGapRoom) gapPr = 0;
-      }
-      gCost = gapPr > 0 ? Math.round(gapPr / MARKUP) : 0;
-
-    } else {
-      // --- PATH B/C/PROFILED: no online price ---
-      const noOnlineResolution = resolveNoOnlineSellingPrice({
-        pacCost,
-        downPayment,
-        netTrade,
-        creditorFee,
-        maxAdvance,
-        maxAllInPreTax,
-        profile: capProfile,
-      });
-
-      if (noOnlineResolution.rejection) {
-        if (!showAllDP) {
-          if (noOnlineResolution.rejection === "ltvAllIn") { debugCounts.ltvAllIn++; continue inventory; }
-          if (noOnlineResolution.rejection === "ltvAdvance") { debugCounts.ltvAdvance++; continue inventory; }
-        }
-        if (noOnlineResolution.rejection === "ltvAdvance") {
-          const needed = Math.ceil(pacCost - downPayment - netTrade - maxAdvance);
-          if (needed > 0) reqDP = Math.max(reqDP, needed);
-        } else {
-          const maxSellAllIn = maxAllInPreTax - creditorFee + downPayment + netTrade;
-          const needed = Math.ceil(pacCost - maxSellAllIn);
-          if (needed > 0) reqDP = Math.max(reqDP, needed);
-        }
-      }
-
-      sellingPrice = noOnlineResolution.rejection ? pacCost : noOnlineResolution.price;
-      priceSource = noOnlineResolution.rejection ? "pac" : noOnlineResolution.source;
-
-      let lenderExposure = sellingPrice - downPayment - netTrade;
-      if (reqDP > 0) lenderExposure = sellingPrice - (downPayment + reqDP) - netTrade;
-      let allInRoom = isFinite(maxAllInPreTax) ? maxAllInPreTax - lenderExposure - creditorFee : Infinity;
-      if (isFinite(allInRoom) && allInRoom < 0) {
-        if (!showAllDP) { debugCounts.ltvAllIn++; continue inventory; }
-        const needed = Math.ceil(-allInRoom);
-        reqDP = Math.max(reqDP, needed);
-        allInRoom = 0;
-      }
-
-      const aftermarketBaseValue = guide.aftermarketBase === "salePrice" ? sellingPrice : bbWholesale;
-      const aftermarketCap = hasAftermarketCap ? aftermarketBaseValue * maxAftermarketLTV : Infinity;
-      let productRoom = isFinite(allInRoom) ? allInRoom : Infinity;
-      if (isFinite(aftermarketCap)) productRoom = Math.min(productRoom, aftermarketCap);
-
-      if (!isFinite(productRoom)) {
-        productRoom = 0;
-      }
-
-      // Room for warranty+GAP after admin takes priority
-      let warGapRoom = productRoom;
-
-      // Admin fee
-      if (adminInclusion === "excluded") {
-        const adminFromCap = capAdmin != null ? Math.min(desiredAdmin, capAdmin) : desiredAdmin;
-        const allInAdminRoom = isFinite(allInRoom) ? Math.max(0, Math.floor(allInRoom)) : adminFromCap;
-        effectiveAdmin = Math.min(adminFromCap, allInAdminRoom);
-        if (isFinite(allInRoom)) {
-          warGapRoom = Math.min(warGapRoom, Math.max(0, allInRoom - effectiveAdmin));
-        }
-      } else {
-        const adminFromCap = capAdmin != null ? Math.min(desiredAdmin, capAdmin) : desiredAdmin;
-        effectiveAdmin = Math.min(adminFromCap, Math.floor(productRoom));
-        productRoom -= effectiveAdmin;
-        if (productRoom < 0) productRoom = 0;
-        warGapRoom = productRoom;
-      }
-
-      // Warranty
-      if (warGapRoom >= Math.round(MIN_WARRANTY_COST * MARKUP)) {
-        warPrice = capWarranty != null ? Math.min(warGapRoom, capWarranty) : warGapRoom;
-        warPrice = Math.max(warPrice, Math.round(MIN_WARRANTY_COST * MARKUP));
-        if (warPrice > warGapRoom) warPrice = 0;
-      }
-      warCost = warPrice > 0 ? Math.round(warPrice / MARKUP) : 0;
-      warGapRoom -= warPrice;
-
-      // GAP
-      if (gapAllowed && warGapRoom >= Math.round(MIN_GAP_COST * MARKUP)) {
-        const gapCeiling = Math.min(MAX_GAP_PRICE, capGap ?? MAX_GAP_PRICE);
-        gapPr = Math.min(warGapRoom, gapCeiling);
-        gapPr = Math.max(gapPr, Math.round(MIN_GAP_COST * MARKUP));
-        if (gapPr > warGapRoom) gapPr = 0;
-      }
-      gCost = gapPr > 0 ? Math.round(gapPr / MARKUP) : 0;
+    /** Compute product room given a lender exposure value */
+    function computeRooms(lenderExposure: number, sellPrice: number) {
+      const allIn = isFinite(maxAllInPreTax) ? maxAllInPreTax - lenderExposure - creditorFee : Infinity;
+      const aftermarketBase = guide.aftermarketBase === "salePrice" ? sellPrice : bbWholesale;
+      const aftermarket = hasAftermarketCap ? aftermarketBase * maxAftermarketLTV : Infinity;
+      return { allInRoom: allIn, aftermarketRoom: aftermarket };
     }
 
+    if (rawOnline > 0) {
+      // --- PATH A: online price exists ---
+      if (rawOnline < pacCost) { debugCounts.noPrice++; continue inventory; }
+      profitTarget = rawOnline - pacCost;
+
+      const lenderExposure = rawOnline - downPayment - netTrade;
+      const tier1FitsAdvance = !isFinite(maxAdvance) || lenderExposure <= maxAdvance;
+
+      if (tier1FitsAdvance) {
+        // === TIER 1: sell at online price, stack products into available room ===
+        sellingPrice = rawOnline;
+        priceSource  = "online";
+        qualificationTier = 1;
+
+        const { allInRoom, aftermarketRoom } = computeRooms(lenderExposure, sellingPrice);
+        if (isFinite(allInRoom) && allInRoom < 0) {
+          // All-in LTV exceeded even without products — needs DP
+          if (!showAllDP) { debugCounts.ltvAllIn++; continue inventory; }
+          reqDP = Math.ceil(-allInRoom);
+        }
+
+        if (reqDP === 0) {
+          const products = stackProducts(allInRoom, aftermarketRoom, sellingPrice);
+          effectiveAdmin = products.admin;
+          warPrice = products.war; warCost = products.wCost;
+          gapPr = products.gap;    gCost = products.gCost;
+        }
+      } else {
+        // === TIER 2: reduce selling price to advance LTV ceiling ===
+        const advanceCeiling = maxAdvance + downPayment + netTrade;
+        sellingPrice = Math.min(rawOnline, Math.floor(advanceCeiling));
+        qualificationTier = 2;
+
+        if (sellingPrice < pacCost) {
+          // Can't even reach PAC at $0 down — needs DP
+          if (!showAllDP) { debugCounts.ltvAdvance++; continue inventory; }
+          sellingPrice = pacCost;
+          reqDP = Math.ceil(pacCost - advanceCeiling);
+          if (reqDP < 0) reqDP = 0;
+          priceSource = "pac";
+        } else {
+          priceSource = "reduced";
+        }
+
+        if (reqDP === 0) {
+          const t2Exposure = sellingPrice - downPayment - netTrade;
+          const { allInRoom, aftermarketRoom } = computeRooms(t2Exposure, sellingPrice);
+          if (isFinite(allInRoom) && allInRoom < 0) {
+            if (!showAllDP) { debugCounts.ltvAllIn++; continue inventory; }
+            reqDP = Math.ceil(-allInRoom);
+          } else {
+            const products = stackProducts(allInRoom, aftermarketRoom, sellingPrice);
+            effectiveAdmin = products.admin;
+            warPrice = products.war; warCost = products.wCost;
+            gapPr = products.gap;    gCost = products.gCost;
+
+            const frontEnd = sellingPrice - pacCost;
+            const totalProfit = frontEnd + products.profit;
+            if (totalProfit < profitTarget) {
+              // Tier 2 products can't recover the target margin — still include but mark as Tier 2
+            }
+          }
+        }
+      }
+    } else {
+      // --- PATH B: no online price — sell at PAC, stack products ---
+      sellingPrice = pacCost;
+      priceSource  = "pac";
+      profitTarget = 0;
+      qualificationTier = 2;
+
+      const lenderExposure = sellingPrice - downPayment - netTrade;
+
+      if (isFinite(maxAdvance) && lenderExposure > maxAdvance) {
+        if (!showAllDP) { debugCounts.ltvAdvance++; continue inventory; }
+        reqDP = Math.ceil(lenderExposure - maxAdvance);
+      }
+
+      if (reqDP === 0) {
+        const { allInRoom, aftermarketRoom } = computeRooms(lenderExposure, sellingPrice);
+        if (isFinite(allInRoom) && allInRoom < 0) {
+          if (!showAllDP) { debugCounts.ltvAllIn++; continue inventory; }
+          reqDP = Math.ceil(-allInRoom);
+        } else {
+          const products = stackProducts(allInRoom, aftermarketRoom, sellingPrice);
+          effectiveAdmin = products.admin;
+          warPrice = products.war; warCost = products.wCost;
+          gapPr = products.gap;    gCost = products.gCost;
+        }
+      }
+    }
+
+    // Hard constraint: selling price must cover PAC
     if (sellingPrice < pacCost) { debugCounts.noPrice++; continue inventory; }
 
-    warPrice = Math.round(warPrice);
-    gapPr    = Math.round(gapPr);
-
-    // When DP is already required from LTV checks, strip products so the DP
-    // reflects only what's needed to finance the base selling price (or PAC).
+    // When DP is required, strip products — DP covers the base deal only
     if (reqDP > 0) {
       effectiveAdmin = 0;
       warPrice = 0; warCost = 0;
@@ -588,11 +582,11 @@ router.post("/lender-calculate", requireOwnerOrViewer, async (req, res) => {
     let aftermarketRevenue = warPrice + gapPr;
     let reqAcc = reqDP;
 
-    let finalExposure: number;
-    let allInSubtotal: number;
-    let taxes: number;
-    let totalFinanced: number;
-    let monthlyPayment: number;
+    let finalExposure!: number;
+    let allInSubtotal!: number;
+    let taxes!: number;
+    let totalFinanced!: number;
+    let monthlyPayment!: number;
 
     settle: for (let pass = 0; pass < 24; pass++) {
       finalExposure = sellingPrice - (downPayment + reqAcc) - netTrade;
@@ -604,10 +598,7 @@ router.post("/lender-calculate", requireOwnerOrViewer, async (req, res) => {
       }
 
       if (isFinite(maxAllInPreTax) && allInSubtotal > maxAllInPreTax) {
-        if (!showAllDP) {
-          debugCounts.ltvAllIn++;
-          continue inventory;
-        }
+        if (!showAllDP) { debugCounts.ltvAllIn++; continue inventory; }
         reqAcc += Math.ceil(allInSubtotal - maxAllInPreTax);
         continue settle;
       }
@@ -621,8 +612,6 @@ router.post("/lender-calculate", requireOwnerOrViewer, async (req, res) => {
           debugCounts.maxPmtFilter++;
           continue inventory;
         }
-        // If products are inflating the payment, strip them and re-settle
-        // on the base deal before resorting to additional DP.
         if (aftermarketRevenue > 0 || effectiveAdmin > 0) {
           effectiveAdmin = 0;
           warPrice = 0; warCost = 0;
@@ -679,6 +668,8 @@ router.post("/lender-calculate", requireOwnerOrViewer, async (req, res) => {
       totalFinanced:   Math.round(totalFinanced),
       monthlyPayment:  Math.round(monthlyPayment * 100) / 100,
       profit:          Math.round(profit),
+      profitTarget:    Math.round(profitTarget),
+      qualificationTier,
       hasPhotos:       item.hasPhotos,
       website:         item.website,
       termStretched,

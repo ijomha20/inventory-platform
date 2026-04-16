@@ -39,21 +39,29 @@ function formatPayment(n: number): string {
 
 const COND_SHORT: Record<string, string> = { extraClean: "XC", clean: "C", average: "A", rough: "R" };
 
+const PRICE_SOURCE_LABEL: Record<string, string> = { online: "On", reduced: "Red", maximized: "Max", pac: "PAC" };
+
 function ResultRow({ item, rank, showDP }: { item: any; rank: number; showDP: boolean }) {
   const needsDP = (item.requiredDownPayment ?? 0) > 0;
   const stretched = item.termStretched === true;
-  /** Effective stretch after 84-month rules (row color uses this, not the radio selection alone) */
   const applied = Number(item.termStretchApplied ?? 0);
+  const tier = Number(item.qualificationTier ?? 1);
   let rowBg = "odd:bg-white even:bg-slate-50/40";
   if (needsDP) rowBg = "bg-gray-100/60";
+  else if (tier === 2) rowBg = "bg-blue-50/50";
   else if (stretched && applied === 12) rowBg = "bg-orange-50";
   else if (stretched && applied === 6) rowBg = "bg-amber-50";
+
+  const profitMet = item.profit >= (item.profitTarget ?? 0);
 
   return (
     <tr className={`border-b border-gray-100 last:border-0 ${rowBg} hover:bg-blue-50/50`}>
       <td className="px-1.5 py-1.5 text-[11px] text-gray-400 font-semibold text-center">{rank}</td>
       <td className="px-2 py-1.5 text-xs font-semibold text-gray-900">
-        <div className="truncate" title={item.vehicle}>{item.vehicle}</div>
+        <div className="truncate" title={item.vehicle}>
+          {tier === 2 && <span className="text-[9px] font-bold text-blue-600 mr-1">T2</span>}
+          {item.vehicle}
+        </div>
       </td>
       <td className="px-1.5 py-1.5 text-xs text-gray-600 whitespace-nowrap">{item.location}</td>
       <td
@@ -73,7 +81,7 @@ function ResultRow({ item, rank, showDP }: { item: any; rank: number; showDP: bo
         {item.sellingPrice > 0 ? formatCurrency(item.sellingPrice) : "—"}
         {item.priceSource && (
           <span className="text-[10px] text-gray-400 ml-0.5">
-            ({item.priceSource === "online" ? "On" : item.priceSource === "maximized" ? "Max" : "PAC"})
+            ({PRICE_SOURCE_LABEL[item.priceSource] ?? item.priceSource})
           </span>
         )}
       </td>
@@ -88,7 +96,11 @@ function ResultRow({ item, rank, showDP }: { item: any; rank: number; showDP: bo
       </td>
       <td className="px-2 py-1.5 text-xs text-right font-medium text-gray-700">{formatCurrency(item.totalFinanced)}</td>
       <td className="px-2 py-1.5 text-xs text-right font-semibold text-green-700">{formatPayment(item.monthlyPayment)}</td>
-      <td className="px-2 py-1.5 text-xs text-right font-semibold text-emerald-700">{formatCurrency(item.profit)}</td>
+      <td className="px-2 py-1.5 text-xs text-right font-semibold text-emerald-700"
+        title={`Target: ${formatCurrency(item.profitTarget ?? 0)}`}>
+        {formatCurrency(item.profit)}
+        {!profitMet && <span className="text-[9px] text-red-500 ml-0.5 align-super">!</span>}
+      </td>
       {showDP && (
         <td className="px-2 py-1.5 text-xs text-right font-semibold text-red-600">
           {needsDP ? formatCurrency(item.requiredDownPayment) : "—"}
