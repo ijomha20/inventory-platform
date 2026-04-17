@@ -15,13 +15,14 @@
  *  8. On any failure: self-heal with exponential backoff — no notifications
  *
  * REQUIRED SECRETS: CREDITAPP_EMAIL, CREDITAPP_PASSWORD
- * OPTIONAL SECRET:  BB_CBB_ENDPOINT (defaults to confirmed URL)
+ * OPTIONAL SECRETS: CREDITAPP_TOTP_SECRET, BB_CBB_ENDPOINT
  */
 
 import { logger }                         from "./logger.js";
 import { env, isProduction }              from "./env.js";
 import * as fs                            from "fs";
 import * as path                          from "path";
+import * as crypto                        from "crypto";
 import { getCacheState, applyBlackBookValues } from "./inventoryCache.js";
 import {
   loadSessionFromStore,
@@ -34,9 +35,10 @@ import { scheduleRandomDaily, toMountainDateStr } from "./randomScheduler.js";
 // Constants
 // ---------------------------------------------------------------------------
 
-const CREDITAPP_EMAIL    = env.CREDITAPP_EMAIL;
-const CREDITAPP_PASSWORD = env.CREDITAPP_PASSWORD;
-const BB_ENABLED         = !!(CREDITAPP_EMAIL && CREDITAPP_PASSWORD);
+const CREDITAPP_EMAIL       = env.CREDITAPP_EMAIL;
+const CREDITAPP_PASSWORD    = env.CREDITAPP_PASSWORD;
+const CREDITAPP_TOTP_SECRET = env.CREDITAPP_TOTP_SECRET;
+const BB_ENABLED            = !!(CREDITAPP_EMAIL && CREDITAPP_PASSWORD);
 
 const CBB_ENDPOINT    = env.BB_CBB_ENDPOINT || "https://admin.creditapp.ca/api/cbb/find";
 const CREDITAPP_HOME  = "https://admin.creditapp.ca";
@@ -98,6 +100,39 @@ function rand(min: number, max: number): number {
 function parseKm(kmStr: string): number {
   const n = parseInt(kmStr.replace(/[^0-9]/g, ""), 10);
   return isNaN(n) ? 0 : n;
+}
+
+// ---------------------------------------------------------------------------
+// TOTP generation (mirrors lenderAuth.ts)
+// ---------------------------------------------------------------------------
+
+function base32Decode(encoded: string): Buffer {
+  const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
+  const cleaned = encoded.replace(/[\s=-]/g, "").toUpperCase();
+  let bits = "";
+  for (const ch of cleaned) {
+    const idx = alphabet.indexOf(ch);
+    if (idx < 0) continue;
+    bits += idx.toString(2).padStart(5, "0");
+  }
+  const bytes: number[] = [];
+  for (let i = 0; i + 8 <= bits.length; i += 8) {
+    bytes.push(parseInt(bits.substring(i, i + 8), 2));
+  }
+  return Buffer.from(bytes);
+}
+
+function generateTOTP(secret: string, period = 30, digits = 6): string {
+  const key = base32Decode(secret);
+  const epoch = Math.floor(Date.now() / 1000);
+  const counter = Math.floor(epoch / period);
+  const buf = Buffer.alloc(8);
+  buf.writeUInt32BE(Math.floor(counter / 0x100000000), 0);
+  buf.writeUInt32BE(counter & 0xffffffff, 4);
+  const hmac = crypto.createHmac("sha1", key).update(buf).digest();
+  const offset = hmac[hmac.length - 1] & 0x0f;
+  const code = ((hmac[offset] & 0x7f) << 24 | hmac[offset + 1] << 16 | hmac[offset + 2] << 8 | hmac[offset + 3]) % (10 ** digits);
+  return code.toString().padStart(digits, "0");
 }
 
 // ---------------------------------------------------------------------------
@@ -246,13 +281,48 @@ async function getAuthCookies(): Promise<{ appSession: string; csrfToken: string
     const loggedIn = await loginWithAuth0(page);
     if (!loggedIn) throw new Error("Login to CreditApp failed");
 
-    // After Auth0 login the browser is on the auth domain — navigate to the
-    // app domain so appSession + CA_CSRF_TOKEN cookies are actually set.
-    await page.goto(CREDITAPP_HOME, { waitUntil: "domcontentloaded", timeout: 30_000 });
-    await sleep(3000);
+    // After Auth0 login the browser may be on the auth domain — navigate to
+    // the app domain so appSession + CA_CSRF_TOKEN cookies are set.
+    let currentUrl = page.url() as string;
+    logger.info({ currentUrl }, "BB worker: URL after login flow");
+
+    if (currentUrl.includes("auth.admin.creditapp.ca") || !currentUrl.includes("admin.creditapp.ca")) {
+      logger.info("BB worker: navigating to admin.creditapp.ca to collect app cookies");
+      await page.goto(CREDITAPP_HOME, { waitUntil: "domcontentloaded", timeout: 30_000 });
+      await sleep(3000);
+      currentUrl = page.url() as string;
+      logger.info({ currentUrl }, "BB worker: URL after navigating to app domain");
+    }
 
     const cookies = await page.cookies(CREDITAPP_HOME);
-    const auth    = extractAuthCookies(cookies);
+    const cookieNames = cookies.map((c: any) => c.name);
+    logger.info({ currentUrl, cookieCount: cookies.length, cookieNames }, "BB worker: cookies after login");
+
+    let auth = extractAuthCookies(cookies);
+    if (!auth) {
+      // Fallback: try the auth subdomain (some Auth0 configs set cookies there)
+      const authDomainCookies = await page.cookies("https://auth.admin.creditapp.ca");
+      const authCookieNames = authDomainCookies.map((c: any) => c.name);
+      logger.warn({ cookieNames, authCookieNames, currentUrl }, "BB worker: appSession/CA_CSRF_TOKEN not on app domain — trying auth domain");
+      auth = extractAuthCookies(authDomainCookies);
+    }
+    if (!auth) {
+      // Last resort: use CDP to get all cookies including httpOnly
+      try {
+        const client = await page.createCDPSession();
+        const { cookies: allCookies } = await client.send("Network.getAllCookies");
+        const allNames = allCookies.map((c: any) => c.name);
+        logger.info({ allCookieCount: allCookies.length, allNames }, "BB worker: all cookies via CDP");
+        auth = extractAuthCookies(allCookies);
+        if (auth) {
+          // Use the full CDP cookie set for persistence
+          cookies.length = 0;
+          cookies.push(...allCookies);
+        }
+      } catch (cdpErr) {
+        logger.warn({ err: String(cdpErr) }, "BB worker: CDP cookie fallback failed");
+      }
+    }
     if (!auth) throw new Error("Required auth cookies not found after login");
 
     // Persist to object storage (shared), DB, and local file
@@ -341,24 +411,372 @@ async function humanType(page: any, element: any, text: string): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
-// 2FA dismissal
+// Page helpers (mirrored from lenderAuth.ts)
 // ---------------------------------------------------------------------------
 
-async function dismiss2FA(page: any): Promise<void> {
-  await sleep(2000);
-  const dismissed = await page.evaluate(() => {
-    const phrases = ["remind me later", "skip", "not now", "maybe later", "do it later"];
-    const els = Array.from(document.querySelectorAll("button, a, [role='button']"));
+async function clickLinkByText(page: any, phrases: string[]): Promise<string | null> {
+  return page.evaluate((phrases: string[]) => {
+    const els = Array.from(document.querySelectorAll("a, button, [role='button'], span[tabindex]"));
     for (const el of els) {
       const t = ((el as HTMLElement).textContent ?? "").toLowerCase().trim();
       if (phrases.some((p) => t.includes(p))) {
         (el as HTMLElement).click();
-        return (el as HTMLElement).textContent?.trim() ?? "unknown";
+        return t;
       }
     }
     return null;
-  });
-  if (dismissed) logger.info({ dismissed }, "BB worker: 2FA prompt dismissed");
+  }, phrases);
+}
+
+async function getPageText(page: any): Promise<string> {
+  return page.evaluate(() => (document.body?.textContent ?? "").toLowerCase());
+}
+
+// ---------------------------------------------------------------------------
+// 2FA / MFA handling (mirrored from lenderAuth.ts)
+// ---------------------------------------------------------------------------
+
+let enrolledTotpSecret: string | null = null;
+
+async function navigateToOtpPage(page: any, startUrl: string): Promise<void> {
+  const OTP_METHODS = [
+    "one-time password", "otp", "authenticator", "google authenticator",
+    "authentication app", "authenticator app", "one time password",
+  ];
+  const SWITCH_LINKS = [
+    "try another method", "try another way", "use another method",
+    "other methods", "choose another method",
+  ];
+
+  let url = startUrl;
+
+  if (url.includes("mfa-otp-challenge")) {
+    logger.info("BB worker: already on OTP challenge page");
+    return;
+  }
+
+  if (url.includes("mfa-sms-enrollment") || url.includes("mfa-sms-challenge")) {
+    logger.info("BB worker: on SMS page — clicking 'try another method'");
+    const switched = await clickLinkByText(page, SWITCH_LINKS);
+    if (switched) {
+      logger.info({ clicked: switched }, "BB worker: clicked switch link");
+      await sleep(3000);
+      url = page.url() as string;
+    }
+  }
+
+  if (url.includes("mfa-enroll-options") || url.includes("mfa-login-options")) {
+    logger.info("BB worker: on method selection page — selecting OTP/authenticator");
+    const pageText = await getPageText(page);
+    logger.info({ pageTextSnippet: pageText.substring(0, 400) }, "BB worker: method options page content");
+
+    const otpClicked = await clickLinkByText(page, OTP_METHODS);
+    if (otpClicked) {
+      logger.info({ clicked: otpClicked }, "BB worker: selected OTP method");
+      await sleep(3000);
+      try { await page.waitForNavigation({ waitUntil: "domcontentloaded", timeout: 10_000 }); } catch (_) {}
+    } else {
+      const allLinks = await page.evaluate(() => {
+        return Array.from(document.querySelectorAll("a, button, [role='button'], li, div[class*='option']"))
+          .map((el: Element) => ({
+            tag: el.tagName, text: (el as HTMLElement).innerText?.trim().substring(0, 80),
+            href: (el as HTMLAnchorElement).href || "",
+          }))
+          .filter((l: any) => l.text && l.text.length > 0);
+      });
+      logger.info({ links: allLinks.slice(0, 15) }, "BB worker: clickable elements on options page");
+    }
+    url = page.url() as string;
+    logger.info({ url }, "BB worker: page after selecting OTP method");
+  }
+
+  if (url.includes("mfa-otp-enrollment")) {
+    logger.info("BB worker: on OTP enrollment page — extracting secret from QR/page");
+
+    let extractedSecret: string | null = null;
+
+    extractedSecret = await page.evaluate(() => {
+      const imgs = document.querySelectorAll("img");
+      for (const img of imgs) {
+        const src = (img as HTMLImageElement).src || "";
+        if (src.includes("otpauth") || src.includes("secret=")) {
+          const decoded = decodeURIComponent(src);
+          const m = decoded.match(/secret=([A-Z2-7]+)/i);
+          if (m) return m[1].toUpperCase();
+        }
+      }
+      return null;
+    });
+
+    if (extractedSecret) {
+      logger.info({ secretLen: extractedSecret.length, method: "qr-img-src" }, "BB worker: extracted TOTP secret");
+      enrolledTotpSecret = extractedSecret;
+    } else {
+      logger.info("BB worker: QR src extraction failed — trying 'trouble scanning?' link");
+      const cantScan = await clickLinkByText(page, [
+        "can't scan", "trouble scanning", "enter key manually",
+        "manual entry", "enter code manually", "having trouble",
+        "can not scan", "setup key", "enter this code",
+      ]);
+      if (cantScan) {
+        logger.info({ clicked: cantScan }, "BB worker: clicked 'trouble scanning' link");
+        await sleep(2000);
+      }
+
+      extractedSecret = await page.evaluate(() => {
+        const allText = document.body?.innerText || "";
+        const base32Match = allText.match(/[A-Z2-7]{16,}/);
+        if (base32Match) return base32Match[0];
+
+        const codeElements = document.querySelectorAll("code, pre, .secret, [data-secret], kbd, samp, tt");
+        for (const el of codeElements) {
+          const txt = (el as HTMLElement).innerText?.trim();
+          if (txt && /^[A-Z2-7]{16,}$/.test(txt)) return txt;
+        }
+        return null;
+      });
+
+      if (extractedSecret) {
+        logger.info({ secretLen: extractedSecret.length, method: "trouble-scanning" }, "BB worker: extracted TOTP secret");
+        enrolledTotpSecret = extractedSecret;
+      } else {
+        const pageHtml = await page.evaluate(() => document.body?.innerHTML?.substring(0, 2000) || "");
+        logger.warn({ pageHtmlSnippet: pageHtml.substring(0, 800) }, "BB worker: could not extract TOTP secret");
+      }
+    }
+  }
+}
+
+async function handle2FA(page: any): Promise<void> {
+  await sleep(2000);
+
+  const currentUrl = page.url() as string;
+  if (currentUrl.includes("/u/login/password")) {
+    logger.info("BB worker: still on password page — not a 2FA prompt, skipping");
+    return;
+  }
+
+  const pageText = await getPageText(page);
+  if (pageText.includes("enter your password") || pageText.includes("wrong password")) {
+    logger.info("BB worker: password page detected — skipping 2FA handler");
+    return;
+  }
+
+  const has2FA = pageText.includes("verify your identity") || pageText.includes("one-time password") ||
+                 pageText.includes("authenticator") || pageText.includes("enter the code") ||
+                 pageText.includes("verification") || pageText.includes("security code") ||
+                 pageText.includes("multi-factor") || pageText.includes("2fa") ||
+                 pageText.includes("secure your account") ||
+                 currentUrl.includes("mfa-otp-challenge") || currentUrl.includes("mfa-sms-challenge") ||
+                 currentUrl.includes("mfa-sms-enrollment") || currentUrl.includes("mfa-otp-enrollment");
+
+  if (!has2FA) {
+    // No MFA wall — try the old dismiss approach as a fallback for soft prompts
+    const dismissed = await clickLinkByText(page, ["remind me later", "skip", "not now", "maybe later", "do it later"]);
+    if (dismissed) logger.info({ dismissed }, "BB worker: 2FA prompt dismissed");
+    else logger.info("BB worker: no 2FA prompt detected — skipping");
+    return;
+  }
+
+  logger.info({ url: currentUrl, pageTextSnippet: pageText.substring(0, 300) }, "BB worker: 2FA prompt detected");
+
+  await navigateToOtpPage(page, currentUrl);
+
+  const activeSecret = enrolledTotpSecret || CREDITAPP_TOTP_SECRET;
+  if (activeSecret) {
+    const secretSource = enrolledTotpSecret ? "enrollment-extracted" : "env-var";
+    const totpCode = generateTOTP(activeSecret);
+    logger.info({ codeLength: totpCode.length, secretSource }, "BB worker: TOTP code generated");
+
+    const allInputs = await page.evaluate(() => {
+      return Array.from(document.querySelectorAll("input")).map((el: HTMLInputElement) => ({
+        name: el.name, type: el.type, id: el.id, placeholder: el.placeholder,
+        inputMode: el.inputMode, readOnly: el.readOnly, disabled: el.disabled,
+        valueLen: el.value.length, visible: el.offsetParent !== null,
+        classes: el.className.substring(0, 60),
+      }));
+    });
+    logger.info({ allInputs }, "BB worker: all inputs on page before OTP entry");
+
+    let otpInput = await page.evaluate(() => {
+      const inputs = Array.from(document.querySelectorAll("input"));
+      for (const el of inputs) {
+        if (el.name === "code" && !el.readOnly && !el.disabled && el.offsetParent !== null) return true;
+      }
+      return false;
+    }) ? await page.$('input[name="code"]') : null;
+
+    if (!otpInput) {
+      otpInput = await page.evaluate(() => {
+        const inputs = Array.from(document.querySelectorAll("input"));
+        for (const el of inputs) {
+          if (el.inputMode === "numeric" && !el.readOnly && !el.disabled && el.offsetParent !== null && el.value.length === 0) return true;
+        }
+        return false;
+      }) ? await page.$('input[inputmode="numeric"]') : null;
+    }
+
+    if (!otpInput) {
+      otpInput = await page.evaluate(() => {
+        const inputs = Array.from(document.querySelectorAll("input"));
+        const textInputs = inputs.filter(el =>
+          (el.type === "text" || el.type === "tel" || el.type === "number") &&
+          !el.readOnly && !el.disabled && el.offsetParent !== null && el.value.length === 0
+        );
+        return textInputs.length > 0;
+      }) ? await page.evaluateHandle(() => {
+        const inputs = Array.from(document.querySelectorAll("input"));
+        return inputs.find(el =>
+          (el.type === "text" || el.type === "tel" || el.type === "number") &&
+          !el.readOnly && !el.disabled && el.offsetParent !== null && el.value.length === 0
+        );
+      }) : null;
+    }
+
+    if (!otpInput) {
+      otpInput = await findSelector(page, [
+        'input[name="code"]',
+        'input[inputmode="numeric"]',
+      ], 10_000);
+    }
+
+    if (otpInput) {
+      const inputAttrs = await otpInput.evaluate((el: HTMLInputElement) => ({
+        name: el.name, type: el.type, id: el.id, valueLen: el.value.length,
+        placeholder: el.placeholder, inputMode: el.inputMode,
+      }));
+      logger.info({ inputAttrs }, "BB worker: selected OTP input element");
+
+      await otpInput.click({ clickCount: 3 }).catch(() => otpInput.focus());
+      await sleep(300);
+      await page.keyboard.press("Backspace");
+      await sleep(200);
+
+      for (const ch of totpCode) {
+        await page.keyboard.press(ch);
+        await sleep(rand(40, 80));
+      }
+      await sleep(500);
+
+      const typedLen = await otpInput.evaluate((el: HTMLInputElement) => el.value.length);
+      logger.info({ typedLen, expected: 6 }, "BB worker: TOTP code typed");
+
+      if (typedLen !== 6) {
+        logger.warn("BB worker: keyboard.press result unexpected — using nativeSet + dispatchEvent");
+        await otpInput.evaluate((el: HTMLInputElement, code: string) => {
+          const nativeSet = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+          nativeSet.call(el, code);
+          el.dispatchEvent(new Event("input", { bubbles: true }));
+          el.dispatchEvent(new Event("change", { bubbles: true }));
+        }, totpCode);
+        await sleep(500);
+        const retryLen = await otpInput.evaluate((el: HTMLInputElement) => el.value.length);
+        logger.info({ retryLen }, "BB worker: TOTP code set (nativeSet fallback)");
+      }
+
+      const submitted = await otpInput.evaluate((el: HTMLInputElement) => {
+        const form = el.closest("form");
+        if (form) {
+          const btn = form.querySelector('button[type="submit"], button[name="action"]') as HTMLButtonElement | null;
+          if (btn) { btn.click(); return "form-button"; }
+          form.submit();
+          return "form-submit";
+        }
+        return null;
+      });
+
+      if (submitted) {
+        logger.info({ method: submitted }, "BB worker: TOTP code submitted via same-form method");
+      } else {
+        const submitBtn = await findSelector(page, ['button[type="submit"]', 'button[name="action"]'], 5_000);
+        if (submitBtn) {
+          try { await submitBtn.click(); } catch (_) {
+            await submitBtn.evaluate((el: HTMLElement) => el.click());
+          }
+          logger.info("BB worker: TOTP code submitted via global button");
+        } else {
+          await page.keyboard.press("Enter");
+          logger.info("BB worker: TOTP code submitted via Enter");
+        }
+      }
+
+      await sleep(3000);
+      try { await page.waitForNavigation({ waitUntil: "domcontentloaded", timeout: 15_000 }); } catch (_) {}
+      const postTotpUrl = page.url() as string;
+      logger.info({ url: postTotpUrl }, "BB worker: page after TOTP submit");
+
+      if (postTotpUrl.includes("mfa-otp-enrollment")) {
+        const errText = await page.evaluate(() => {
+          const errs = document.querySelectorAll('[class*="error"], [class*="alert"], [role="alert"]');
+          return Array.from(errs).map((e: Element) => (e as HTMLElement).textContent?.trim()).filter(Boolean);
+        });
+        logger.warn({ errText }, "BB worker: still on OTP enrollment — code may have been rejected");
+      }
+
+      if (postTotpUrl.includes("recovery-code") || postTotpUrl.includes("new-code")) {
+        const recoveryText = await getPageText(page);
+        logger.info({ pageTextSnippet: recoveryText.substring(0, 300) }, "BB worker: recovery code page detected");
+
+        const checkbox = await page.$('input[type="checkbox"]');
+        if (checkbox) {
+          await checkbox.click();
+          logger.info("BB worker: checked recovery code confirmation checkbox");
+          await sleep(1000);
+        }
+
+        const formSubmitted = await page.evaluate(() => {
+          const forms = document.querySelectorAll("form");
+          for (const form of forms) {
+            const btn = form.querySelector('button[type="submit"], button[name="action"]') as HTMLButtonElement | null;
+            if (btn && !btn.disabled) { btn.click(); return btn.textContent?.trim() || "submit"; }
+          }
+          return null;
+        });
+        if (formSubmitted) {
+          logger.info({ clicked: formSubmitted }, "BB worker: submitted recovery code form");
+        } else {
+          const continueBtn = await clickLinkByText(page, ["continue", "done", "next", "i have saved it", "i've saved"]);
+          if (continueBtn) logger.info({ clicked: continueBtn }, "BB worker: clicked continue on recovery code page");
+        }
+        await sleep(3000);
+        try { await page.waitForNavigation({ waitUntil: "domcontentloaded", timeout: 10_000 }); } catch (_) {}
+
+        const afterRecoveryUrl = page.url() as string;
+        logger.info({ url: afterRecoveryUrl }, "BB worker: page after recovery code");
+
+        if (afterRecoveryUrl.includes("recovery-code")) {
+          logger.info("BB worker: still on recovery code page — trying all buttons");
+          await page.evaluate(() => {
+            const btns = document.querySelectorAll("button");
+            for (const btn of btns) {
+              if (!btn.disabled && btn.offsetParent !== null) { btn.click(); break; }
+            }
+          });
+          await sleep(3000);
+          try { await page.waitForNavigation({ waitUntil: "domcontentloaded", timeout: 10_000 }); } catch (_) {}
+          logger.info({ url: page.url() }, "BB worker: page after recovery code retry");
+        }
+      }
+
+      const afterUrl = page.url() as string;
+      if (afterUrl.includes("mfa-sms-enrollment")) {
+        logger.info("BB worker: redirected to SMS enrollment after OTP — attempting to skip");
+        const skipBtn = await clickLinkByText(page, [
+          "skip", "not now", "maybe later", "do it later", "remind me later",
+        ]);
+        if (skipBtn) {
+          logger.info({ clicked: skipBtn }, "BB worker: skipped SMS enrollment");
+          await sleep(3000);
+          try { await page.waitForNavigation({ waitUntil: "domcontentloaded", timeout: 10_000 }); } catch (_) {}
+        }
+        logger.info({ url: page.url() }, "BB worker: page after SMS enrollment skip attempt");
+      }
+    } else {
+      logger.error("BB worker: could not find OTP input field");
+    }
+  } else {
+    logger.warn("BB worker: no TOTP secret — cannot handle 2FA automatically");
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -389,45 +807,138 @@ async function loginWithAuth0(page: any): Promise<boolean> {
   }
   await sleep(2000);
 
+  const loginUrl = page.url() as string;
+  logger.info({ url: loginUrl }, "BB worker: login page loaded");
+
   const emailInput = await findSelector(page, AUTH0_EMAIL_SELECTORS, 12_000);
   if (!emailInput) { logger.error("BB worker: email input not found"); return false; }
+  logger.info("BB worker: email input found — typing email");
   await humanType(page, emailInput, CREDITAPP_EMAIL);
 
-  // Some Auth0 configs need a "Continue" click before the password field appears
   const maybeBtn = await findSelector(page, ['button[type="submit"]'], 2000);
-  if (maybeBtn) { await maybeBtn.click(); await sleep(2000); }
+  if (maybeBtn) {
+    logger.info("BB worker: clicking continue/submit after email");
+    try { await maybeBtn.click(); } catch (_) {
+      await maybeBtn.evaluate((el: HTMLElement) => el.click());
+    }
+    await sleep(3000);
+  }
 
-  const passInput = await findSelector(page, AUTH0_PASS_SELECTORS, 8_000);
+  const passUrl = page.url() as string;
+  logger.info({ url: passUrl }, "BB worker: page after email submit");
+
+  const passInput = await findSelector(page, AUTH0_PASS_SELECTORS, 12_000);
   if (!passInput) { logger.error("BB worker: password input not found"); return false; }
-  await humanType(page, passInput, CREDITAPP_PASSWORD);
 
-  const submitBtn = await findSelector(page, ['button[type="submit"]', 'button[name="action"]'], 5000);
-  if (submitBtn) { await submitBtn.click(); }
+  await passInput.click().catch(() => passInput.focus());
+  await sleep(500);
 
+  for (const ch of CREDITAPP_PASSWORD) {
+    await page.keyboard.press(ch === " " ? "Space" : ch);
+    await sleep(rand(40, 80));
+  }
+  await sleep(1000);
+
+  const typedLen = await passInput.evaluate((el: HTMLInputElement) => el.value.length);
+  logger.info({ typedLen, expected: CREDITAPP_PASSWORD.length }, "BB worker: password typed");
+
+  if (typedLen !== CREDITAPP_PASSWORD.length) {
+    logger.warn("BB worker: keyboard.press didn't fill — falling back to element.type()");
+    await passInput.evaluate((el: HTMLInputElement) => {
+      const nativeSet = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+      nativeSet.call(el, "");
+      el.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await sleep(200);
+    await passInput.type(CREDITAPP_PASSWORD, { delay: 50 });
+    await sleep(500);
+  }
+
+  await sleep(500);
+  logger.info("BB worker: submitting password via Enter key");
+  await page.keyboard.press("Enter");
+
+  logger.info("BB worker: waiting for post-password navigation");
   await sleep(4000);
   try { await page.waitForNavigation({ waitUntil: "domcontentloaded", timeout: 20_000 }); } catch (_) {}
   await sleep(2000);
 
-  await dismiss2FA(page);
-  await sleep(1500);
+  const postPasswordUrl = page.url() as string;
+  const postPasswordText = await getPageText(page);
+  logger.info({ url: postPasswordUrl, textSnippet: postPasswordText.substring(0, 500) }, "BB worker: page state after password submit");
+
+  const stillOnPassword = postPasswordUrl.includes("/u/login/password") || postPasswordText.includes("enter your password");
+  if (stillOnPassword) {
+    const errorText = await page.evaluate(() => {
+      const errs = document.querySelectorAll('[class*="error"], [class*="alert"], [role="alert"], .ulp-input-error');
+      return Array.from(errs).map((e: Element) => (e as HTMLElement).textContent?.trim()).filter(Boolean);
+    });
+    logger.error({ errorText }, "BB worker: still on password page — checking for error messages");
+
+    logger.info("BB worker: retrying password — select all + retype");
+    const passRetry = await findSelector(page, AUTH0_PASS_SELECTORS, 5_000);
+    if (passRetry) {
+      await passRetry.click({ clickCount: 3 }).catch(() => passRetry.focus());
+      await sleep(300);
+      await passRetry.type(CREDITAPP_PASSWORD, { delay: 40 });
+      await sleep(500);
+      await page.keyboard.press("Enter");
+      await sleep(5000);
+      try { await page.waitForNavigation({ waitUntil: "domcontentloaded", timeout: 15_000 }); } catch (_) {}
+      await sleep(2000);
+      const retryUrl = page.url() as string;
+      logger.info({ url: retryUrl }, "BB worker: URL after password retry");
+      if (retryUrl.includes("/u/login/password")) {
+        const retryErrors = await page.evaluate(() => {
+          const errs = document.querySelectorAll('[class*="error"], [class*="alert"], [role="alert"], .ulp-input-error');
+          return Array.from(errs).map((e: Element) => (e as HTMLElement).textContent?.trim()).filter(Boolean);
+        });
+        logger.error({ retryErrors }, "BB worker: still on password page after retry — login failed");
+        return false;
+      }
+    }
+  }
+
+  await handle2FA(page);
+  await sleep(3000);
+
+  const postUrl = page.url() as string;
+  const postContent = (await page.content() as string).substring(0, 500);
+  logger.info({ url: postUrl, contentSnippet: postContent.substring(0, 200) }, "BB worker: page state after 2FA");
+
+  const onAuthDomain = postUrl.includes("auth0.com") || postUrl.includes("auth.admin.creditapp.ca") || postUrl.includes("/login");
+  if (onAuthDomain) {
+    logger.info("BB worker: still on auth page after 2FA — navigating to CreditApp home");
+    try {
+      await page.goto(CREDITAPP_HOME, { waitUntil: "domcontentloaded", timeout: 30_000 });
+    } catch (_) {}
+    await sleep(3000);
+    const redirectedUrl = page.url() as string;
+    logger.info({ url: redirectedUrl }, "BB worker: URL after navigating to CreditApp home");
+
+    if (redirectedUrl.includes("mfa-otp-challenge") || redirectedUrl.includes("mfa-sms-challenge") ||
+        redirectedUrl.includes("mfa-otp-enrollment") || redirectedUrl.includes("mfa-sms-enrollment")) {
+      logger.info("BB worker: redirected to MFA page after nav — handling second 2FA round");
+      await handle2FA(page);
+      await sleep(3000);
+
+      const post2ndUrl = page.url() as string;
+      logger.info({ url: post2ndUrl }, "BB worker: URL after second 2FA round");
+
+      if (post2ndUrl.includes("auth.admin.creditapp.ca")) {
+        logger.info("BB worker: still on auth domain after second 2FA — navigating to CreditApp home again");
+        try {
+          await page.goto(CREDITAPP_HOME, { waitUntil: "domcontentloaded", timeout: 30_000 });
+        } catch (_) {}
+        await sleep(3000);
+        logger.info({ url: page.url() }, "BB worker: URL after second CreditApp nav");
+      }
+    }
+  }
 
   const ok = await isLoggedIn(page);
   logger.info({ ok }, "BB worker: login result");
   return ok;
-}
-
-async function ensureLoggedIn(page: any): Promise<boolean> {
-  const saved = loadSavedCookies();
-  if (saved.length > 0) {
-    logger.info("BB worker: trying saved session cookies");
-    await page.setCookie(...saved);
-    if (await isLoggedIn(page)) {
-      logger.info("BB worker: saved session valid");
-      return true;
-    }
-    logger.info("BB worker: saved session expired — re-logging in");
-  }
-  return loginWithAuth0(page);
 }
 
 // ---------------------------------------------------------------------------

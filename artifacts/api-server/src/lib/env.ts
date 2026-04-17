@@ -29,6 +29,7 @@ const envSchema = z.object({
 
   CREDITAPP_EMAIL:               optStr,
   CREDITAPP_PASSWORD:            optStr,
+  CREDITAPP_TOTP_SECRET:         optStr,
   BB_CBB_ENDPOINT:               optStr,
 
   LENDER_CREDITAPP_EMAIL:        optStr,
