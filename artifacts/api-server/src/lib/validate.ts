@@ -32,7 +32,7 @@ export function validateQuery(schema: ZodSchema) {
       res.status(400).json({ error: "Validation failed", details });
       return;
     }
-    req.query = result.data;
+    (req as any).validatedQuery = result.data;
     next();
   };
 }
