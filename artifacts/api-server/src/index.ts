@@ -23,13 +23,13 @@ startBackgroundRefresh().then(() => {
   // Lender sync worker — caches lender program matrices from CreditApp GraphQL
   scheduleLenderSync();
 
-  const server = app.listen(port, () => logger.info({ port }, "Server listening"));
+  const server = app.listen(port, "0.0.0.0", () => logger.info({ port }, "Server listening"));
   server.on("error", (err) => { logger.error({ err }, "Listen failed"); process.exit(1); });
 }).catch((err) => {
   logger.error({ err }, "Failed to initialise inventory cache — starting anyway");
   if (!isProduction) scheduleCarfaxWorker();
   scheduleBlackBookWorker();
   scheduleLenderSync();
-  const server = app.listen(port, () => logger.info({ port }, "Server listening (cache init failed)"));
+  const server = app.listen(port, "0.0.0.0", () => logger.info({ port }, "Server listening (cache init failed)"));
   server.on("error", (err) => { logger.error({ err }, "Listen failed"); process.exit(1); });
 });

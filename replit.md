@@ -139,6 +139,8 @@ Utility scripts package.
 | `LENDER_CREDITAPP_EMAIL` | Replit Secrets | CreditApp lender account email |
 | `LENDER_CREDITAPP_PASSWORD` | Replit Secrets | CreditApp lender account password |
 | `LENDER_CREDITAPP_2FA_CODE` | Replit Secrets | CreditApp lender 2FA backup code |
+| `TYPESENSE_KEY_PARKDALE` | Replit Secrets | Typesense scoped search API key for Parkdale collection |
+| `TYPESENSE_KEY_MATRIX` | Replit Secrets | Typesense scoped search API key for Matrix collection |
 
 ## Apps Script Setup (InventorySync_v3.2.gs)
 
