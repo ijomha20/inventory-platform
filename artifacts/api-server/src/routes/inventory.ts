@@ -26,20 +26,43 @@ router.get("/inventory", requireAccess, async (req, res) => {
   res.json(filterInventoryByRole(data, role));
 });
 
-// GET /cache-status — lightweight poll so the portal can detect updates
+// GET /cache-status — lightweight poll so the portal can detect updates.
+// All count fields are derived from the actual cache (not just the last
+// worker-run snapshot) so this endpoint reflects ground truth even after
+// a server restart before any worker has run again.
 router.get("/cache-status", requireAccess, (_req, res) => {
   const { lastUpdated, isRefreshing, data } = getCacheState();
   const bb = getBlackBookStatus();
-  const bbCoveragePct = data.length > 0 ? Math.round((bb.lastCount / data.length) * 10000) / 100 : 0;
+
+  const bbCachedCount = data.filter((i) => !!i.bbAvgWholesale).length;
+  const websiteCount  = data.filter((i) => i.website?.trim().startsWith("http")).length;
+  const onlinePriceCount = data.filter((i) => {
+    const v = i.onlinePrice?.trim();
+    return !!v && v !== "NOT FOUND" && v !== "0";
+  }).length;
+  const photosCount = data.filter((i) => i.hasPhotos).length;
+  const carfaxUrlCount = data.filter((i) => i.carfax?.trim().startsWith("http")).length;
+
+  const bbCoveragePct = data.length > 0
+    ? Math.round((bbCachedCount / data.length) * 10000) / 100
+    : 0;
+
   res.set("Cache-Control", "no-store");
   res.json({
     lastUpdated:    lastUpdated?.toISOString() ?? null,
     isRefreshing,
     count:          data.length,
+    // Cache-derived counts — accurate even before any worker has run this boot
+    websiteCount,
+    onlinePriceCount,
+    photosCount,
+    carfaxUrlCount,
+    bbCount:        bbCachedCount,
+    bbCoveragePct,
+    // Worker live status (separate concern from cache contents)
     bbRunning:      bb.running,
     bbLastRun:      bb.lastRun,
-    bbCount:        bb.lastCount,
-    bbCoveragePct,
+    bbLastRunCount: bb.lastCount,
     bbOutcome:      bb.lastOutcome,
     bbLastError:    bb.lastError,
     bbLastBatch:    bb.lastBatch,
