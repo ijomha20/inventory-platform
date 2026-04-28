@@ -54,6 +54,32 @@ export function typesenseSearchUrl(
 }
 
 /**
+ * Fetch documents from a Typesense collection.
+ *
+ * IMPORTANT: scoped search keys are base64 and frequently contain `+`, `/`,
+ * and `=`. Embedding the key directly in a URL via string concatenation
+ * corrupts it (`+` becomes a literal space at the receiving end), which
+ * Typesense answers with a generic 401 "Forbidden" — a silent failure that
+ * looks identical to a missing key. Always use this helper so the API key
+ * travels in the standard request header where it does not require URL
+ * encoding.
+ *
+ * Pass any Typesense query params via `params`; this function adds the
+ * `x-typesense-api-key` header and times out per `timeoutMs` (default 10s).
+ */
+export async function typesenseSearch(
+  dealer: DealerCollection,
+  params: URLSearchParams,
+  timeoutMs = 10_000,
+): Promise<Response> {
+  const url = `https://${TYPESENSE_HOST}/collections/${dealer.collection}/documents/search?${params}`;
+  return fetch(url, {
+    headers: { "x-typesense-api-key": dealer.apiKey },
+    signal: AbortSignal.timeout(timeoutMs),
+  });
+}
+
+/**
  * Resolve a Typesense document to a dealer website listing URL.
  * Tries page_url first, then builds from slug + id.
  */

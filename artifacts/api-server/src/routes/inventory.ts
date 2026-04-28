@@ -5,11 +5,11 @@ import { getCacheState, getFuzzyResolvedDoc, refreshCache } from "../lib/invento
 import { filterInventoryByRole } from "../lib/roleFilter.js";
 import { runBlackBookWorker, getBlackBookStatus } from "../lib/blackBookWorker.js";
 import {
-  TYPESENSE_HOST,
   DEALER_COLLECTIONS,
   IMAGE_CDN_BASE,
   extractWebsiteUrl,
   extractDocVin,
+  typesenseSearch,
   type TypesenseSearchResponse,
 } from "../lib/typesense.js";
 import { validateQuery } from "../lib/validate.js";
@@ -134,12 +134,13 @@ router.get("/vehicle-images", requireAccess, validateQuery(GetVehicleImagesQuery
 
   for (const dealer of DEALER_COLLECTIONS) {
     try {
-      const endpoint =
-        `https://${TYPESENSE_HOST}/collections/${dealer.collection}/documents/search` +
-        `?q=${encodeURIComponent(vin)}&query_by=vin&num_typos=0&per_page=1` +
-        `&x-typesense-api-key=${dealer.apiKey}`;
-
-      const resp = await fetch(endpoint);
+      const params = new URLSearchParams({
+        q:         vin,
+        query_by:  "vin",
+        num_typos: "0",
+        per_page:  "1",
+      });
+      const resp = await typesenseSearch(dealer, params, 8_000);
       if (!resp.ok) {
         logger.warn(
           { collection: dealer.collection, status: resp.status, vin },

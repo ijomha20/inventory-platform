@@ -9,6 +9,7 @@ import {
   extractDocVin,
   extractDocImagePaths,
   extractWebsiteUrl,
+  typesenseSearch,
   type TypesenseSearchResponse,
 } from "../lib/typesense.js";
 import { getRuntimeFingerprint } from "../lib/runtimeFingerprint.js";
@@ -117,13 +118,10 @@ router.get("/ops/diagnostics", requireOwner, async (_req, res) => {
   };
 
   const collections = await Promise.all(DEALER_COLLECTIONS.map(async (col) => {
-    const url =
-      `https://${TYPESENSE_HOST}/collections/${col.collection}/documents/search` +
-      `?q=*&per_page=3&x-typesense-api-key=${col.apiKey}`;
-
     try {
       const t0 = Date.now();
-      const resp = await fetch(url, { signal: AbortSignal.timeout(8_000) });
+      const params = new URLSearchParams({ q: "*", per_page: "3" });
+      const resp = await typesenseSearch(col, params, 8_000);
       const elapsedMs = Date.now() - t0;
 
       if (!resp.ok) {

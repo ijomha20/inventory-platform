@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { logger } from "../lib/logger.js";
-import { TYPESENSE_HOST, DEALER_BY_HOSTNAME } from "../lib/typesense.js";
+import { DEALER_BY_HOSTNAME, typesenseSearch } from "../lib/typesense.js";
 
 const router = Router();
 
@@ -49,12 +49,8 @@ router.get("/price-lookup", async (req, res) => {
       q: "*",
       filter_by: `id:=[${docId}]`,
       per_page: "1",
-      "x-typesense-api-key": dealer.apiKey,
     });
-    const tsUrl = `https://${TYPESENSE_HOST}/collections/${dealer.collection}/documents/search?${params}`;
-    const tsRes = await fetch(tsUrl, {
-      signal: AbortSignal.timeout(5000),
-    });
+    const tsRes = await typesenseSearch(dealer, params, 5000);
 
     if (!tsRes.ok) {
       logger.warn({ status: tsRes.status, url, docId }, "Typesense lookup failed");

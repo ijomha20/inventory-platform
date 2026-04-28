@@ -132,12 +132,11 @@ async function persistToDb(): Promise<void> {
 // ---------------------------------------------------------------------------
 
 import {
-  TYPESENSE_HOST,
   DEALER_COLLECTIONS,
-  extractDocVin,
   buildDocSummary,
   parseVehicleDescriptor,
   scoreFuzzyMatch,
+  typesenseSearch,
   LOCATION_TO_DEALER_NAME,
   type TypesenseDocSummary,
   type TypesenseSearchResponse,
@@ -233,14 +232,17 @@ async function fetchFromTypesense(): Promise<TypesenseMaps> {
     try {
       let page = 1;
       while (true) {
-        const url =
-          `https://${TYPESENSE_HOST}/collections/${col.collection}/documents/search` +
-          `?q=*&query_by=vin&per_page=250&page=${page}&x-typesense-api-key=${col.apiKey}`;
-
-        const resp = await fetch(url, { signal: AbortSignal.timeout(10_000) });
+        const params = new URLSearchParams({
+          q:        "*",
+          per_page: "250",
+          page:     String(page),
+        });
+        const resp = await typesenseSearch(col, params, 15_000);
         if (!resp.ok) {
+          let body = "";
+          try { body = (await resp.text()).slice(0, 200); } catch { /* ignore */ }
           logger.warn(
-            { collection: col.collection, status: resp.status, page },
+            { collection: col.collection, status: resp.status, page, body },
             "Typesense fetch returned non-OK status",
           );
           break;
