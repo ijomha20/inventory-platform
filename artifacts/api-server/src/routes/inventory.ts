@@ -9,6 +9,7 @@ import {
   DEALER_COLLECTIONS,
   IMAGE_CDN_BASE,
   extractWebsiteUrl,
+  extractDocVin,
   type TypesenseSearchResponse,
 } from "../lib/typesense.js";
 import { validateQuery } from "../lib/validate.js";
@@ -29,6 +30,7 @@ router.get("/inventory", requireAccess, async (req, res) => {
 router.get("/cache-status", requireAccess, (_req, res) => {
   const { lastUpdated, isRefreshing, data } = getCacheState();
   const bb = getBlackBookStatus();
+  const bbCoveragePct = data.length > 0 ? Math.round((bb.lastCount / data.length) * 10000) / 100 : 0;
   res.set("Cache-Control", "no-store");
   res.json({
     lastUpdated:    lastUpdated?.toISOString() ?? null,
@@ -37,6 +39,11 @@ router.get("/cache-status", requireAccess, (_req, res) => {
     bbRunning:      bb.running,
     bbLastRun:      bb.lastRun,
     bbCount:        bb.lastCount,
+    bbCoveragePct,
+    bbOutcome:      bb.lastOutcome,
+    bbLastError:    bb.lastError,
+    bbLastBatch:    bb.lastBatch,
+    bbPendingTargetVinCount: bb.pendingTargetVinCount,
   });
 });
 
@@ -101,7 +108,7 @@ router.get("/vehicle-images", requireAccess, validateQuery(GetVehicleImagesQuery
       if (!body.hits?.length) continue;
 
       const doc    = body.hits[0].document as Record<string, any>;
-      const docVin = (doc.vin ?? "").toString().trim().toUpperCase();
+      const docVin = extractDocVin(doc);
       if (docVin !== vin) continue;
 
       const rawUrls: string = doc.image_urls ?? "";

@@ -739,6 +739,7 @@ export async function runCarfaxWorker(opts: { force?: boolean } = {}): Promise<v
 
   let browser: any = null;
   let processed = 0, succeeded = 0, notFound = 0, failed = 0;
+  const carfaxResults = new Map<string, string>();
 
   try {
     // Retry browser launch up to 3 times — Chromium occasionally times out under container load
@@ -774,18 +775,22 @@ export async function runCarfaxWorker(opts: { force?: boolean } = {}): Promise<v
         const retry = await lookupVinOnDealerPortal(page, vin);
         if (retry.status === "found" && retry.url) {
           await writeCarfaxResult(rowIndex, retry.url);
+          carfaxResults.set(vin.toUpperCase(), retry.url);
           succeeded++;
         } else if (retry.status === "not_found") {
           await writeCarfaxResult(rowIndex, "NOT FOUND");
+          carfaxResults.set(vin.toUpperCase(), "NOT FOUND");
           notFound++;
         } else {
           failed++;
         }
       } else if (result.status === "found" && result.url) {
         await writeCarfaxResult(rowIndex, result.url);
+        carfaxResults.set(vin.toUpperCase(), result.url);
         succeeded++;
       } else if (result.status === "not_found") {
         await writeCarfaxResult(rowIndex, "NOT FOUND");
+        carfaxResults.set(vin.toUpperCase(), "NOT FOUND");
         notFound++;
       } else {
         failed++;
@@ -796,6 +801,10 @@ export async function runCarfaxWorker(opts: { force?: boolean } = {}): Promise<v
     }
 
     if (processed > 0) await writeCarfaxResult(0, "", true);
+    if (carfaxResults.size > 0) {
+      const { applyCarfaxResults } = await import("./inventoryCache.js");
+      await applyCarfaxResults(carfaxResults);
+    }
 
   } catch (err) {
     logger.error({ err }, "Carfax worker: unexpected crash");

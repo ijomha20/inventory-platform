@@ -56,7 +56,10 @@ export function typesenseSearchUrl(
  */
 export function extractWebsiteUrl(doc: any, siteUrl: string): string | null {
   if (doc.page_url) {
-    const path = doc.page_url.toString().trim().replace(/^\/+|\/+$/g, "");
+    const raw = doc.page_url.toString().trim();
+    if (!raw) return null;
+    if (/^https?:\/\//i.test(raw)) return raw;
+    const path = raw.replace(/^\/+|\/+$/g, "");
     return `${siteUrl}/${path}/`;
   }
   const id   = doc.id || doc.post_id || doc.vehicle_id || "";
@@ -68,6 +71,25 @@ export function extractWebsiteUrl(doc: any, siteUrl: string): string | null {
   }
   if (!id || !slug) return null;
   return `${siteUrl}/inventory/${slug}/${id}/`;
+}
+
+/**
+ * Resolve VIN from Typesense document variants.
+ * Some collections use non-standard field names.
+ */
+export function extractDocVin(doc: Record<string, unknown>): string {
+  const candidates = [
+    doc["vin"],
+    doc["VIN"],
+    doc["vin_number"],
+    doc["vehicle_vin"],
+    doc["stock_vin"],
+  ];
+  for (const candidate of candidates) {
+    const normalized = String(candidate ?? "").trim().toUpperCase();
+    if (normalized) return normalized;
+  }
+  return "";
 }
 
 /** Typed shape of a Typesense search API response. */

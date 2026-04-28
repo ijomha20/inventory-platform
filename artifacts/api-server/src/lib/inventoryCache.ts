@@ -124,6 +124,7 @@ import {
   TYPESENSE_HOST,
   DEALER_COLLECTIONS,
   extractWebsiteUrl,
+  extractDocVin,
   type TypesenseSearchResponse,
 } from "./typesense.js";
 
@@ -131,6 +132,51 @@ interface TypesenseMaps {
   prices:  Map<string, string>; // VIN → online price string
   website: Map<string, string>; // VIN → listing URL
   photos:  Set<string>;         // VINs that have image_urls
+}
+
+function parsePriceValue(value: unknown): number | null {
+  if (value == null) return null;
+  const raw = String(value).trim();
+  if (!raw) return null;
+  const normalized = raw.replace(/[^0-9.]/g, "");
+  if (!normalized) return null;
+  const parsed = Number.parseFloat(normalized);
+  if (!Number.isFinite(parsed) || parsed <= 0) return null;
+  return parsed;
+}
+
+function extractOnlinePrice(doc: Record<string, unknown>): string | null {
+  const specialOnRaw = String(doc["special_price_on"] ?? "").trim().toLowerCase();
+  const specialOn = specialOnRaw === "1" || specialOnRaw === "true" || specialOnRaw === "yes";
+
+  const specialCandidates = [
+    doc["special_price"],
+    doc["sale_price"],
+    doc["specialPrice"],
+  ];
+  const regularCandidates = [
+    doc["price"],
+    doc["internet_price"],
+    doc["online_price"],
+    doc["list_price"],
+  ];
+
+  if (specialOn) {
+    for (const candidate of specialCandidates) {
+      const parsed = parsePriceValue(candidate);
+      if (parsed) return String(Math.round(parsed));
+    }
+  }
+  for (const candidate of regularCandidates) {
+    const parsed = parsePriceValue(candidate);
+    if (parsed) return String(Math.round(parsed));
+  }
+  for (const candidate of specialCandidates) {
+    const parsed = parsePriceValue(candidate);
+    if (parsed) return String(Math.round(parsed));
+  }
+
+  return null;
 }
 
 /**
@@ -149,7 +195,7 @@ async function fetchFromTypesense(): Promise<TypesenseMaps> {
       while (true) {
         const url =
           `https://${TYPESENSE_HOST}/collections/${col.collection}/documents/search` +
-          `?q=*&per_page=250&page=${page}&x-typesense-api-key=${col.apiKey}`;
+          `?q=*&query_by=vin&per_page=250&page=${page}&x-typesense-api-key=${col.apiKey}`;
 
         const resp = await fetch(url, { signal: AbortSignal.timeout(10_000) });
         if (!resp.ok) break;
@@ -160,16 +206,13 @@ async function fetchFromTypesense(): Promise<TypesenseMaps> {
 
         for (const hit of hits) {
           const doc = (hit.document ?? {}) as Record<string, any>;
-          const vin = (doc.vin ?? "").toString().trim().toUpperCase();
+          const vin = extractDocVin(doc);
           if (!vin) continue;
 
           // Price — first collection that has this VIN wins
           if (!prices.has(vin)) {
-            const specialOn    = Number(doc.special_price_on) === 1;
-            const specialPrice = parseFloat(doc.special_price);
-            const regularPrice = parseFloat(doc.price);
-            const raw          = specialOn && specialPrice > 0 ? specialPrice : regularPrice;
-            if (!isNaN(raw) && raw > 0) prices.set(vin, String(Math.round(raw)));
+            const resolvedPrice = extractOnlinePrice(doc);
+            if (resolvedPrice) prices.set(vin, resolvedPrice);
           }
 
           // Website URL — first collection that resolves one wins
@@ -296,32 +339,23 @@ export async function refreshCache(): Promise<void> {
         });
       }
 
-      const needEnrichment = items.some(
-        (item) =>
-          !item.onlinePrice || item.onlinePrice === "NOT FOUND" ||
-          !item.website     || item.website     === "NOT FOUND",
-      );
-
-      if (needEnrichment) {
-        const { prices, website, photos } = await fetchFromTypesense();
-
-        for (const item of items) {
-          if (!item.onlinePrice || item.onlinePrice === "NOT FOUND") {
-            const fetched = prices.get(item.vin.toUpperCase());
-            if (fetched) item.onlinePrice = fetched;
-          }
-          if (!item.website || item.website === "NOT FOUND") {
-            const fetched = website.get(item.vin.toUpperCase());
-            if (fetched) item.website = fetched;
-          }
-          item.hasPhotos = photos.has(item.vin.toUpperCase());
+      const { prices, website, photos } = await fetchFromTypesense();
+      for (const item of items) {
+        if (!item.onlinePrice || item.onlinePrice === "NOT FOUND") {
+          const fetched = prices.get(item.vin.toUpperCase());
+          if (fetched) item.onlinePrice = fetched;
         }
-
-        logger.info(
-          { prices: prices.size, websiteUrls: website.size, total: items.length },
-          "Typesense enrichment complete",
-        );
+        if (!item.website || item.website === "NOT FOUND") {
+          const fetched = website.get(item.vin.toUpperCase());
+          if (fetched) item.website = fetched;
+        }
+        item.hasPhotos = photos.has(item.vin.toUpperCase());
       }
+
+      logger.info(
+        { prices: prices.size, websiteUrls: website.size, photoVins: photos.size, total: items.length },
+        "Typesense enrichment complete",
+      );
 
       const previousVins = new Set(state.data.map(i => i.vin.toUpperCase()).filter(v => v.length > 0));
 

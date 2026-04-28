@@ -22,6 +22,8 @@ router.get("/ops/function-status", requireAccess, async (_req, res) => {
 
   const bbLastRunIso = bbStatus.lastRun ?? await getBlackBookLastRunAtIso();
   const blackBookWithin24h = isWithinLastHours(bbLastRunIso, 24);
+  const blackBookPass = blackBookWithin24h && bbStatus.lastOutcome !== "failed";
+  const bbCoveragePct = data.length > 0 ? Math.round((bbStatus.lastCount / data.length) * 10000) / 100 : 0;
 
   const carfaxUrlCount = data.filter((item) => item.carfax?.trim().startsWith("http")).length;
   const carfaxNotFoundCount = data.filter((item) => item.carfax?.trim().toUpperCase() === "NOT FOUND").length;
@@ -38,10 +40,15 @@ router.get("/ops/function-status", requireAccess, async (_req, res) => {
     inventoryCount: data.length,
     checks: {
       blackBookUpdatedWithin24Hours: {
-        pass: blackBookWithin24h,
+        pass: blackBookPass,
         lastRunAt: bbLastRunIso,
         running: bbStatus.running,
         valuedInventoryCount: bbStatus.lastCount,
+        coveragePct: bbCoveragePct,
+        outcome: bbStatus.lastOutcome,
+        error: bbStatus.lastError,
+        batch: bbStatus.lastBatch,
+        pendingTargetVinCount: bbStatus.pendingTargetVinCount,
       },
       carfaxLookupActivity: {
         pass: carfaxAttemptedCount > 0,

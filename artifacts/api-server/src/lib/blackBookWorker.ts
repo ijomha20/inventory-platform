@@ -61,9 +61,52 @@ interface BbStatus {
   startedAt: string | null;
   lastRun:   string | null;
   lastCount: number;
+  pendingTargetVinCount: number;
+  lastOutcome: "success" | "partial" | "failed" | null;
+  lastError: string | null;
+  lastBatch: {
+    total: number;
+    succeeded: number;
+    skipped: number;
+    failed: number;
+    updated: number;
+  } | null;
 }
 
-const status: BbStatus = { running: false, startedAt: null, lastRun: null, lastCount: 0 };
+const status: BbStatus = {
+  running: false,
+  startedAt: null,
+  lastRun: null,
+  lastCount: 0,
+  pendingTargetVinCount: 0,
+  lastOutcome: null,
+  lastError: null,
+  lastBatch: null,
+};
+
+const pendingTargetVins = new Set<string>();
+
+function enqueueTargetVins(vins: string[]): void {
+  for (const vin of vins) {
+    const key = vin.trim().toUpperCase();
+    if (key) pendingTargetVins.add(key);
+  }
+  status.pendingTargetVinCount = pendingTargetVins.size;
+}
+
+function takePendingTargetVins(): string[] {
+  const vins = [...pendingTargetVins];
+  pendingTargetVins.clear();
+  status.pendingTargetVinCount = 0;
+  return vins;
+}
+
+async function drainPendingTargetVins(reason: string): Promise<void> {
+  if (status.running || pendingTargetVins.size === 0) return;
+  const queued = takePendingTargetVins();
+  logger.info({ reason, queuedCount: queued.length }, "BB worker: draining queued targeted VIN lookups");
+  await runBlackBookForVins(queued);
+}
 
 export function getBlackBookStatus(): BbStatus {
   return { ...status };
@@ -1213,7 +1256,13 @@ function matchBestTrim(vehicleStr: string, nhtsa: NhtsaInfo, options: any[], vin
 // Main batch
 // ---------------------------------------------------------------------------
 
-async function runBlackBookBatch(): Promise<void> {
+async function runBlackBookBatch(): Promise<{
+  total: number;
+  succeeded: number;
+  skipped: number;
+  failed: number;
+  updated: number;
+}> {
   const { data: items } = getCacheState();
   if (items.length === 0) throw new Error("Inventory cache is empty — cannot run BB batch");
 
@@ -1287,8 +1336,10 @@ async function runBlackBookBatch(): Promise<void> {
 
   logger.info({ succeeded, skipped, failed, total: items.length }, "BB worker: batch complete");
 
+  let updated = 0;
   if (bbMap.size > 0) {
     await applyBlackBookValues(bbMap, bbDetailMap);
+    updated = bbMap.size;
 
     const valuesRecord: Record<string, any> = {};
     for (const [vin, val] of bbMap) {
@@ -1300,6 +1351,8 @@ async function runBlackBookBatch(): Promise<void> {
     await saveBbValuesToStore(valuesRecord);
     logger.info({ count: bbMap.size }, "BB worker: BB values saved to shared object storage");
   }
+
+  return { total: items.length, succeeded, skipped, failed, updated };
 }
 
 // ---------------------------------------------------------------------------
@@ -1312,15 +1365,21 @@ const EMPTY_INVENTORY_MSG = "Inventory cache is empty";
 /** Cap transient retries so the worker cannot block all future runs indefinitely */
 const MAX_BATCH_ATTEMPTS = 20;
 
-async function runWithRetry(attempt = 1): Promise<void> {
+async function runWithRetry(attempt = 1): Promise<{
+  total: number;
+  succeeded: number;
+  skipped: number;
+  failed: number;
+  updated: number;
+}> {
   try {
-    await runBlackBookBatch();
+    return await runBlackBookBatch();
   } catch (err) {
     const msg = String(err);
     // Permanent errors: no cookies available in production — do not retry
     if (msg.includes(PERMANENT_ERROR_PREFIX)) {
       logger.warn({ err: msg }, "BB worker: no valid session — aborting (will recover after next dev nightly run)");
-      return;
+      throw err;
     }
     // Empty cache is not transient — retrying would wedge status.running until cache fills
     if (msg.includes(EMPTY_INVENTORY_MSG)) {
@@ -1356,14 +1415,22 @@ export async function runBlackBookWorker(): Promise<void> {
   status.startedAt = new Date().toISOString();
 
   try {
-    await runWithRetry();
+    const batch = await runWithRetry();
     status.lastRun   = new Date().toISOString();
     status.lastCount = getCacheState().data.filter((i) => !!i.bbAvgWholesale).length;
+    status.lastOutcome = batch.failed === 0 && batch.skipped === 0 ? "success" : "partial";
+    status.lastError = null;
+    status.lastBatch = batch;
     await recordRunDateToDb();
+  } catch (err) {
+    status.lastOutcome = "failed";
+    status.lastError = err instanceof Error ? err.message : String(err);
+    logger.error({ err: status.lastError }, "BB worker: run failed");
   } finally {
     status.running   = false;
     status.startedAt = null;
   }
+  await drainPendingTargetVins("after-full-run");
 }
 
 // ---------------------------------------------------------------------------
@@ -1429,21 +1496,25 @@ export function scheduleBlackBookWorker(): void {
 // ---------------------------------------------------------------------------
 
 export async function runBlackBookForVins(targetVins: string[]): Promise<void> {
+  const normalizedTargets = [...new Set(targetVins.map((v) => v.trim().toUpperCase()).filter(Boolean))];
+  if (normalizedTargets.length === 0) return;
+
   if (!BB_ENABLED) {
     logger.info("BB worker (targeted): CREDITAPP_EMAIL or CREDITAPP_PASSWORD not set — skipping");
     return;
   }
   if (status.running) {
+    enqueueTargetVins(normalizedTargets);
     logger.warn("BB worker (targeted): batch already running — skipping");
     return;
   }
 
   const { data: items } = getCacheState();
-  const targetSet = new Set(targetVins.map(v => v.toUpperCase()));
+  const targetSet = new Set(normalizedTargets);
   const targetItems = items.filter(i => targetSet.has(i.vin.toUpperCase()));
 
   if (targetItems.length === 0) {
-    logger.info({ vins: targetVins }, "BB worker (targeted): no matching items in cache — skipping");
+    logger.info({ vins: normalizedTargets }, "BB worker (targeted): no matching items in cache — skipping");
     return;
   }
 
@@ -1521,4 +1592,5 @@ export async function runBlackBookForVins(targetVins: string[]): Promise<void> {
     status.running   = false;
     status.startedAt = null;
   }
+  await drainPendingTargetVins("after-targeted-run");
 }
