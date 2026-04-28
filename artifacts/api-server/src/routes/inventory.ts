@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { getUserRole, requireAccess } from "../lib/auth.js";
 import { logger } from "../lib/logger.js";
-import { getCacheState, refreshCache } from "../lib/inventoryCache.js";
+import { getCacheState, getFuzzyResolvedDoc, refreshCache } from "../lib/inventoryCache.js";
 import { filterInventoryByRole } from "../lib/roleFilter.js";
 import { runBlackBookWorker, getBlackBookStatus } from "../lib/blackBookWorker.js";
 import {
@@ -94,6 +94,21 @@ router.get("/vehicle-images", requireAccess, validateQuery(GetVehicleImagesQuery
   const urls: string[] = [];
   let websiteUrl: string | null = null;
 
+  // First check the fuzzy-resolved doc — handles Matrix vehicles whose VIN is
+  // not exposed in Typesense.  Resolves to listing photos via the same CDN.
+  const fuzzyDoc = getFuzzyResolvedDoc(vin);
+  if (fuzzyDoc) {
+    for (const path of fuzzyDoc.imagePaths) {
+      if (path) urls.push(IMAGE_CDN_BASE + path);
+    }
+    websiteUrl = fuzzyDoc.websiteUrl;
+    if (urls.length > 0) {
+      res.set("Cache-Control", "public, max-age=300");
+      res.json({ vin, urls, websiteUrl });
+      return;
+    }
+  }
+
   for (const dealer of DEALER_COLLECTIONS) {
     try {
       const endpoint =
@@ -102,7 +117,13 @@ router.get("/vehicle-images", requireAccess, validateQuery(GetVehicleImagesQuery
         `&x-typesense-api-key=${dealer.apiKey}`;
 
       const resp = await fetch(endpoint);
-      if (!resp.ok) continue;
+      if (!resp.ok) {
+        logger.warn(
+          { collection: dealer.collection, status: resp.status, vin },
+          "Typesense image lookup returned non-OK status",
+        );
+        continue;
+      }
 
       const body = await resp.json() as TypesenseSearchResponse;
       if (!body.hits?.length) continue;

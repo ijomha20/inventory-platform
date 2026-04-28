@@ -36,6 +36,17 @@ const state: CacheState = {
   isRefreshing: false,
 };
 
+function normalizeCarfaxValue(raw: unknown): string {
+  const value = String(raw ?? "").trim();
+  if (!value) return "";
+  if (value.toUpperCase() === "NOT FOUND") return "NOT FOUND";
+  if (/^https?:\/\//i.test(value)) return value;
+  if (value.startsWith("/")) return `https://dealer.carfax.ca${value}`;
+  if (value.startsWith("cfm/")) return `https://dealer.carfax.ca/${value}`;
+  if (value.includes("dealer.carfax.ca")) return `https://${value.replace(/^\/+/, "")}`;
+  return value;
+}
+
 let mutexPromise: Promise<void> = Promise.resolve();
 
 function withCacheLock<T>(fn: () => Promise<T>): Promise<T> {
@@ -123,15 +134,34 @@ async function persistToDb(): Promise<void> {
 import {
   TYPESENSE_HOST,
   DEALER_COLLECTIONS,
-  extractWebsiteUrl,
   extractDocVin,
+  buildDocSummary,
+  parseVehicleDescriptor,
+  scoreFuzzyMatch,
+  LOCATION_TO_DEALER_NAME,
+  type TypesenseDocSummary,
   type TypesenseSearchResponse,
 } from "./typesense.js";
 
 interface TypesenseMaps {
-  prices:  Map<string, string>; // VIN → online price string
-  website: Map<string, string>; // VIN → listing URL
-  photos:  Set<string>;         // VINs that have image_urls
+  prices:    Map<string, string>;            // VIN → online price string
+  website:   Map<string, string>;            // VIN → listing URL
+  photos:    Set<string>;                    // VINs that have image_urls
+  docsByCol: Map<string, TypesenseDocSummary[]>; // for fuzzy fallback
+  vinToDoc:  Map<string, TypesenseDocSummary>;   // VIN match acceleration
+}
+
+/**
+ * VIN → resolved Typesense doc.  Populated during cache refresh and consumed
+ * by /vehicle-images so newly uploaded Matrix listings without a VIN can
+ * still serve photos for the inventory item.  In-memory only, regenerated
+ * each refresh.
+ */
+const fuzzyResolvedByVin = new Map<string, TypesenseDocSummary>();
+
+export function getFuzzyResolvedDoc(vin: string): TypesenseDocSummary | null {
+  if (!vin) return null;
+  return fuzzyResolvedByVin.get(vin.trim().toUpperCase()) ?? null;
 }
 
 function parsePriceValue(value: unknown): number | null {
@@ -180,16 +210,26 @@ function extractOnlinePrice(doc: Record<string, unknown>): string | null {
 }
 
 /**
- * Fetch ALL currently listed vehicles from Typesense in one bulk pass and
- * return both a price map and a website URL map.  Downloading the full
- * catalogue (~100–300 vehicles) is faster than per-VIN filtering.
+ * Fetch ALL currently listed vehicles from Typesense in one bulk pass.
+ * Returns:
+ *   - VIN-keyed lookup maps (price, website, photos) for fast direct match
+ *   - all docs grouped by collection for the fuzzy fallback path
+ *   - VIN → doc summary (so the matched doc can fill price + photos at once)
+ *
+ * Downloading the full catalogue (~100–300 vehicles) is faster than per-VIN
+ * filtering AND lets us run fuzzy matching for listings whose VIN field is
+ * missing in Typesense (notably newly uploaded Matrix listings).
  */
 async function fetchFromTypesense(): Promise<TypesenseMaps> {
-  const prices  = new Map<string, string>();
-  const website = new Map<string, string>();
-  const photos  = new Set<string>();
+  const prices    = new Map<string, string>();
+  const website   = new Map<string, string>();
+  const photos    = new Set<string>();
+  const docsByCol = new Map<string, TypesenseDocSummary[]>();
+  const vinToDoc  = new Map<string, TypesenseDocSummary>();
 
   for (const col of DEALER_COLLECTIONS) {
+    const collectionDocs: TypesenseDocSummary[] = [];
+
     try {
       let page = 1;
       while (true) {
@@ -198,7 +238,13 @@ async function fetchFromTypesense(): Promise<TypesenseMaps> {
           `?q=*&query_by=vin&per_page=250&page=${page}&x-typesense-api-key=${col.apiKey}`;
 
         const resp = await fetch(url, { signal: AbortSignal.timeout(10_000) });
-        if (!resp.ok) break;
+        if (!resp.ok) {
+          logger.warn(
+            { collection: col.collection, status: resp.status, page },
+            "Typesense fetch returned non-OK status",
+          );
+          break;
+        }
 
         const body = await resp.json() as TypesenseSearchResponse;
         const hits = body.hits ?? [];
@@ -206,23 +252,21 @@ async function fetchFromTypesense(): Promise<TypesenseMaps> {
 
         for (const hit of hits) {
           const doc = (hit.document ?? {}) as Record<string, any>;
-          const vin = extractDocVin(doc);
+          const summary = buildDocSummary(doc, col.name, col.siteUrl);
+          summary.onlinePrice = extractOnlinePrice(doc);
+          collectionDocs.push(summary);
+
+          const vin = summary.vin;
           if (!vin) continue;
+          if (!vinToDoc.has(vin)) vinToDoc.set(vin, summary);
 
-          // Price — first collection that has this VIN wins
-          if (!prices.has(vin)) {
-            const resolvedPrice = extractOnlinePrice(doc);
-            if (resolvedPrice) prices.set(vin, resolvedPrice);
+          if (!prices.has(vin) && summary.onlinePrice) {
+            prices.set(vin, summary.onlinePrice);
           }
-
-          // Website URL — first collection that resolves one wins
-          if (!website.has(vin)) {
-            const resolved = extractWebsiteUrl(doc, col.siteUrl);
-            if (resolved) website.set(vin, resolved);
+          if (!website.has(vin) && summary.websiteUrl) {
+            website.set(vin, summary.websiteUrl);
           }
-
-          // Photos — mark VIN if image_urls is non-empty
-          if (doc.image_urls && doc.image_urls.toString().trim()) {
+          if (summary.imagePaths.length > 0) {
             photos.add(vin);
           }
         }
@@ -233,9 +277,120 @@ async function fetchFromTypesense(): Promise<TypesenseMaps> {
     } catch (err) {
       logger.warn({ err, collection: col.collection }, "Typesense fetch failed for collection");
     }
+
+    docsByCol.set(col.name, collectionDocs);
+    logger.info(
+      { collection: col.name, count: collectionDocs.length, withVin: collectionDocs.filter((d) => d.vin).length },
+      "Typesense: collection scanned",
+    );
   }
 
-  return { prices, website, photos };
+  return { prices, website, photos, docsByCol, vinToDoc };
+}
+
+interface FuzzyMatchCandidate {
+  itemIndex: number;
+  doc:       TypesenseDocSummary;
+  score:     number;
+}
+
+/**
+ * Runs the fuzzy fallback for inventory items that the VIN-based pass did
+ * not resolve.  Greedy assignment by score so two inventory items can never
+ * map to the same listing.  Updates the item fields and the
+ * fuzzyResolvedByVin map (consumed by /vehicle-images).
+ */
+function applyFuzzyFallback(
+  items:    InventoryItem[],
+  docsByCol: Map<string, TypesenseDocSummary[]>,
+  resolvedVins: Set<string>,
+): { matched: number } {
+  const MIN_SCORE = 30; // minimum acceptance threshold (year+make+model gate)
+  const usedDocKeys = new Set<string>();
+
+  // Build candidate list for items that still need any of website/onlinePrice/photos.
+  const candidates: FuzzyMatchCandidate[] = [];
+  for (let i = 0; i < items.length; i++) {
+    const item = items[i];
+    if (resolvedVins.has(item.vin.toUpperCase())) continue;
+    if (!item.vehicle) continue;
+
+    const itemKm    = parseInt(item.km.replace(/[^0-9]/g, ""), 10) || 0;
+    const itemPrice = parseFloat(item.price.replace(/[^0-9.]/g, "")) || 0;
+    const parsed = parseVehicleDescriptor(item.vehicle);
+    if (!parsed.year || !parsed.make || !parsed.model) continue;
+
+    const dealerName = LOCATION_TO_DEALER_NAME.get(item.location.trim().toLowerCase());
+    const collectionsToTry = dealerName
+      ? [docsByCol.get(dealerName) ?? []]
+      : Array.from(docsByCol.values());
+
+    for (const docs of collectionsToTry) {
+      for (const doc of docs) {
+        // Skip docs that already matched a different inventory VIN exactly.
+        // (vin map already consumed those.)
+        const score = scoreFuzzyMatch({
+          vehicle: item.vehicle,
+          km:      itemKm,
+          price:   itemPrice,
+        }, doc);
+        if (score >= MIN_SCORE) {
+          candidates.push({ itemIndex: i, doc, score });
+        }
+      }
+    }
+  }
+
+  // Greedy: highest score wins. Each doc and each item assigned at most once.
+  candidates.sort((a, b) => b.score - a.score);
+  const usedItems = new Set<number>();
+  let matched = 0;
+
+  for (const cand of candidates) {
+    if (usedItems.has(cand.itemIndex)) continue;
+    const docKey = `${cand.doc.collection}::${cand.doc.docId}`;
+    if (usedDocKeys.has(docKey)) continue;
+
+    const item = items[cand.itemIndex];
+    let updated = false;
+
+    if ((!item.website || item.website === "NOT FOUND") && cand.doc.websiteUrl) {
+      item.website = cand.doc.websiteUrl;
+      updated = true;
+    }
+    if ((!item.onlinePrice || item.onlinePrice === "NOT FOUND") && cand.doc.onlinePrice) {
+      item.onlinePrice = cand.doc.onlinePrice;
+      updated = true;
+    }
+    if (cand.doc.imagePaths.length > 0) {
+      item.hasPhotos = true;
+      updated = true;
+    }
+
+    if (updated) {
+      fuzzyResolvedByVin.set(item.vin.toUpperCase(), cand.doc);
+      usedItems.add(cand.itemIndex);
+      usedDocKeys.add(docKey);
+      matched++;
+
+      logger.info(
+        {
+          inventoryVin: item.vin,
+          inventoryVehicle: item.vehicle,
+          inventoryKm: item.km,
+          docCollection: cand.doc.collection,
+          docId: cand.doc.docId,
+          docVin: cand.doc.vin || "(none)",
+          docVehicle: `${cand.doc.year} ${cand.doc.make} ${cand.doc.model} ${cand.doc.trim}`.trim(),
+          docKm: cand.doc.km,
+          score: cand.score,
+        },
+        "Inventory: fuzzy-matched listing for VIN with no Typesense VIN field",
+      );
+    }
+  }
+
+  return { matched };
 }
 
 // Keep old name as alias for any future callers
@@ -328,7 +483,7 @@ export async function refreshCache(): Promise<void> {
           vin,
           price:          String(r.price       ?? "").trim(),
           km:             String(r.km          ?? "").trim(),
-          carfax:         String(r.carfax      ?? "").trim(),
+          carfax:         normalizeCarfaxValue(r.carfax),
           website:        String(r.website     ?? "").trim(),
           onlinePrice:    String(r.onlinePrice ?? "").trim(),
           matrixPrice:    String(r.matrixPrice ?? "").trim(),
@@ -339,21 +494,45 @@ export async function refreshCache(): Promise<void> {
         });
       }
 
-      const { prices, website, photos } = await fetchFromTypesense();
+      const { prices, website, photos, docsByCol } = await fetchFromTypesense();
+
+      fuzzyResolvedByVin.clear();
+      const resolvedVins = new Set<string>();
+
       for (const item of items) {
+        const vinKey = item.vin.toUpperCase();
+        let resolvedSomething = false;
+
         if (!item.onlinePrice || item.onlinePrice === "NOT FOUND") {
-          const fetched = prices.get(item.vin.toUpperCase());
-          if (fetched) item.onlinePrice = fetched;
+          const fetched = prices.get(vinKey);
+          if (fetched) { item.onlinePrice = fetched; resolvedSomething = true; }
         }
         if (!item.website || item.website === "NOT FOUND") {
-          const fetched = website.get(item.vin.toUpperCase());
-          if (fetched) item.website = fetched;
+          const fetched = website.get(vinKey);
+          if (fetched) { item.website = fetched; resolvedSomething = true; }
         }
-        item.hasPhotos = photos.has(item.vin.toUpperCase());
+        if (photos.has(vinKey)) {
+          item.hasPhotos = true;
+          resolvedSomething = true;
+        } else {
+          item.hasPhotos = false;
+        }
+
+        if (resolvedSomething) resolvedVins.add(vinKey);
       }
 
+      // Fuzzy fallback for items the VIN pass could not enrich (Matrix listings
+      // that don't expose VIN in Typesense, etc.). Logs every match for audit.
+      const { matched: fuzzyMatched } = applyFuzzyFallback(items, docsByCol, resolvedVins);
+
       logger.info(
-        { prices: prices.size, websiteUrls: website.size, photoVins: photos.size, total: items.length },
+        {
+          prices:       prices.size,
+          websiteUrls:  website.size,
+          photoVins:    photos.size,
+          fuzzyMatched,
+          total:        items.length,
+        },
         "Typesense enrichment complete",
       );
 
@@ -401,7 +580,7 @@ export async function applyCarfaxResults(results: Map<string, string>): Promise<
       const vinKey = item.vin.toUpperCase();
       const val = results.get(vinKey);
       if (val !== undefined) {
-        item.carfax = val;
+        item.carfax = normalizeCarfaxValue(val);
         updated++;
       }
     }

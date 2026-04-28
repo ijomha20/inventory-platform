@@ -129,6 +129,27 @@ export async function saveBbValuesToStore(values: Record<string, BbValueEntry>):
 }
 
 // ---------------------------------------------------------------------------
+// Carfax worker run tracking — last run date (Mountain TZ) to prevent
+// duplicate same-day runs across server restarts.
+// ---------------------------------------------------------------------------
+
+export interface CarfaxRunsBlob {
+  lastRunDate: string;
+  updatedAt:   string;
+}
+
+export async function loadCarfaxRunsFromStore(): Promise<CarfaxRunsBlob | null> {
+  return readJson<CarfaxRunsBlob>("carfax-runs.json");
+}
+
+export async function saveCarfaxRunsToStore(lastRunDate: string): Promise<void> {
+  await writeJsonBestEffort("carfax-runs.json", {
+    lastRunDate,
+    updatedAt: new Date().toISOString(),
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Lender session cookies (CreditApp lender account — separate from BB)
 // ---------------------------------------------------------------------------
 

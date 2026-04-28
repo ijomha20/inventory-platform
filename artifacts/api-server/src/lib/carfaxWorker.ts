@@ -16,6 +16,7 @@
 import { logger } from "./logger.js";
 import { env } from "./env.js";
 import { scheduleRandomDaily, toMountainDateStr } from "./randomScheduler.js";
+import { loadCarfaxRunsFromStore, saveCarfaxRunsToStore } from "./bbObjectStore.js";
 import * as fs   from "fs";
 import * as path from "path";
 
@@ -23,6 +24,48 @@ const APPS_SCRIPT_URL = env.APPS_SCRIPT_WEB_APP_URL;
 const CARFAX_EMAIL    = env.CARFAX_EMAIL;
 const CARFAX_PASSWORD = env.CARFAX_PASSWORD;
 const CARFAX_ENABLED  = env.CARFAX_ENABLED;
+
+// Per-session profile picked at browser launch — keeps a single run consistent
+// (UA, viewport, headers all match) while varying across runs to look human.
+interface SessionProfile {
+  chromeMajor:  number;
+  chromeFull:   string;
+  viewportW:    number;
+  viewportH:    number;
+  userAgent:    string;
+  acceptLang:   string;
+}
+
+function pickSessionProfile(): SessionProfile {
+  const versions = [
+    { major: 124, full: "124.0.6367.60" },
+    { major: 125, full: "125.0.6422.60" },
+    { major: 126, full: "126.0.6478.114" },
+  ];
+  const v = versions[Math.floor(Math.random() * versions.length)];
+  const widthVariants  = [1280, 1366, 1440, 1536];
+  const heightVariants = [800, 864, 900, 960];
+  const viewportW = widthVariants[Math.floor(Math.random() * widthVariants.length)] +
+    Math.floor((Math.random() * 30) - 15);
+  const viewportH = heightVariants[Math.floor(Math.random() * heightVariants.length)] +
+    Math.floor((Math.random() * 30) - 15);
+  const acceptLangs = [
+    "en-CA,en-US;q=0.9,en;q=0.8,fr;q=0.7",
+    "en-CA,en;q=0.9,en-US;q=0.8,fr-CA;q=0.7",
+    "en-US,en-CA;q=0.9,en;q=0.8",
+  ];
+  return {
+    chromeMajor: v.major,
+    chromeFull:  v.full,
+    viewportW,
+    viewportH,
+    userAgent: `Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${v.major}.0.0.0 Safari/537.36`,
+    acceptLang: acceptLangs[Math.floor(Math.random() * acceptLangs.length)],
+  };
+}
+
+// Picked once per worker run; consumed by launchBrowser + addAntiDetectionScripts.
+let activeProfile: SessionProfile | null = null;
 
 // Dealer portal URLs — same as the desktop script
 const CARFAX_HOME      = "https://dealer.carfax.ca/";
@@ -204,12 +247,23 @@ async function launchBrowser(): Promise<any> {
     }
   } catch (_) { /* use bundled */ }
 
+  const profile = activeProfile ?? pickSessionProfile();
+  activeProfile = profile;
+  logger.info(
+    {
+      chromeMajor: profile.chromeMajor,
+      viewportW:   profile.viewportW,
+      viewportH:   profile.viewportH,
+    },
+    "Carfax worker: launching browser with session profile",
+  );
+
   const browser = await puppeteer.launch({
     headless: "new" as any,
     executablePath,
     timeout: 90_000,           // give Chromium 90s to start (default 30s causes crashes under load)
     protocolTimeout: 90_000,   // same for CDP protocol handshake
-    defaultViewport: { width: 1280, height: 900 },
+    defaultViewport: { width: profile.viewportW, height: profile.viewportH },
     args: [
       // Required for Replit/Linux container environments
       "--no-sandbox",
@@ -224,7 +278,7 @@ async function launchBrowser(): Promise<any> {
       "--disable-infobars",
       "--disable-extensions-except=",
       "--disable-plugins-discovery",
-      "--window-size=1280,900",
+      `--window-size=${profile.viewportW},${profile.viewportH}`,
     ],
     ignoreDefaultArgs: ["--enable-automation"],
   });
@@ -233,20 +287,21 @@ async function launchBrowser(): Promise<any> {
 }
 
 async function addAntiDetectionScripts(page: any): Promise<void> {
-  const USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
+  const profile = activeProfile ?? pickSessionProfile();
+  activeProfile = profile;
 
-  await page.setUserAgent(USER_AGENT);
+  await page.setUserAgent(profile.userAgent);
 
   // Realistic HTTP headers — every request looks like real Chrome on Windows
   await page.setExtraHTTPHeaders({
-    "Accept-Language":           "en-CA,en-US;q=0.9,en;q=0.8,fr;q=0.7",
+    "Accept-Language":           profile.acceptLang,
     "Accept-Encoding":           "gzip, deflate, br",
     "Accept":                    "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
     "Sec-Fetch-Site":            "none",
     "Sec-Fetch-Mode":            "navigate",
     "Sec-Fetch-User":            "?1",
     "Sec-Fetch-Dest":            "document",
-    "Sec-Ch-Ua":                 '"Google Chrome";v="124", "Chromium";v="124", "Not-A.Brand";v="99"',
+    "Sec-Ch-Ua":                 `"Google Chrome";v="${profile.chromeMajor}", "Chromium";v="${profile.chromeMajor}", "Not-A.Brand";v="99"`,
     "Sec-Ch-Ua-Mobile":          "?0",
     "Sec-Ch-Ua-Platform":        '"Windows"',
     "Upgrade-Insecure-Requests": "1",
@@ -255,8 +310,15 @@ async function addAntiDetectionScripts(page: any): Promise<void> {
 
   await page.setCacheEnabled(true);
 
-  // Runs before any page script — covers all fingerprinting vectors
-  await page.evaluateOnNewDocument(() => {
+  // Runs before any page script — covers all fingerprinting vectors.
+  // Profile values injected so navigator.userAgentData matches the UA header.
+  const fingerprint = {
+    chromeMajor: profile.chromeMajor,
+    chromeFull:  profile.chromeFull,
+    viewportW:   profile.viewportW,
+    viewportH:   profile.viewportH,
+  };
+  await page.evaluateOnNewDocument((fp: typeof fingerprint) => {
     // 1. navigator.webdriver — primary automation flag
     Object.defineProperty(navigator, "webdriver", { get: () => undefined });
 
@@ -272,20 +334,21 @@ async function addAntiDetectionScripts(page: any): Promise<void> {
       app:       {},
     };
 
-    // 3. navigator.userAgentData — Chrome 90+ API; missing = instant bot flag
+    // 3. navigator.userAgentData — Chrome 90+ API; missing = instant bot flag.
+    // Brand version MUST match Sec-Ch-Ua HTTP header set on requests above.
     Object.defineProperty(navigator, "userAgentData", {
       get: () => ({
         brands: [
-          { brand: "Google Chrome", version: "124" },
-          { brand: "Chromium",      version: "124" },
+          { brand: "Google Chrome", version: String(fp.chromeMajor) },
+          { brand: "Chromium",      version: String(fp.chromeMajor) },
           { brand: "Not-A.Brand",   version: "99"  },
         ],
         mobile:   false,
         platform: "Windows",
         getHighEntropyValues: async (_hints: string[]) => ({
           brands: [
-            { brand: "Google Chrome", version: "124" },
-            { brand: "Chromium",      version: "124" },
+            { brand: "Google Chrome", version: String(fp.chromeMajor) },
+            { brand: "Chromium",      version: String(fp.chromeMajor) },
             { brand: "Not-A.Brand",   version: "99"  },
           ],
           mobile:          false,
@@ -294,10 +357,10 @@ async function addAntiDetectionScripts(page: any): Promise<void> {
           architecture:    "x86",
           bitness:         "64",
           model:           "",
-          uaFullVersion:   "124.0.6367.60",
+          uaFullVersion:   fp.chromeFull,
           fullVersionList: [
-            { brand: "Google Chrome", version: "124.0.6367.60" },
-            { brand: "Chromium",      version: "124.0.6367.60" },
+            { brand: "Google Chrome", version: fp.chromeFull },
+            { brand: "Chromium",      version: fp.chromeFull },
             { brand: "Not-A.Brand",   version: "99.0.0.0"      },
           ],
         }),
@@ -357,15 +420,15 @@ async function addAntiDetectionScripts(page: any): Promise<void> {
       }),
     });
 
-    // 9. Screen dimensions — all consistent at 1280×900 to match viewport
-    Object.defineProperty(screen, "width",       { get: () => 1280 });
-    Object.defineProperty(screen, "height",      { get: () => 900  });
-    Object.defineProperty(screen, "availWidth",  { get: () => 1280 });
-    Object.defineProperty(screen, "availHeight", { get: () => 860  });
-    Object.defineProperty(screen, "colorDepth",  { get: () => 24   });
-    Object.defineProperty(screen, "pixelDepth",  { get: () => 24   });
-    Object.defineProperty(window, "outerWidth",  { get: () => 1280 });
-    Object.defineProperty(window, "outerHeight", { get: () => 900  });
+    // 9. Screen dimensions — derived from session profile to match viewport
+    Object.defineProperty(screen, "width",       { get: () => fp.viewportW });
+    Object.defineProperty(screen, "height",      { get: () => fp.viewportH });
+    Object.defineProperty(screen, "availWidth",  { get: () => fp.viewportW });
+    Object.defineProperty(screen, "availHeight", { get: () => fp.viewportH - 40 });
+    Object.defineProperty(screen, "colorDepth",  { get: () => 24 });
+    Object.defineProperty(screen, "pixelDepth",  { get: () => 24 });
+    Object.defineProperty(window, "outerWidth",  { get: () => fp.viewportW });
+    Object.defineProperty(window, "outerHeight", { get: () => fp.viewportH });
 
     // 10. Canvas fingerprint noise — each run produces a unique fingerprint
     const _origToDataURL   = HTMLCanvasElement.prototype.toDataURL;
@@ -404,7 +467,7 @@ async function addAntiDetectionScripts(page: any): Promise<void> {
           ? Promise.resolve({ state: "denied" } as PermissionStatus)
           : _origQuery(parameters);
     }
-  });
+  }, fingerprint);
 }
 
 async function findSelector(page: any, selectors: string[], timeout = 5000): Promise<any> {
@@ -596,13 +659,116 @@ async function findReportLink(page: any): Promise<string | null> {
   return null;
 }
 
+// Force-clears an input regardless of framework state and types VIN cleanly.
+// Avoids the humanType() bug where a single click after triple-click deselects
+// the selection and causes the new VIN to be appended to the previous one.
+async function clearAndTypeVin(page: any, element: any, vin: string): Promise<void> {
+  await element.evaluate((el: HTMLInputElement) => {
+    el.focus();
+    const nativeSet = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+    nativeSet.call(el, "");
+    el.dispatchEvent(new Event("input", { bubbles: true }));
+    el.dispatchEvent(new Event("change", { bubbles: true }));
+  });
+  await sleep(rand(120, 220));
+
+  const residual = await element.evaluate((el: HTMLInputElement) => el.value).catch(() => "");
+  if (residual && residual.length > 0) {
+    await element.click();
+    await sleep(rand(60, 120));
+    for (let i = 0; i < residual.length + 5; i++) {
+      await page.keyboard.press("Backspace");
+    }
+    await sleep(rand(120, 220));
+  }
+
+  for (const ch of vin) {
+    await element.type(ch, { delay: 0 });
+    await sleep(rand(45, 110));
+  }
+  await sleep(rand(300, 600));
+
+  const typed = await element.evaluate((el: HTMLInputElement) => el.value).catch(() => "");
+  if (typed.trim().toUpperCase() !== vin.toUpperCase()) {
+    logger.warn(
+      { vin, actual: typed, len: typed.length },
+      "Carfax worker: search input mismatch after typing — forcing native value set",
+    );
+    await element.evaluate((el: HTMLInputElement, v: string) => {
+      const nativeSet = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+      nativeSet.call(el, v);
+      el.dispatchEvent(new Event("input", { bubbles: true }));
+      el.dispatchEvent(new Event("change", { bubbles: true }));
+    }, vin);
+    await sleep(rand(300, 500));
+  }
+}
+
+// Detects captcha/anti-bot challenge pages so we abort safely instead of
+// silently looping with an "error" status for every VIN.
+async function detectChallengePage(page: any): Promise<boolean> {
+  try {
+    const text = await page.evaluate(() => (document.body?.innerText ?? "").toLowerCase()).catch(() => "");
+    if (!text) return false;
+    const triggers = [
+      "are you a robot",
+      "verify you are human",
+      "verify you're human",
+      "i'm not a robot",
+      "captcha",
+      "unusual activity",
+      "security challenge",
+      "access denied",
+    ];
+    return triggers.some((t) => text.includes(t));
+  } catch {
+    return false;
+  }
+}
+
+// Brief human-like idle: short scroll + read pause. Occasionally a longer
+// "interruption" pause so cadence between VINs varies the way a real user does.
+async function humanIdleBetweenVins(page: any): Promise<void> {
+  if (Math.random() > 0.4) {
+    try {
+      await page.mouse.wheel({ deltaY: rand(50, 220) * (Math.random() > 0.5 ? 1 : -1) });
+    } catch (_) { /* viewport may be busy mid-AJAX */ }
+    await sleep(rand(400, 900));
+  }
+  if (Math.random() < 0.2) {
+    const pause = rand(15_000, 30_000);
+    logger.info({ pauseMs: pause }, "Carfax worker: simulating user-interruption pause");
+    await sleep(pause);
+  } else {
+    await sleep(rand(4_000, 9_000));
+  }
+}
+
+// Some Carfax report URLs do not contain the VIN (opaque report ids).
+// Only flag a mismatch when the URL clearly references a DIFFERENT VIN.
+function reportUrlMatchesVin(url: string, vin: string): boolean {
+  if (!url) return false;
+  const upperUrl = url.toUpperCase();
+  const upperVin = vin.toUpperCase();
+  if (upperUrl.includes(upperVin)) return true;
+  const matches = url.match(/[A-HJ-NPR-Z0-9]{17}/gi);
+  if (!matches || matches.length === 0) return true;
+  return matches.some((m) => m.toUpperCase() === upperVin);
+}
+
 async function lookupVinOnDealerPortal(
   page:    any,
   vin:     string,
-): Promise<{ status: "found" | "not_found" | "session_expired" | "error"; url?: string }> {
+): Promise<{ status: "found" | "not_found" | "session_expired" | "captcha" | "error"; url?: string }> {
   try {
     logger.info({ vin }, "Carfax worker: navigating to dealer VHR page");
-    await page.goto(CARFAX_VHR_URL, { waitUntil: "domcontentloaded", timeout: 20_000 });
+    try {
+      await page.goto(CARFAX_VHR_URL, { waitUntil: "domcontentloaded", timeout: 30_000 });
+    } catch (navErr: any) {
+      logger.warn({ vin, err: navErr?.message }, "Carfax worker: VHR navigation failed — retrying once");
+      await sleep(2_000);
+      await page.goto(CARFAX_VHR_URL, { waitUntil: "domcontentloaded", timeout: 30_000 });
+    }
     await humanDelay(2000);
 
     // Check if session expired mid-run
@@ -612,19 +778,20 @@ async function lookupVinOnDealerPortal(
       return { status: "session_expired" };
     }
 
+    if (await detectChallengePage(page)) {
+      logger.warn({ vin, currentUrl }, "Carfax worker: anti-bot challenge detected — aborting batch");
+      return { status: "captcha" };
+    }
+
     const searchInput = await findSelector(page, VIN_SEARCH_SELECTORS, 8_000);
     if (!searchInput) {
       logger.error({ vin }, "Carfax worker: could not find VIN search input on dealer portal");
       return { status: "error" };
     }
 
-    // Clear and type VIN — triple-click selects all existing text, then type replaces it
-    await searchInput.click({ clickCount: 3 });
-    await sleep(rand(80, 180));
-    await humanType(page, searchInput, vin);
+    await clearAndTypeVin(page, searchInput, vin);
 
-    // Human scroll after typing — mirrors original desktop script exactly.
-    // Gives the AJAX search time to fire and load results before we check.
+    // Human scroll after typing — gives any debounced AJAX search time to fire.
     await page.mouse.wheel({ deltaY: rand(60, 220) * (Math.random() > 0.3 ? 1 : -1) });
     await sleep(rand(300, 700));
     if (Math.random() > 0.6) {
@@ -632,24 +799,28 @@ async function lookupVinOnDealerPortal(
       await sleep(rand(200, 400));
     }
 
-    // Wait for a VISIBLE reportLink — visible:true skips hidden DOM placeholders
     let found = false;
     try {
-      await page.waitForSelector("a.reportLink", { visible: true, timeout: 10_000 });
+      await page.waitForSelector("a.reportLink", { visible: true, timeout: 12_000 });
       found = true;
     } catch (_) { found = false; }
 
     if (found) {
       const link = await findReportLink(page);
-      if (link) {
+      if (link && reportUrlMatchesVin(link, vin)) {
         logger.info({ vin, url: link }, "Carfax worker: found in My VHRs ✓");
         return { status: "found", url: link };
       }
+      if (link) {
+        logger.warn(
+          { vin, link },
+          "Carfax worker: My VHRs link did not match VIN — treating as stale, falling back to archive",
+        );
+      }
     }
 
-    // Try Global Archive
     logger.info({ vin }, "Carfax worker: not in My VHRs — trying Global Archive");
-    const archiveToggle = await findSelector(page, GLOBAL_ARCHIVE_SELECTORS, 3_000);
+    const archiveToggle = await findSelector(page, GLOBAL_ARCHIVE_SELECTORS, 5_000);
     if (!archiveToggle) {
       logger.info({ vin }, "Carfax worker: no Global Archive toggle found — not found");
       return { status: "not_found" };
@@ -658,15 +829,21 @@ async function lookupVinOnDealerPortal(
     await humanClick(page, archiveToggle);
     let found2 = false;
     try {
-      await page.waitForSelector("a.reportLink", { visible: true, timeout: 6_000 });
+      await page.waitForSelector("a.reportLink", { visible: true, timeout: 8_000 });
       found2 = true;
     } catch (_) { found2 = false; }
 
     if (found2) {
       const link2 = await findReportLink(page);
-      if (link2) {
+      if (link2 && reportUrlMatchesVin(link2, vin)) {
         logger.info({ vin, url: link2 }, "Carfax worker: found in Global Archive ✓");
         return { status: "found", url: link2 };
+      }
+      if (link2) {
+        logger.warn(
+          { vin, link: link2 },
+          "Carfax worker: archive link did not match VIN — discarding as stale",
+        );
       }
     }
 
@@ -762,29 +939,47 @@ export async function runCarfaxWorker(opts: { force?: boolean } = {}): Promise<v
       return;
     }
 
+    let aborted = false;
     for (const { rowIndex, vin } of pendingVins) {
-      logger.info({ vin, rowIndex, processed: processed + 1, total: pendingVins.length }, "Carfax worker: processing VIN");
+      logger.info(
+        { vin, rowIndex, processed: processed + 1, total: pendingVins.length },
+        "Carfax worker: processing VIN",
+      );
 
-      const result = await lookupVinOnDealerPortal(page, vin);
+      let result = await lookupVinOnDealerPortal(page, vin);
+
+      if (result.status === "captcha") {
+        logger.warn("Carfax worker: anti-bot challenge — aborting batch to avoid escalation");
+        await sendAlert("Carfax worker hit an anti-bot challenge and stopped early.");
+        aborted = true;
+        break;
+      }
 
       if (result.status === "session_expired") {
-        // Re-login and retry once
         logger.info("Carfax worker: re-logging in after session expiry");
         const relogged = await loginWithAuth0(page);
-        if (!relogged) { failed++; continue; }
-        const retry = await lookupVinOnDealerPortal(page, vin);
-        if (retry.status === "found" && retry.url) {
-          await writeCarfaxResult(rowIndex, retry.url);
-          carfaxResults.set(vin.toUpperCase(), retry.url);
-          succeeded++;
-        } else if (retry.status === "not_found") {
-          await writeCarfaxResult(rowIndex, "NOT FOUND");
-          carfaxResults.set(vin.toUpperCase(), "NOT FOUND");
-          notFound++;
-        } else {
-          failed++;
+        if (!relogged) { failed++; processed++; continue; }
+        result = await lookupVinOnDealerPortal(page, vin);
+        if (result.status === "captcha") {
+          await sendAlert("Carfax worker hit an anti-bot challenge after re-login and stopped early.");
+          aborted = true;
+          break;
         }
-      } else if (result.status === "found" && result.url) {
+      }
+
+      // One in-batch retry for transient errors (network blips, slow renders)
+      if (result.status === "error") {
+        logger.info({ vin }, "Carfax worker: transient error — retrying once");
+        await sleep(rand(2_500, 5_000));
+        result = await lookupVinOnDealerPortal(page, vin);
+        if (result.status === "captcha") {
+          await sendAlert("Carfax worker hit an anti-bot challenge during retry and stopped early.");
+          aborted = true;
+          break;
+        }
+      }
+
+      if (result.status === "found" && result.url) {
         await writeCarfaxResult(rowIndex, result.url);
         carfaxResults.set(vin.toUpperCase(), result.url);
         succeeded++;
@@ -797,13 +992,17 @@ export async function runCarfaxWorker(opts: { force?: boolean } = {}): Promise<v
       }
 
       processed++;
-      await humanDelay(rand(4_000, 9_000));
+      await humanIdleBetweenVins(page);
     }
 
     if (processed > 0) await writeCarfaxResult(0, "", true);
     if (carfaxResults.size > 0) {
       const { applyCarfaxResults } = await import("./inventoryCache.js");
       await applyCarfaxResults(carfaxResults);
+    }
+
+    if (aborted) {
+      logger.warn({ processed, succeeded, notFound, failed }, "Carfax worker: run aborted early");
     }
 
   } catch (err) {
@@ -813,6 +1012,7 @@ export async function runCarfaxWorker(opts: { force?: boolean } = {}): Promise<v
     if (browser) await browser.close();
     batchRunning   = false;
     batchStartedAt = null;
+    activeProfile  = null;
   }
 
   logger.info({ processed, succeeded, notFound, failed }, "Carfax worker: run complete");
@@ -848,6 +1048,8 @@ export async function runCarfaxWorkerForVins(vins: string[]): Promise<CarfaxTest
         results.push({ vin, status: "found", url: result.url });
       } else if (result.status === "not_found") {
         results.push({ vin, status: "not_found" });
+      } else if (result.status === "captcha") {
+        results.push({ vin, status: "captcha", error: "Anti-bot challenge presented" });
       } else if (result.status === "session_expired") {
         results.push({ vin, status: "error", error: "Session expired during test" });
       } else {
@@ -869,20 +1071,34 @@ export async function runCarfaxWorkerForVins(vins: string[]): Promise<CarfaxTest
 }
 
 // ---------------------------------------------------------------------------
-// Scheduler — randomized business-hours with in-memory run guard
+// Scheduler — randomized business-hours with object-storage run guard so
+// restarts cannot double-fire the worker on the same day.
 // ---------------------------------------------------------------------------
 export function scheduleCarfaxWorker(): void {
-  let lastRunDate = "";
+  let memoryLastRunDate = "";
 
   scheduleRandomDaily({
     name: "Carfax worker",
-    hasRunToday: () => {
+    hasRunToday: async () => {
       const today = toMountainDateStr();
-      return lastRunDate === today;
+      if (memoryLastRunDate === today) return true;
+      try {
+        const blob = await loadCarfaxRunsFromStore();
+        if (blob?.lastRunDate === today) {
+          memoryLastRunDate = today;
+          return true;
+        }
+      } catch (err) {
+        logger.warn({ err: String(err) }, "Carfax worker: could not read run history (treating as not run today)");
+      }
+      return false;
     },
     execute: (reason: string) => {
       const today = toMountainDateStr();
-      lastRunDate = today;
+      memoryLastRunDate = today;
+      saveCarfaxRunsToStore(today).catch((err) =>
+        logger.warn({ err: String(err) }, "Carfax worker: could not persist run date"),
+      );
       logger.info({ reason }, "Carfax worker: triggering run");
       runCarfaxWorker().catch((err) => logger.error({ err }, "Carfax worker: run error"));
     },
@@ -954,25 +1170,40 @@ export async function runCarfaxForNewVins(vins: string[]): Promise<void> {
       return;
     }
 
+    let aborted = false;
     for (const vin of filteredVins) {
-      logger.info({ vin, processed: processed + 1, total: filteredVins.length }, "Carfax worker (targeted): processing VIN");
+      logger.info(
+        { vin, processed: processed + 1, total: filteredVins.length },
+        "Carfax worker (targeted): processing VIN",
+      );
 
-      let finalResult: { status: string; url?: string } | null = null;
-      const result = await lookupVinOnDealerPortal(page, vin);
+      let result = await lookupVinOnDealerPortal(page, vin);
+
+      if (result.status === "captcha") {
+        logger.warn("Carfax worker (targeted): anti-bot challenge — aborting");
+        aborted = true;
+        break;
+      }
 
       if (result.status === "session_expired") {
         logger.info("Carfax worker (targeted): re-logging in after session expiry");
         const relogged = await loginWithAuth0(page);
         if (!relogged) { failed++; processed++; continue; }
-        finalResult = await lookupVinOnDealerPortal(page, vin);
-      } else {
-        finalResult = result;
+        result = await lookupVinOnDealerPortal(page, vin);
+        if (result.status === "captcha") { aborted = true; break; }
       }
 
-      if (finalResult.status === "found" && finalResult.url) {
-        carfaxResults.set(vin.toUpperCase(), finalResult.url);
+      if (result.status === "error") {
+        logger.info({ vin }, "Carfax worker (targeted): transient error — retrying once");
+        await sleep(rand(2_500, 5_000));
+        result = await lookupVinOnDealerPortal(page, vin);
+        if (result.status === "captcha") { aborted = true; break; }
+      }
+
+      if (result.status === "found" && result.url) {
+        carfaxResults.set(vin.toUpperCase(), result.url);
         succeeded++;
-      } else if (finalResult.status === "not_found") {
+      } else if (result.status === "not_found") {
         carfaxResults.set(vin.toUpperCase(), "NOT FOUND");
         notFound++;
       } else {
@@ -980,12 +1211,16 @@ export async function runCarfaxForNewVins(vins: string[]): Promise<void> {
       }
 
       processed++;
-      await humanDelay(rand(4_000, 9_000));
+      await humanIdleBetweenVins(page);
     }
 
     if (carfaxResults.size > 0) {
       const { applyCarfaxResults } = await import("./inventoryCache.js");
       await applyCarfaxResults(carfaxResults);
+    }
+
+    if (aborted) {
+      logger.warn({ processed, succeeded, notFound, failed }, "Carfax worker (targeted): run aborted early");
     }
   } catch (err) {
     logger.error({ err }, "Carfax worker (targeted): unexpected crash");
@@ -993,6 +1228,7 @@ export async function runCarfaxForNewVins(vins: string[]): Promise<void> {
     if (browser) await browser.close();
     batchRunning   = false;
     batchStartedAt = null;
+    activeProfile  = null;
   }
 
   logger.info({ processed, succeeded, notFound, failed }, "Carfax worker (targeted): run complete");
