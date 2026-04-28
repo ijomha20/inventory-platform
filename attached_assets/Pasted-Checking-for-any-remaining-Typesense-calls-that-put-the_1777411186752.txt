@@ -1,0 +1,31 @@
+Checking for any remaining Typesense calls that put the API key in the URL (could still cause 401):
+
+Here is how that Replit note lines up with reality, and what to do next.
+
+What that session got right
+Typesense returning 401 means the server cannot enrich online price, listing URLs, or photo flags from Typesense. While that is true, nothing that depends on Typesense will look “fixed” no matter how many times you publish.
+Republishing does refresh the running process for code. It does not by itself recompute the inventory JSON that already lives in Postgres from the last successful refresh.
+What it mixed up (“no stale cache”)
+There are two different “caches”:
+
+Kind	What it is
+Build / process
+New code after Publish + restart.
+Inventory cache
+Rows in your DB + in-memory list: website, onlinePrice, hasPhotos, etc. Those only change when refreshCache() runs and Typesense succeeds.
+So: no stale deploy cache can still mean very stale inventory data if Typesense was 401 during every refresh.
+
+Why you saw 401 at all (and what we changed)
+Putting the search key in the query string breaks many keys (e.g. + in base64). Typesense then responds with the generic 401 you saw. The fix is typesenseSearch: same URL params, key only in the x-typesense-api-key header. You already confirmed that helper exists on the Repl.
+
+If production logs still show 401 after that code is definitely running, then it is no longer “URL mangling” — it is wrong/expired key in env, or an old process still running until a clean restart.
+
+What “refresh everything” actually means on your stack
+Publish (so the process has the header-based Typesense code).
+Restart the API process once (so you are not tailing old log lines from before the deploy).
+Trigger a full inventory refresh — the one that hits your server’s POST /api/refresh with the refresh secret (Apps Script webhook / whatever you wired). That rebuilds the 78 rows including hasPhotos.
+Open GET /api/ops/diagnostics (owner): both collections should show ok: true. Then GET /api/cache-status: photosCount should be > 0 if Typesense documents actually carry image_urls.
+If after step 3–4 you still see 401 in new logs
+Then the problem is environment: TYPESENSE_KEY_* / collection IDs wrong or key revoked in Typesense. Fix secrets, redeploy, repeat steps 2–3.
+
+Bottom line: The Replit assistant correctly pointed at Typesense 401 as why enrichment looked unchanged. The missing piece is inventory must be refreshed after the Typesense fix is live; and any 401 in logs after that means keys/env, not “publish didn’t work.”
