@@ -263,3 +263,310 @@ export function lookupCondition(
   }
   return null;
 }
+
+/**
+ * Parses inventory string fields (e.g. "$12,500.00", "12500", null) into a
+ * finite number. Returns 0 for missing/non-finite values so callers can
+ * test with `<= 0` instead of branching on type/format.
+ */
+export function parseInventoryNumber(value: string | number | null | undefined): number {
+  if (typeof value === "number") return Number.isFinite(value) ? value : 0;
+  const parsed = parseFloat(String(value ?? "").replace(/[^0-9.\-]/g, ""));
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+/** Allocated backend product state during deal construction */
+export interface ProductState {
+  admin: number;
+  warranty: number;
+  gap: number;
+}
+
+/**
+ * Trims allocated backend products in reverse priority order (gap -> warranty -> admin)
+ * until `excess` is absorbed, mutating `state` in place.
+ *
+ * Returns the unabsorbed remainder, which the caller converts into additional
+ * required down payment (cash absorbs whatever the products couldn't).
+ */
+export function trimProductsInOrder(state: ProductState, excess: number): number {
+  let remaining = Math.max(0, Math.ceil(excess));
+  for (const key of ["gap", "warranty", "admin"] as const) {
+    if (remaining <= 0) break;
+    const cut = Math.min(state[key], remaining);
+    state[key] -= cut;
+    remaining -= cut;
+  }
+  return remaining;
+}
+
+/**
+ * Computes the pre-tax present-value ceiling derived from the maximum monthly payment.
+ * Returns `Infinity` when no payment cap applies.
+ */
+export function computePaymentCeilingPV(rateDecimal: number, termMonths: number, maxPmt: number): number {
+  if (!Number.isFinite(maxPmt)) return Infinity;
+  if (rateDecimal === 0) return maxPmt * termMonths;
+  const monthlyRate = rateDecimal / 12;
+  const factor = (Math.pow(1 + monthlyRate, termMonths) - 1) / (monthlyRate * Math.pow(1 + monthlyRate, termMonths));
+  return maxPmt * factor;
+}
+
+export interface ZeroDpCeilingInput {
+  hasAdvanceCap: boolean;
+  maxAdvance: number;
+  hasAllInCap: boolean;
+  maxAllInPreTax: number;
+  paymentPV: number;
+  downPayment: number;
+  netTrade: number;
+  creditorFee: number;
+  taxRate: number;
+}
+
+export interface ZeroDpCeilingResult {
+  ltvCeiling: number;
+  ltvReason: "advance" | "allIn" | "none";
+  paymentCeiling: number;
+  zeroDpCeiling: number;
+  bindingReason: "advance" | "allIn" | "payment" | "none";
+}
+
+/**
+ * Computes the maximum selling price that requires zero additional down payment,
+ * combining the active LTV ceilings with the payment-driven ceiling.
+ *
+ * - LTV ceiling = min of advance and all-in ceilings (whichever applies).
+ * - Payment ceiling = pre-tax PV of `maxPmt`, less creditor fee and lender exposure
+ *   adjustments (downPayment + netTrade).
+ * - Zero-DP ceiling = tighter of the two; reason explains which bound binds.
+ */
+export function computeZeroDpCeiling(input: ZeroDpCeilingInput): ZeroDpCeilingResult {
+  const ltvCandidates: { value: number; reason: "advance" | "allIn" }[] = [];
+  if (input.hasAdvanceCap) {
+    ltvCandidates.push({ value: input.maxAdvance + input.downPayment + input.netTrade, reason: "advance" });
+  }
+  if (input.hasAllInCap) {
+    ltvCandidates.push({
+      value: input.maxAllInPreTax - input.creditorFee + input.downPayment + input.netTrade,
+      reason: "allIn",
+    });
+  }
+
+  let ltvCeiling = Infinity;
+  let ltvReason: "advance" | "allIn" | "none" = "none";
+  if (ltvCandidates.length > 0) {
+    const min = ltvCandidates.reduce((best, cur) => (cur.value < best.value ? cur : best), ltvCandidates[0]);
+    ltvCeiling = Math.floor(min.value);
+    ltvReason = min.reason;
+  }
+
+  const paymentCeiling = Number.isFinite(input.paymentPV)
+    ? Math.floor((input.paymentPV / (1 + input.taxRate)) + input.downPayment + input.netTrade - input.creditorFee)
+    : Infinity;
+
+  const zeroDpCeiling = Math.min(ltvCeiling, paymentCeiling);
+
+  let bindingReason: ZeroDpCeilingResult["bindingReason"] = "none";
+  if (Number.isFinite(zeroDpCeiling)) {
+    if (paymentCeiling <= ltvCeiling) bindingReason = "payment";
+    else bindingReason = ltvReason;
+  }
+
+  return { ltvCeiling, ltvReason, paymentCeiling, zeroDpCeiling, bindingReason };
+}
+
+export interface SellingPriceInput {
+  pacCost: number;
+  onlinePrice: number | null;
+  zeroDpCeiling: number;
+  bindingZeroDpReason: "advance" | "allIn" | "payment" | "none";
+}
+
+export interface SellingPriceResolution {
+  sellingPrice: number;
+  sellingPriceCappedByOnline: boolean;
+  bindingSellingConstraint: "online" | "advance" | "allIn" | "payment" | "pacFloor" | "none";
+  /** Minimum down payment required to reach PAC when zero-DP ceiling is below PAC */
+  requiredDownPaymentForPac: number;
+}
+
+/**
+ * Selects the front-first selling price:
+ * - With an online price: cap selling price at the online price (never exceed).
+ * - Without one: maximize selling price up to the zero-DP ceiling, then floor at PAC.
+ *
+ * If the zero-DP ceiling is below PAC, returns the minimum cash required to lift
+ * lender exposure to PAC via `requiredDownPaymentForPac`. Selling price is always
+ * floored at PAC; the caller decides how to surface the DP requirement.
+ */
+export function resolveSellingPrice(input: SellingPriceInput): SellingPriceResolution {
+  const ceilingFinite = Number.isFinite(input.zeroDpCeiling) ? input.zeroDpCeiling : input.pacCost;
+  const requiredDownPaymentForPac = ceilingFinite < input.pacCost ? Math.ceil(input.pacCost - ceilingFinite) : 0;
+
+  let sellingPrice: number;
+  let sellingPriceCappedByOnline = false;
+  let bindingSellingConstraint: SellingPriceResolution["bindingSellingConstraint"];
+
+  if (input.onlinePrice != null) {
+    const cappedCeiling = Math.min(input.onlinePrice, ceilingFinite);
+    sellingPrice = Math.max(input.pacCost, cappedCeiling);
+    const onlineIsBinding = input.onlinePrice <= ceilingFinite;
+    if (sellingPrice <= input.pacCost && cappedCeiling < input.pacCost) {
+      bindingSellingConstraint = "pacFloor";
+    } else if (onlineIsBinding) {
+      bindingSellingConstraint = "online";
+      sellingPriceCappedByOnline = true;
+    } else {
+      bindingSellingConstraint = input.bindingZeroDpReason;
+    }
+  } else {
+    sellingPrice = Math.max(input.pacCost, ceilingFinite);
+    if (ceilingFinite < input.pacCost) {
+      bindingSellingConstraint = "pacFloor";
+    } else {
+      bindingSellingConstraint = input.bindingZeroDpReason;
+    }
+  }
+
+  return { sellingPrice, sellingPriceCappedByOnline, bindingSellingConstraint, requiredDownPaymentForPac };
+}
+
+export interface BackendAllocationInput {
+  allInRoom: number;
+  aftermarketRoom: number;
+  capAdmin: number | undefined;
+  desiredAdmin: number;
+  capWarranty: number | undefined;
+  capGap: number | undefined;
+  gapAllowed: boolean;
+  adminInclusion: string;
+  markup: number;
+  minWarrantyCost: number;
+  minGapCost: number;
+  maxGapPrice: number;
+}
+
+/**
+ * Allocates backend products incrementally in priority order:
+ * dealer admin -> warranty -> GAP/AH.
+ *
+ * Honors the smaller of `allInRoom` and `aftermarketRoom` for warranty/GAP.
+ * Admin allocation depends on `adminInclusion`:
+ * - "excluded": admin only consumes all-in room (not aftermarket); does not
+ *   reduce warranty/GAP budget when aftermarket is the binding cap.
+ * - other: admin reduces shared room before warranty/GAP.
+ *
+ * Per-product minimum cost thresholds (after markup) gate inclusion. The result
+ * is a `ProductState` ready to feed into the constraint settle loop.
+ */
+export function allocateBackend(input: BackendAllocationInput): ProductState {
+  let room = Number.isFinite(input.allInRoom) ? input.allInRoom : Infinity;
+  if (Number.isFinite(input.aftermarketRoom)) room = Math.min(room, input.aftermarketRoom);
+  if (!Number.isFinite(room) || room < 0) room = 0;
+
+  const state: ProductState = { admin: 0, warranty: 0, gap: 0 };
+  const adminFromCap = input.capAdmin != null ? Math.min(input.desiredAdmin, input.capAdmin) : input.desiredAdmin;
+
+  let warGapRoom: number;
+  if (input.adminInclusion === "excluded") {
+    const adminRoom = Number.isFinite(input.allInRoom) ? Math.max(0, Math.floor(input.allInRoom)) : adminFromCap;
+    state.admin = Math.min(adminFromCap, adminRoom);
+    warGapRoom = Number.isFinite(input.allInRoom)
+      ? Math.max(0, Math.min(room, input.allInRoom - state.admin))
+      : room;
+  } else {
+    state.admin = Math.min(adminFromCap, Math.floor(room));
+    warGapRoom = Math.max(0, room - state.admin);
+  }
+
+  const minWarrantyPrice = Math.round(input.minWarrantyCost * input.markup);
+  if (warGapRoom >= minWarrantyPrice) {
+    let warranty = input.capWarranty != null ? Math.min(warGapRoom, input.capWarranty) : warGapRoom;
+    warranty = Math.max(warranty, minWarrantyPrice);
+    if (warranty <= warGapRoom) state.warranty = warranty;
+  }
+  warGapRoom -= state.warranty;
+
+  if (input.gapAllowed) {
+    const minGapPrice = Math.round(input.minGapCost * input.markup);
+    if (warGapRoom >= minGapPrice) {
+      const gapCeiling = Math.min(input.maxGapPrice, input.capGap ?? input.maxGapPrice);
+      let gap = Math.min(warGapRoom, gapCeiling);
+      gap = Math.max(gap, minGapPrice);
+      if (gap <= warGapRoom) state.gap = gap;
+    }
+  }
+
+  return state;
+}
+
+export interface SettleConstraintsInput {
+  state: ProductState;
+  sellingPrice: number;
+  pacCost: number;
+  downPayment: number;
+  netTrade: number;
+  creditorFee: number;
+  taxRate: number;
+  rateDecimal: number;
+  termMonths: number;
+  maxPmt: number;
+  paymentPV: number;
+  maxAllInPreTax: number;
+  initialReqDP: number;
+  maxIterations?: number;
+}
+
+export interface SettleConstraintsResult {
+  state: ProductState;
+  reqDP: number;
+  feasible: boolean;
+}
+
+/**
+ * Iteratively trims allocated products and adds required down payment until
+ * both the all-in LTV and the payment cap are satisfied.
+ *
+ * Order: GAP -> warranty -> admin (reverse of allocation priority). Whatever
+ * the products can't absorb is converted into extra required down payment.
+ *
+ * Mutates `input.state` and returns the updated `reqDP`. `feasible` is false
+ * only when the deal degenerates into a non-positive subtotal (impossible to
+ * settle with any DP).
+ */
+export function settleConstraints(input: SettleConstraintsInput): SettleConstraintsResult {
+  const { state } = input;
+  let reqDP = input.initialReqDP;
+  const maxPasses = input.maxIterations ?? 40;
+
+  for (let pass = 0; pass < maxPasses; pass++) {
+    const exposure = input.sellingPrice - (input.downPayment + reqDP) - input.netTrade;
+    const allInSubtotal = exposure + state.admin + state.warranty + state.gap + input.creditorFee;
+    if (allInSubtotal <= 0) {
+      return { state, reqDP, feasible: false };
+    }
+    const totalFinanced = allInSubtotal * (1 + input.taxRate);
+    const monthlyPayment = pmt(input.rateDecimal, input.termMonths, totalFinanced);
+
+    let changed = false;
+    if (Number.isFinite(input.maxAllInPreTax) && allInSubtotal > input.maxAllInPreTax) {
+      const leftover = trimProductsInOrder(state, allInSubtotal - input.maxAllInPreTax);
+      if (leftover > 0) reqDP += leftover;
+      changed = true;
+    }
+
+    if (Number.isFinite(input.maxPmt) && monthlyPayment > input.maxPmt) {
+      const allowedSubtotal = input.paymentPV / (1 + input.taxRate);
+      const adjustedExposure = input.sellingPrice - (input.downPayment + reqDP) - input.netTrade;
+      const currentSubtotal = adjustedExposure + state.admin + state.warranty + state.gap + input.creditorFee;
+      const leftover = trimProductsInOrder(state, currentSubtotal - allowedSubtotal);
+      if (leftover > 0) reqDP += leftover;
+      changed = true;
+    }
+
+    if (!changed) break;
+  }
+
+  return { state, reqDP, feasible: true };
+}

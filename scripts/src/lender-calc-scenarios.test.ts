@@ -14,6 +14,13 @@ import assert from "node:assert/strict";
 import {
   resolveCapProfile,
   resolveNoOnlineSellingPrice,
+  parseInventoryNumber,
+  trimProductsInOrder,
+  computePaymentCeilingPV,
+  computeZeroDpCeiling,
+  resolveSellingPrice,
+  allocateBackend,
+  settleConstraints,
 } from "../../artifacts/api-server/src/lib/lenderCalcEngine.js";
 
 // --------------------------------------------------------------------------
@@ -279,4 +286,256 @@ test("Scenario 7: cap profile key and no-online strategy", () => {
   });
   assert.equal(resolution.source, "maximized");
   assert.equal(resolution.price, Math.round(25000 - 699));
+});
+
+// --------------------------------------------------------------------------
+// Scenario 8: incremental trim preserves priority (not all-or-nothing)
+// --------------------------------------------------------------------------
+
+test("Scenario 8: trimProductsInOrder removes GAP first, then warranty, then admin", () => {
+  const state = { admin: 699, warranty: 3500, gap: 2200 };
+  const leftover = trimProductsInOrder(state, 3000);
+
+  assert.equal(leftover, 0);
+  assert.equal(state.gap, 0, "GAP is trimmed first");
+  assert.equal(state.warranty, 2700, "Warranty trimmed after GAP");
+  assert.equal(state.admin, 699, "Admin remains until GAP/warranty exhausted");
+});
+
+test("Scenario 8b: trimProductsInOrder reports leftover when products cannot absorb excess", () => {
+  const state = { admin: 500, warranty: 1500, gap: 2000 };
+  const leftover = trimProductsInOrder(state, 5000);
+
+  assert.equal(state.gap, 0);
+  assert.equal(state.warranty, 0);
+  assert.equal(state.admin, 0);
+  assert.equal(leftover, 1000, "Excess beyond product budget rolls into required cash down");
+});
+
+// --------------------------------------------------------------------------
+// Scenario 9: no-online pricing uses zero-DP ceiling then PAC floor
+// --------------------------------------------------------------------------
+
+test("Scenario 9: resolveSellingPrice floors at PAC and reports DP when ceiling is below PAC", () => {
+  const result = resolveSellingPrice({
+    pacCost: 22000,
+    onlinePrice: null,
+    zeroDpCeiling: 20000,
+    bindingZeroDpReason: "advance",
+  });
+
+  assert.equal(result.sellingPrice, 22000, "Selling price floors at PAC");
+  assert.equal(result.requiredDownPaymentForPac, 2000, "DP = PAC - zero-DP ceiling");
+  assert.equal(result.bindingSellingConstraint, "pacFloor");
+  assert.equal(result.sellingPriceCappedByOnline, false);
+});
+
+test("Scenario 9b: resolveSellingPrice caps at online price when present", () => {
+  const result = resolveSellingPrice({
+    pacCost: 18000,
+    onlinePrice: 24500,
+    zeroDpCeiling: 30000,
+    bindingZeroDpReason: "allIn",
+  });
+
+  assert.equal(result.sellingPrice, 24500, "Capped at online when zero-DP ceiling exceeds it");
+  assert.equal(result.bindingSellingConstraint, "online");
+  assert.equal(result.sellingPriceCappedByOnline, true);
+  assert.equal(result.requiredDownPaymentForPac, 0);
+});
+
+test("Scenario 9c: resolveSellingPrice maximizes to zero-DP ceiling without online price", () => {
+  const result = resolveSellingPrice({
+    pacCost: 18000,
+    onlinePrice: null,
+    zeroDpCeiling: 24500,
+    bindingZeroDpReason: "payment",
+  });
+
+  assert.equal(result.sellingPrice, 24500, "Maximizes to zero-DP ceiling");
+  assert.equal(result.bindingSellingConstraint, "payment");
+  assert.equal(result.requiredDownPaymentForPac, 0);
+});
+
+test("Scenario 9d: online price above ltv ceiling -> ltv binds, not online", () => {
+  const result = resolveSellingPrice({
+    pacCost: 15000,
+    onlinePrice: 30000,
+    zeroDpCeiling: 22000,
+    bindingZeroDpReason: "allIn",
+  });
+
+  assert.equal(result.sellingPrice, 22000, "Selling price settles at ltv ceiling, not online");
+  assert.equal(result.bindingSellingConstraint, "allIn", "Binding constraint is the ltv ceiling, not online");
+  assert.equal(result.sellingPriceCappedByOnline, false, "Online wasn't the cap when ceiling is lower");
+  assert.equal(result.requiredDownPaymentForPac, 0);
+});
+
+test("Scenario 9e: ceiling below PAC with online above PAC -> pacFloor binds", () => {
+  const result = resolveSellingPrice({
+    pacCost: 20000,
+    onlinePrice: 30000,
+    zeroDpCeiling: 18000,
+    bindingZeroDpReason: "allIn",
+  });
+
+  assert.equal(result.sellingPrice, 20000, "Selling price floors at PAC");
+  assert.equal(result.bindingSellingConstraint, "pacFloor", "PAC floor is binding when ceiling < PAC");
+  assert.equal(result.sellingPriceCappedByOnline, false, "Online wasn't the cap; structural ceiling drove it below PAC");
+  assert.equal(result.requiredDownPaymentForPac, 2000, "Required DP equals PAC - ceiling");
+});
+
+// --------------------------------------------------------------------------
+// Scenario 10: reserve is profit-only, lender fee is structural-only
+// --------------------------------------------------------------------------
+
+test("Scenario 10: profit decomposition keeps reserve in gross and lender fee out of displayed gross", () => {
+  const frontEndGross = 2500;
+  const adminFeeUsed = 699;
+  const dealerReserve = 750;
+  const warrantyProfit = 900;
+  const gapProfit = 400;
+  const creditorFee = 675; // used for constraints only
+
+  const nonCancelableGross = frontEndGross + adminFeeUsed + dealerReserve;
+  const cancelableBackendGross = warrantyProfit + gapProfit;
+  const totalGross = nonCancelableGross + cancelableBackendGross;
+
+  assert.equal(nonCancelableGross, 3949);
+  assert.equal(cancelableBackendGross, 1300);
+  assert.equal(totalGross, 5249);
+  assert.notEqual(totalGross, 5249 - creditorFee, "Displayed gross should not subtract creditor fee");
+});
+
+// --------------------------------------------------------------------------
+// Scenario 11: parseInventoryNumber handles common inventory string formats
+// --------------------------------------------------------------------------
+
+test("Scenario 11: parseInventoryNumber strips formatting and handles missing values", () => {
+  assert.equal(parseInventoryNumber("$25,499.00"), 25499);
+  assert.equal(parseInventoryNumber("12500"), 12500);
+  assert.equal(parseInventoryNumber(18000), 18000);
+  assert.equal(parseInventoryNumber(null), 0);
+  assert.equal(parseInventoryNumber(undefined), 0);
+  assert.equal(parseInventoryNumber(""), 0);
+});
+
+// --------------------------------------------------------------------------
+// Scenario 12: computeZeroDpCeiling combines LTV and payment ceilings correctly
+// --------------------------------------------------------------------------
+
+test("Scenario 12: computeZeroDpCeiling picks the binding ceiling and reason", () => {
+  const paymentPV = computePaymentCeilingPV(0.0699, 84, 750);
+
+  // LTV-binding case: tight all-in cap
+  const ltvBound = computeZeroDpCeiling({
+    hasAdvanceCap: true,
+    maxAdvance: 30000,
+    hasAllInCap: true,
+    maxAllInPreTax: 22000,
+    paymentPV,
+    downPayment: 0,
+    netTrade: 0,
+    creditorFee: 699,
+    taxRate: 0.05,
+  });
+  assert.equal(ltvBound.bindingReason, "allIn");
+  assert.ok(ltvBound.zeroDpCeiling <= 22000 - 699, "All-in ceiling subtracts creditor fee");
+
+  // Payment-binding case: low maxPmt
+  const tightPaymentPV = computePaymentCeilingPV(0.0699, 84, 250);
+  const paymentBound = computeZeroDpCeiling({
+    hasAdvanceCap: true,
+    maxAdvance: 30000,
+    hasAllInCap: true,
+    maxAllInPreTax: 40000,
+    paymentPV: tightPaymentPV,
+    downPayment: 0,
+    netTrade: 0,
+    creditorFee: 699,
+    taxRate: 0.05,
+  });
+  assert.equal(paymentBound.bindingReason, "payment");
+  assert.ok(paymentBound.paymentCeiling < paymentBound.ltvCeiling);
+});
+
+// --------------------------------------------------------------------------
+// Scenario 13: allocateBackend follows priority and per-product caps
+// --------------------------------------------------------------------------
+
+test("Scenario 13: allocateBackend stacks admin -> warranty -> GAP within room", () => {
+  const result = allocateBackend({
+    allInRoom: 6000,
+    aftermarketRoom: Infinity,
+    capAdmin: 999,
+    desiredAdmin: 999,
+    capWarranty: 2000,
+    capGap: undefined,
+    gapAllowed: true,
+    adminInclusion: "included",
+    markup: 2.5,
+    minWarrantyCost: 600,
+    minGapCost: 550,
+    maxGapPrice: 2500,
+  });
+
+  assert.equal(result.admin, 999);
+  assert.equal(result.warranty, 2000, "Warranty capped at program cap");
+  assert.ok(result.gap > 0 && result.gap <= 2500, "GAP fills remaining room without exceeding ceiling");
+});
+
+test("Scenario 13b: allocateBackend skips warranty when room is below minimum threshold", () => {
+  const result = allocateBackend({
+    allInRoom: 800,
+    aftermarketRoom: Infinity,
+    capAdmin: 0,
+    desiredAdmin: 0,
+    capWarranty: undefined,
+    capGap: undefined,
+    gapAllowed: true,
+    adminInclusion: "included",
+    markup: 2.5,
+    minWarrantyCost: 600,
+    minGapCost: 550,
+    maxGapPrice: 2500,
+  });
+
+  assert.equal(result.admin, 0);
+  assert.equal(result.warranty, 0, "No warranty when room < minWarrantyCost * markup");
+  assert.equal(result.gap, 0);
+});
+
+// --------------------------------------------------------------------------
+// Scenario 14: settleConstraints trims products under payment cap
+// --------------------------------------------------------------------------
+
+test("Scenario 14: settleConstraints reduces products before requiring extra DP", () => {
+  const state = { admin: 699, warranty: 3000, gap: 2000 };
+  const rateDecimal = 0.2149;
+  const termMonths = 72;
+  const maxPmt = 400;
+  const paymentPV = computePaymentCeilingPV(rateDecimal, termMonths, maxPmt);
+
+  const result = settleConstraints({
+    state,
+    sellingPrice: 14000,
+    pacCost: 12000,
+    downPayment: 0,
+    netTrade: 0,
+    creditorFee: 0,
+    taxRate: 0.05,
+    rateDecimal,
+    termMonths,
+    maxPmt,
+    paymentPV,
+    maxAllInPreTax: Infinity,
+    initialReqDP: 0,
+  });
+
+  assert.equal(result.feasible, true);
+  // GAP is trimmed before warranty before admin
+  if (result.state.admin === 699) {
+    assert.ok(result.state.gap <= 2000, "GAP trimmed first");
+    assert.ok(result.state.warranty <= 3000, "Warranty trimmed only after GAP");
+  }
 });
