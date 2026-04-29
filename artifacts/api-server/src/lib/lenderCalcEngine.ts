@@ -387,34 +387,42 @@ export interface SellingPriceResolution {
   sellingPrice: number;
   sellingPriceCappedByOnline: boolean;
   bindingSellingConstraint: "online" | "advance" | "allIn" | "payment" | "pacFloor" | "none";
-  /** Minimum down payment required to reach PAC when zero-DP ceiling is below PAC */
-  requiredDownPaymentForPac: number;
+  /**
+   * Minimum down payment required to reach the chosen selling price.
+   *
+   * When an online price exists, the target is the online price (priority);
+   * otherwise the target is PAC. Equals zero when the zero-DP ceiling already
+   * reaches the target.
+   */
+  requiredDownPayment: number;
 }
 
 /**
  * Selects the front-first selling price:
- * - With an online price: cap selling price at the online price (never exceed).
- * - Without one: maximize selling price up to the zero-DP ceiling, then floor at PAC.
+ * - With an online price: target the online price (floored at PAC). If the
+ *   zero-DP ceiling cannot reach the online price, report the DP needed to
+ *   reach it.
+ * - Without an online price: maximize selling price up to the zero-DP ceiling
+ *   and floor at PAC. If the ceiling is below PAC, report the DP needed to
+ *   reach PAC.
  *
- * If the zero-DP ceiling is below PAC, returns the minimum cash required to lift
- * lender exposure to PAC via `requiredDownPaymentForPac`. Selling price is always
- * floored at PAC; the caller decides how to surface the DP requirement.
+ * The DP target priority is: online price first, then PAC. The caller passes
+ * `requiredDownPayment` into `settleConstraints` as `initialReqDP`.
  */
 export function resolveSellingPrice(input: SellingPriceInput): SellingPriceResolution {
   const ceilingFinite = Number.isFinite(input.zeroDpCeiling) ? input.zeroDpCeiling : input.pacCost;
-  const requiredDownPaymentForPac = ceilingFinite < input.pacCost ? Math.ceil(input.pacCost - ceilingFinite) : 0;
 
   let sellingPrice: number;
   let sellingPriceCappedByOnline = false;
   let bindingSellingConstraint: SellingPriceResolution["bindingSellingConstraint"];
+  let requiredDownPayment: number;
 
   if (input.onlinePrice != null) {
-    const cappedCeiling = Math.min(input.onlinePrice, ceilingFinite);
-    sellingPrice = Math.max(input.pacCost, cappedCeiling);
-    const onlineIsBinding = input.onlinePrice <= ceilingFinite;
-    if (sellingPrice <= input.pacCost && cappedCeiling < input.pacCost) {
-      bindingSellingConstraint = "pacFloor";
-    } else if (onlineIsBinding) {
+    const target = Math.max(input.pacCost, input.onlinePrice);
+    sellingPrice = target;
+    requiredDownPayment = ceilingFinite < target ? Math.ceil(target - ceilingFinite) : 0;
+
+    if (input.onlinePrice <= ceilingFinite) {
       bindingSellingConstraint = "online";
       sellingPriceCappedByOnline = true;
     } else {
@@ -422,6 +430,8 @@ export function resolveSellingPrice(input: SellingPriceInput): SellingPriceResol
     }
   } else {
     sellingPrice = Math.max(input.pacCost, ceilingFinite);
+    requiredDownPayment = ceilingFinite < input.pacCost ? Math.ceil(input.pacCost - ceilingFinite) : 0;
+
     if (ceilingFinite < input.pacCost) {
       bindingSellingConstraint = "pacFloor";
     } else {
@@ -429,7 +439,7 @@ export function resolveSellingPrice(input: SellingPriceInput): SellingPriceResol
     }
   }
 
-  return { sellingPrice, sellingPriceCappedByOnline, bindingSellingConstraint, requiredDownPaymentForPac };
+  return { sellingPrice, sellingPriceCappedByOnline, bindingSellingConstraint, requiredDownPayment };
 }
 
 export interface BackendAllocationInput {

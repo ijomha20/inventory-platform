@@ -316,7 +316,7 @@ test("Scenario 8b: trimProductsInOrder reports leftover when products cannot abs
 // Scenario 9: no-online pricing uses zero-DP ceiling then PAC floor
 // --------------------------------------------------------------------------
 
-test("Scenario 9: resolveSellingPrice floors at PAC and reports DP when ceiling is below PAC", () => {
+test("Scenario 9: no-online -> selling price floors at PAC, DP reaches PAC", () => {
   const result = resolveSellingPrice({
     pacCost: 22000,
     onlinePrice: null,
@@ -325,12 +325,12 @@ test("Scenario 9: resolveSellingPrice floors at PAC and reports DP when ceiling 
   });
 
   assert.equal(result.sellingPrice, 22000, "Selling price floors at PAC");
-  assert.equal(result.requiredDownPaymentForPac, 2000, "DP = PAC - zero-DP ceiling");
+  assert.equal(result.requiredDownPayment, 2000, "DP = PAC - zero-DP ceiling");
   assert.equal(result.bindingSellingConstraint, "pacFloor");
   assert.equal(result.sellingPriceCappedByOnline, false);
 });
 
-test("Scenario 9b: resolveSellingPrice caps at online price when present", () => {
+test("Scenario 9b: online reachable at zero DP -> sells at online, capped", () => {
   const result = resolveSellingPrice({
     pacCost: 18000,
     onlinePrice: 24500,
@@ -338,13 +338,13 @@ test("Scenario 9b: resolveSellingPrice caps at online price when present", () =>
     bindingZeroDpReason: "allIn",
   });
 
-  assert.equal(result.sellingPrice, 24500, "Capped at online when zero-DP ceiling exceeds it");
+  assert.equal(result.sellingPrice, 24500, "Sells at online when zero-DP ceiling already covers it");
   assert.equal(result.bindingSellingConstraint, "online");
   assert.equal(result.sellingPriceCappedByOnline, true);
-  assert.equal(result.requiredDownPaymentForPac, 0);
+  assert.equal(result.requiredDownPayment, 0);
 });
 
-test("Scenario 9c: resolveSellingPrice maximizes to zero-DP ceiling without online price", () => {
+test("Scenario 9c: no-online -> maximizes to zero-DP ceiling", () => {
   const result = resolveSellingPrice({
     pacCost: 18000,
     onlinePrice: null,
@@ -354,10 +354,10 @@ test("Scenario 9c: resolveSellingPrice maximizes to zero-DP ceiling without onli
 
   assert.equal(result.sellingPrice, 24500, "Maximizes to zero-DP ceiling");
   assert.equal(result.bindingSellingConstraint, "payment");
-  assert.equal(result.requiredDownPaymentForPac, 0);
+  assert.equal(result.requiredDownPayment, 0);
 });
 
-test("Scenario 9d: online price above ltv ceiling -> ltv binds, not online", () => {
+test("Scenario 9d: online above structural ceiling (pac<ceiling<online) -> DP gets us to online", () => {
   const result = resolveSellingPrice({
     pacCost: 15000,
     onlinePrice: 30000,
@@ -365,13 +365,13 @@ test("Scenario 9d: online price above ltv ceiling -> ltv binds, not online", () 
     bindingZeroDpReason: "allIn",
   });
 
-  assert.equal(result.sellingPrice, 22000, "Selling price settles at ltv ceiling, not online");
-  assert.equal(result.bindingSellingConstraint, "allIn", "Binding constraint is the ltv ceiling, not online");
-  assert.equal(result.sellingPriceCappedByOnline, false, "Online wasn't the cap when ceiling is lower");
-  assert.equal(result.requiredDownPaymentForPac, 0);
+  assert.equal(result.sellingPrice, 30000, "Sells at online (priority target)");
+  assert.equal(result.bindingSellingConstraint, "allIn", "Binding constraint is the structural ceiling");
+  assert.equal(result.sellingPriceCappedByOnline, false, "Online wasn't reachable at zero DP");
+  assert.equal(result.requiredDownPayment, 8000, "DP = online - zero-DP ceiling");
 });
 
-test("Scenario 9e: ceiling below PAC with online above PAC -> pacFloor binds", () => {
+test("Scenario 9e: ceiling below PAC, online above PAC -> DP reaches online (not PAC)", () => {
   const result = resolveSellingPrice({
     pacCost: 20000,
     onlinePrice: 30000,
@@ -379,10 +379,22 @@ test("Scenario 9e: ceiling below PAC with online above PAC -> pacFloor binds", (
     bindingZeroDpReason: "allIn",
   });
 
-  assert.equal(result.sellingPrice, 20000, "Selling price floors at PAC");
-  assert.equal(result.bindingSellingConstraint, "pacFloor", "PAC floor is binding when ceiling < PAC");
-  assert.equal(result.sellingPriceCappedByOnline, false, "Online wasn't the cap; structural ceiling drove it below PAC");
-  assert.equal(result.requiredDownPaymentForPac, 2000, "Required DP equals PAC - ceiling");
+  assert.equal(result.sellingPrice, 30000, "Online price has priority over PAC for the DP target");
+  assert.equal(result.bindingSellingConstraint, "allIn", "Structural ceiling is binding");
+  assert.equal(result.sellingPriceCappedByOnline, false, "Online wasn't reachable at zero DP");
+  assert.equal(result.requiredDownPayment, 12000, "DP = online - zero-DP ceiling (not PAC - ceiling)");
+});
+
+test("Scenario 9f: online below PAC (degenerate) -> floor at PAC, DP reaches PAC", () => {
+  const result = resolveSellingPrice({
+    pacCost: 25000,
+    onlinePrice: 22000,
+    zeroDpCeiling: 18000,
+    bindingZeroDpReason: "advance",
+  });
+
+  assert.equal(result.sellingPrice, 25000, "Cannot sell below PAC even when online price is lower");
+  assert.equal(result.requiredDownPayment, 7000, "DP = PAC - ceiling");
 });
 
 // --------------------------------------------------------------------------
@@ -546,7 +558,7 @@ test("Scenario 13c: allocateBackend with post-DP exposure exposes hidden room ab
   assert.ok(naiveRoom < 0, "Pre-DP room should be negative for this case");
 
   // Post-DP exposure exposes real room
-  const effectiveExposure = selling.sellingPrice - (downPayment + selling.requiredDownPaymentForPac) - netTrade;
+  const effectiveExposure = selling.sellingPrice - (downPayment + selling.requiredDownPayment) - netTrade;
   const effectiveRoom = maxAllInPreTax - effectiveExposure - creditorFee;
   assert.ok(effectiveRoom > 0, "Post-DP room should be positive for product stacking");
 
