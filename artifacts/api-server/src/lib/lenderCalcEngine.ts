@@ -1,4 +1,9 @@
-import type { VehicleTermMatrixEntry, VehicleConditionMatrixEntry } from "./bbObjectStore.js";
+import type {
+  VehicleTermMatrixEntry,
+  VehicleConditionMatrixEntry,
+  WorksheetRule,
+  RuleEffect,
+} from "./bbObjectStore.js";
 
 export type CapModelResolved = "allInOnly" | "split" | "backendOnly" | "unknown";
 export type CapProfileKey = "000" | "001" | "010" | "011" | "100" | "101" | "110" | "111";
@@ -579,4 +584,409 @@ export function settleConstraints(input: SettleConstraintsInput): SettleConstrai
   }
 
   return { state, reqDP, feasible: true };
+}
+
+// ---------------------------------------------------------------------------
+// Worksheet rule parser
+// ---------------------------------------------------------------------------
+
+/**
+ * Strips outer whitespace and a leading/trailing parenthesis pair when present.
+ * CreditApp rule queries are often parenthesized to disambiguate precedence.
+ */
+function trimParens(s: string): string {
+  let out = s.trim();
+  while (out.startsWith("(") && out.endsWith(")")) {
+    let depth = 0;
+    let outerWraps = true;
+    for (let i = 0; i < out.length; i++) {
+      if (out[i] === "(") depth++;
+      else if (out[i] === ")") depth--;
+      if (depth === 0 && i < out.length - 1) { outerWraps = false; break; }
+    }
+    if (outerWraps) out = out.slice(1, -1).trim();
+    else break;
+  }
+  return out;
+}
+
+/**
+ * Splits a CreditApp rule query into AND-clauses, ignoring `&&` inside
+ * parentheses, brackets, or strings.
+ */
+function splitAnd(query: string): string[] {
+  const out: string[] = [];
+  let depth = 0;
+  let inStr = false;
+  let buf = "";
+  for (let i = 0; i < query.length; i++) {
+    const c = query[i];
+    if (c === '"') inStr = !inStr;
+    if (!inStr) {
+      if (c === "(" || c === "[" || c === "{") depth++;
+      else if (c === ")" || c === "]" || c === "}") depth--;
+      if (depth === 0 && c === "&" && query[i + 1] === "&") {
+        out.push(buf.trim());
+        buf = "";
+        i++;
+        continue;
+      }
+    }
+    buf += c;
+  }
+  if (buf.trim()) out.push(buf.trim());
+  return out;
+}
+
+/**
+ * Splits a rule query into OR-clauses, ignoring `||` inside nested groups or
+ * strings. Preserves operator-context for parsers that match composite
+ * expressions like vehicle-type bans across multiple alternatives.
+ */
+function splitOr(query: string): string[] {
+  const out: string[] = [];
+  let depth = 0;
+  let inStr = false;
+  let buf = "";
+  for (let i = 0; i < query.length; i++) {
+    const c = query[i];
+    if (c === '"') inStr = !inStr;
+    if (!inStr) {
+      if (c === "(" || c === "[" || c === "{") depth++;
+      else if (c === ")" || c === "]" || c === "}") depth--;
+      if (depth === 0 && c === "|" && query[i + 1] === "|") {
+        out.push(buf.trim());
+        buf = "";
+        i++;
+        continue;
+      }
+    }
+    buf += c;
+  }
+  if (buf.trim()) out.push(buf.trim());
+  return out;
+}
+
+/** Strips `(${expr} ?? fallback)` wrappers down to the bare ${expr} placeholder. */
+function stripCoalesce(s: string): string {
+  // Match (${expr} ?? "###") or (${expr} ?? 0) wrapping the LHS of a comparison
+  return s.replace(/\(\s*(\$\{[^}]+\})\s*\?\?\s*[^)]+\)/g, "$1");
+}
+
+/**
+ * Best-effort parser for a CreditApp `WorksheetRule.query` string.
+ * Recognizes a small set of eligibility-relevant patterns and emits typed
+ * `RuleEffect`s. Anything else returns `{ kind: "ignored" }` with a reason.
+ *
+ * Operational rules (firstPaymentDate, deliveryDate, frequency, term-multiple,
+ * AH routing, fee-vs-calculatedValue caps, lien-holder requirement) are
+ * intentionally ignored — they don't affect inventory eligibility and the
+ * calculator already enforces fee caps via the program's max*Calculation
+ * fields.
+ *
+ * The output shape is consumed by `applyEligibilityRules` and the calculator
+ * route. Tier-conditional rules carry a `tierName` so the calculator can apply
+ * them only when running under the matching tier.
+ */
+export function parseWorksheetRule(rule: WorksheetRule): RuleEffect {
+  const q = rule.query;
+  const meta = { ruleId: rule.id, ruleName: rule.name };
+
+  // -- Skip operational rules outright (cheap pre-filter) --
+  if (
+    /firstPaymentDate|deliveryDate|date_part|date_until/.test(q) ||
+    /\bworksheet\.frequency\b/.test(q) ||
+    /\bworksheet\.interestRate\b/.test(q) ||
+    /\bworksheet\.tradeIn\b/.test(q) ||
+    /otherTaxableDescription|otherNonTaxableDescription/.test(q) ||
+    /\bworksheet\.installationDeliveryFee\b/.test(q) ||
+    /\bworksheet\.lifeInsurance\b/.test(q) ||
+    /\bworksheet\.ahInsuranceFee\b/.test(q) ||
+    /\bworksheet\.creditorFee\b/.test(q) ||
+    /\bworksheet\.gpsFee\b/.test(q) ||
+    /\bworksheet\.LicenseFee\b|\bworksheet\.licenseFee\b/.test(q) ||
+    /\bworksheet\.pstNotApplicableOnGapInsurance\b/.test(q) ||
+    /\bworksheet\.otherNonTaxable\b|\bworksheet\.otherTaxable\b/.test(q)
+  ) {
+    return { ...meta, kind: "ignored", reason: "operational" };
+  }
+
+  // -- term-multiple-of-6 / non-eligibility term rules --
+  if (/\bworksheet\.term\b\s+notin\b/.test(q)) {
+    return { ...meta, kind: "ignored", reason: "term_format_check" };
+  }
+
+  // -- max*Calculation fee caps (already handled by program.max*Fee fields) --
+  if (/\bcalculatedValues\.\w+/.test(q)) {
+    return { ...meta, kind: "ignored", reason: "fee_cap_already_handled" };
+  }
+
+  const ands = splitAnd(q).map(trimParens).map(stripCoalesce);
+
+  // -- Odometer max: ${worksheet.vehicle.odometer.amount} > N --
+  for (const clause of ands) {
+    const m = clause.match(/\$\{worksheet\.vehicle\.odometer\.amount\}\s*>\s*(\d+)\s*$/);
+    if (m) return { ...meta, kind: "odometerMax", max: parseInt(m[1], 10) };
+  }
+
+  // -- Odometer min (e.g. Santander odometer == 0 → min of 1) --
+  if (/\$\{worksheet\.vehicle\.odometer\.amount\}.*==\s*0/.test(q)) {
+    return { ...meta, kind: "odometerMin", min: 1 };
+  }
+
+  // -- Vehicle min year: ${worksheet.vehicle.year} < N (often quoted) --
+  for (const clause of ands) {
+    const m = clause.match(/\$\{worksheet\.vehicle\.year\}\s*<\s*"?(\d{4})"?\s*$/);
+    if (m) return { ...meta, kind: "vehicleMinYear", minYear: parseInt(m[1], 10) };
+  }
+
+  // -- Carfax claim absolute cap: ${worksheet.vehicle.carfaxClaims.amount} > N
+  // Pure absolute cap (no BBV ratio in any AND-clause).
+  if (
+    /\$\{worksheet\.vehicle\.carfaxClaims\.amount\}\s*>\s*\d+\s*$/.test(q) &&
+    !/wholesaleValueBasedOnProgram/.test(q)
+  ) {
+    const m = q.match(/\$\{worksheet\.vehicle\.carfaxClaims\.amount\}\s*>\s*(\d+)/);
+    if (m) return { ...meta, kind: "carfaxClaimMax", max: parseInt(m[1], 10) };
+  }
+
+  // -- Carfax claim ratio: ${...carfaxClaims.amount} > (${...wholesaleValue...} * RATIO) [&& bbv > FLOOR]
+  if (/wholesaleValueBasedOnProgram/.test(q) && /carfaxClaims\.amount/.test(q)) {
+    // 100% rule: claims > BBV (no ratio constant)
+    if (/\$\{worksheet\.vehicle\.carfaxClaims\.amount\}\s*>\s*\$\{worksheet\.vehicle\.wholesaleValueBasedOnProgram\.amount\}\s*$/.test(q)) {
+      return { ...meta, kind: "carfaxClaimRatioMax", ratio: 1.0 };
+    }
+    const ratioMatch = q.match(/\$\{worksheet\.vehicle\.wholesaleValueBasedOnProgram\.amount\}\s*\*\s*(0?\.\d+|\d+\.\d+)/);
+    if (ratioMatch) {
+      const ratio = parseFloat(ratioMatch[1]);
+      let bbvFloor: number | undefined;
+      let bbvCeiling: number | undefined;
+      const floorMatch = q.match(/\$\{worksheet\.vehicle\.wholesaleValueBasedOnProgram\.amount\}\s*>\s*(\d+)/);
+      if (floorMatch) bbvFloor = parseInt(floorMatch[1], 10);
+      const ceilMatch = q.match(/\$\{worksheet\.vehicle\.wholesaleValueBasedOnProgram\.amount\}\s*<\s*(\d+)/);
+      if (ceilMatch) bbvCeiling = parseInt(ceilMatch[1], 10);
+      return { ...meta, kind: "carfaxClaimRatioMax", ratio, bbvFloor, bbvCeiling };
+    }
+  }
+
+  // -- Total finance max: ${worksheet.totalFinancedAmount.amount} > N [&& program.tierName == "X"]
+  if (/\$\{worksheet\.totalFinancedAmount\.amount\}\s*>\s*\d+/.test(q)) {
+    const m = q.match(/\$\{worksheet\.totalFinancedAmount\.amount\}\s*>\s*(\d+)/);
+    if (m) {
+      const max = parseInt(m[1], 10);
+      const tierMatch = q.match(/\$\{program\.tierName\}\s*==\s*"([^"]+)"/);
+      // Also catch lookup-table form (Rifco): >  {"Tier 1": 55000,...} lookup ${program.tierName}
+      // Skip those — handled case-by-case in apply step
+      if (q.includes("lookup")) {
+        return { ...meta, kind: "ignored", reason: "tier_lookup_table_unsupported" };
+      }
+      return { ...meta, kind: "totalFinanceMax", max, tierName: tierMatch ? tierMatch[1] : undefined };
+    }
+  }
+
+  // -- Total finance min --
+  if (/\$\{worksheet\.totalFinancedAmount\.amount\}\s*<\s*\d+/.test(q)) {
+    const m = q.match(/\$\{worksheet\.totalFinancedAmount\.amount\}\s*<\s*(\d+)/);
+    if (m) return { ...meta, kind: "totalFinanceMin", min: parseInt(m[1], 10) };
+  }
+
+  // -- Term hard max: ${worksheet.term} > N (only when N is the sole RHS, not lookup tables/program.maxTerm)
+  const termMatch = q.match(/^\s*\$\{worksheet\.term\}\s*>\s*(\d+)\s*$/);
+  if (termMatch) {
+    return { ...meta, kind: "termMax", max: parseInt(termMatch[1], 10) };
+  }
+
+  // -- Vehicle type ban (multiple shapes; AND-within-disjunct preserved):
+  //    Eden Park: `${trim} match /a/ || ${model} match /b/ || (${make} match /Ford/ && ${model} match /Transit/)`
+  //    Rifco DRW: `(...year && make && model && trim in [...]) || ${trim} match /DRW/`
+  //    Rifco cargo (no `match`): `${model} in ["EXPRESS", ...]`
+  //
+  // We split top-level OR-clauses, then for each clause extract every
+  // `match /.../` regex body. Single-field matches become a 1-element disjunct;
+  // composite AND clauses keep all their patterns so the eligibility check
+  // requires all of them to fire.
+  if (
+    (/vehicle\.(model|trim|make)/.test(q)) &&
+    (/\bmatch\s+\//.test(q) || /\bin\s+\[/.test(q))
+  ) {
+    // Model-in-list (Rifco cargo vans) — handled separately when no match regexes are present.
+    const modelInList: string[] = [];
+    const inMatch = q.match(/\$\{worksheet\.vehicle\.model\}\s+in\s+\[([^\]]+)\]/);
+    if (inMatch) {
+      const items = inMatch[1].match(/"([^"]+)"/g);
+      if (items) for (const it of items) modelInList.push(it.replace(/"/g, ""));
+    }
+    const orClauses = splitOr(q).map(trimParens);
+    const disjuncts: string[][] = [];
+    for (const clause of orClauses) {
+      const patterns: string[] = [];
+      const matchRe = /match\s+\/([^/]+)\//g;
+      let m: RegExpExecArray | null;
+      while ((m = matchRe.exec(clause)) !== null) {
+        patterns.push(m[1]);
+      }
+      if (patterns.length > 0) disjuncts.push(patterns);
+    }
+    if (modelInList.length > 0 && disjuncts.length === 0) {
+      return { ...meta, kind: "vehicleModelInList", models: modelInList };
+    }
+    if (disjuncts.length > 0) {
+      return {
+        ...meta,
+        kind: "vehicleTypeBan",
+        disjuncts,
+        description: rule.description ?? rule.name,
+      };
+    }
+  }
+
+  return { ...meta, kind: "ignored", reason: "unrecognized" };
+}
+
+/**
+ * Convenience wrapper: parses an array of raw rules into effects.
+ * Used at sync time (lenderWorker) and at calc time as a fallback.
+ */
+export function parseWorksheetRules(rules: WorksheetRule[]): RuleEffect[] {
+  return rules.map(parseWorksheetRule);
+}
+
+export interface EligibilityVehicle {
+  vehicle: string;
+  km:      number;
+  vehicleYear: number;
+  bbWholesale: number;
+  carfaxClaimAmount?: number;
+  totalFinancedEstimate?: number;
+}
+
+export interface EligibilityResult {
+  ok: boolean;
+  rejections: { ruleId: string; ruleName: string; reason: string }[];
+}
+
+/**
+ * Applies parsed rule effects against a vehicle. Returns `ok: false` and the
+ * rejection reasons when any hard-eligibility predicate fails. Rules tied to a
+ * specific tier name only fire when `tierName` matches.
+ *
+ * The carfaxClaim* checks short-circuit when no claim amount is supplied
+ * (we don't pessimistically reject vehicles with unknown carfax history).
+ */
+export function applyEligibilityRules(
+  effects: RuleEffect[],
+  vehicle: EligibilityVehicle,
+  ctx: { tierName: string },
+): EligibilityResult {
+  const rejections: { ruleId: string; ruleName: string; reason: string }[] = [];
+  const make  = vehicle.vehicle;
+  const lower = make.toLowerCase();
+
+  for (const eff of effects) {
+    switch (eff.kind) {
+      case "odometerMax":
+        if (vehicle.km > eff.max) {
+          rejections.push({ ruleId: eff.ruleId, ruleName: eff.ruleName, reason: `km ${vehicle.km} > ${eff.max}` });
+        }
+        break;
+      case "odometerMin":
+        if (vehicle.km < eff.min) {
+          rejections.push({ ruleId: eff.ruleId, ruleName: eff.ruleName, reason: `km ${vehicle.km} < ${eff.min}` });
+        }
+        break;
+      case "vehicleMinYear":
+        if (vehicle.vehicleYear < eff.minYear) {
+          rejections.push({ ruleId: eff.ruleId, ruleName: eff.ruleName, reason: `year ${vehicle.vehicleYear} < ${eff.minYear}` });
+        }
+        break;
+      case "vehicleTypeBan": {
+        // Reject when any disjunct's patterns ALL match the vehicle string.
+        for (const conjunction of eff.disjuncts) {
+          let allMatch = true;
+          for (const pat of conjunction) {
+            try {
+              const re = new RegExp(pat, "i");
+              if (!re.test(lower)) { allMatch = false; break; }
+            } catch {
+              allMatch = false; break;
+            }
+          }
+          if (allMatch) {
+            rejections.push({ ruleId: eff.ruleId, ruleName: eff.ruleName, reason: eff.description });
+            break;
+          }
+        }
+        break;
+      }
+      case "vehicleModelInList": {
+        const upper = make.toUpperCase();
+        if (eff.models.some((m) => upper.includes(m.toUpperCase()))) {
+          rejections.push({ ruleId: eff.ruleId, ruleName: eff.ruleName, reason: `model in banned list` });
+        }
+        break;
+      }
+      case "carfaxClaimMax":
+        if (vehicle.carfaxClaimAmount != null && vehicle.carfaxClaimAmount > eff.max) {
+          rejections.push({ ruleId: eff.ruleId, ruleName: eff.ruleName, reason: `carfax claim ${vehicle.carfaxClaimAmount} > ${eff.max}` });
+        }
+        break;
+      case "carfaxClaimRatioMax":
+        if (vehicle.carfaxClaimAmount != null && vehicle.bbWholesale > 0) {
+          const floorOk   = eff.bbvFloor   == null || vehicle.bbWholesale > eff.bbvFloor;
+          const ceilingOk = eff.bbvCeiling == null || vehicle.bbWholesale < eff.bbvCeiling;
+          if (floorOk && ceilingOk && vehicle.carfaxClaimAmount > vehicle.bbWholesale * eff.ratio) {
+            rejections.push({
+              ruleId: eff.ruleId,
+              ruleName: eff.ruleName,
+              reason: `carfax ${vehicle.carfaxClaimAmount} > ${(eff.ratio * 100).toFixed(0)}% of BBV ${vehicle.bbWholesale}`,
+            });
+          }
+        }
+        break;
+      case "totalFinanceMax":
+        if (eff.tierName != null && eff.tierName !== ctx.tierName) break;
+        if (vehicle.totalFinancedEstimate != null && vehicle.totalFinancedEstimate > eff.max) {
+          rejections.push({
+            ruleId: eff.ruleId,
+            ruleName: eff.ruleName,
+            reason: `est. financed ${Math.round(vehicle.totalFinancedEstimate)} > ${eff.max}`,
+          });
+        }
+        break;
+      // totalFinanceMin / termMax / ignored: not actionable at eligibility-filter stage
+      default:
+        break;
+    }
+  }
+
+  return { ok: rejections.length === 0, rejections };
+}
+
+/**
+ * Returns the tightest absolute term cap, in months, from `termMax` rule
+ * effects — or `null` when no term cap applies. Used to clamp matrix-derived
+ * terms before allocation.
+ */
+export function deriveTermCap(effects: RuleEffect[]): number | null {
+  let cap: number | null = null;
+  for (const eff of effects) {
+    if (eff.kind === "termMax") {
+      cap = cap == null ? eff.max : Math.min(cap, eff.max);
+    }
+  }
+  return cap;
+}
+
+/**
+ * Returns the tightest total-finance cap applicable to the given tier (or
+ * `null`). Effects without a tierName apply to all tiers.
+ */
+export function deriveTotalFinanceCap(effects: RuleEffect[], tierName: string): number | null {
+  let cap: number | null = null;
+  for (const eff of effects) {
+    if (eff.kind !== "totalFinanceMax") continue;
+    if (eff.tierName != null && eff.tierName !== tierName) continue;
+    cap = cap == null ? eff.max : Math.min(cap, eff.max);
+  }
+  return cap;
 }

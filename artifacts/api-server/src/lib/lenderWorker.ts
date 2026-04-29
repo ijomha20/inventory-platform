@@ -8,7 +8,9 @@ import {
   type LenderProgramsBlob,
   type VehicleTermMatrixEntry,
   type VehicleConditionMatrixEntry,
+  type WorksheetRule,
 } from "./bbObjectStore.js";
+import { parseWorksheetRules } from "./lenderCalcEngine.js";
 import { getLenderAuthCookies, callGraphQL, LENDER_ENABLED } from "./lenderAuth.js";
 import { scheduleRandomDaily, toMountainDateStr } from "./randomScheduler.js";
 
@@ -68,6 +70,14 @@ const CREDITORS_PROGRAMS_QUERY = `{
     id
     name
     status
+    worksheetRules {
+      id
+      name
+      query
+      fieldName
+      description
+      type
+    }
     programs {
       id
       type
@@ -113,6 +123,28 @@ function mapCreditorToLenderPrograms(creditor: any): LenderProgram[] {
   const creditorName: string = creditor.name ?? "";
   const creditorId: string = creditor.id;
 
+  // Worksheet rules are creditor-level — copy them onto every LenderProgram
+  // we emit for this creditor (including each split when IN_HOUSE expands into
+  // multiple programs). Parsing happens once here so the calculator path is
+  // free of regex work.
+  const worksheetRules: WorksheetRule[] = Array.isArray(creditor.worksheetRules)
+    ? creditor.worksheetRules.map((r: any) => ({
+        id:          String(r.id),
+        name:        String(r.name ?? ""),
+        query:       String(r.query ?? ""),
+        fieldName:   r.fieldName ?? null,
+        description: r.description ?? null,
+        type:        String(r.type ?? "WARNING"),
+      }))
+    : [];
+  const ruleEffects = parseWorksheetRules(worksheetRules);
+
+  if (worksheetRules.length > 0) {
+    const summary: Record<string, number> = {};
+    for (const eff of ruleEffects) summary[eff.kind] = (summary[eff.kind] ?? 0) + 1;
+    logger.info({ creditorName, ruleCount: worksheetRules.length, byKind: summary }, "Lender sync: parsed worksheet rules");
+  }
+
   if (creditorName === "IN_HOUSE") {
     const grouped = new Map<string, { code: string; name: string; guides: LenderProgramGuide[] }>();
 
@@ -130,6 +162,8 @@ function mapCreditorToLenderPrograms(creditor: any): LenderProgram[] {
       lenderName: g.name,
       creditorId,
       programs: g.guides,
+      worksheetRules,
+      ruleEffects,
     }));
   }
 
@@ -152,6 +186,8 @@ function mapCreditorToLenderPrograms(creditor: any): LenderProgram[] {
     lenderName: mapping.name,
     creditorId,
     programs: guides,
+    worksheetRules,
+    ruleEffects,
   }];
 }
 

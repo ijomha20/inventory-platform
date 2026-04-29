@@ -20,8 +20,13 @@ import {
   resolveSellingPrice,
   allocateBackend,
   settleConstraints,
+  parseWorksheetRules,
+  applyEligibilityRules,
+  deriveTermCap,
+  deriveTotalFinanceCap,
   type ConditionBucket,
 } from "../../lib/lenderCalcEngine.js";
+import type { RuleEffect } from "../../lib/bbObjectStore.js";
 import { getRuntimeFingerprint } from "../../lib/runtimeFingerprint.js";
 
 const router = Router();
@@ -155,6 +160,17 @@ router.post("/lender-calculate", requireOwnerOrViewer, validateBody(LenderCalcul
   const gapAllowed  = capGap == null || capGap > 0;
 
   const termStretch = normalizeTermStretchMonths(params.termStretchMonths);
+
+  // Resolve creditor-level worksheet rules → typed effects. Effects from sync
+  // are preferred (already parsed); fall back to parsing raw rules when the
+  // cache predates this feature so we don't gate eligibility on a re-sync.
+  let ruleEffects: RuleEffect[] = lender.ruleEffects ?? [];
+  if (ruleEffects.length === 0 && lender.worksheetRules && lender.worksheetRules.length > 0) {
+    ruleEffects = parseWorksheetRules(lender.worksheetRules);
+  }
+  const ruleTermCap = deriveTermCap(ruleEffects);
+  const ruleTotalFinanceCap = deriveTotalFinanceCap(ruleEffects, params.tierName);
+
   interface Result {
     vin: string;
     vehicle: string;
@@ -199,8 +215,10 @@ router.post("/lender-calculate", requireOwnerOrViewer, validateBody(LenderCalcul
     noBB: 0,
     noBBVal: 0,
     noPacPrice: 0,
+    excludedByRule: 0,
     passed: 0,
   };
+  const ruleRejectionsSummary: Record<string, number> = {};
 
   inventory: for (const item of inventory) {
     debugCounts.total++;
@@ -213,10 +231,11 @@ router.post("/lender-calculate", requireOwnerOrViewer, validateBody(LenderCalcul
     const baseTerm = lookupTerm(guide.vehicleTermMatrix, vehicleYear, km);
     if (!baseTerm) { debugCounts.noTerm++; continue inventory; }
     const termResolved = resolveEffectiveTermStretch(baseTerm, termStretch);
-    const termMonths = termResolved.termMonths;
+    let termMonths = termResolved.termMonths;
     const termStretched = termResolved.stretched;
     const termStretchApplied = termResolved.effectiveStretch;
     const termStretchCappedReason = termResolved.cappedReason;
+    if (ruleTermCap != null && termMonths > ruleTermCap) termMonths = ruleTermCap;
 
     const condition = lookupCondition(guide.vehicleConditionMatrix, vehicleYear, km);
     if (!condition) { debugCounts.noCondition++; continue inventory; }
@@ -231,15 +250,46 @@ router.post("/lender-calculate", requireOwnerOrViewer, validateBody(LenderCalcul
     const pacCost = parseInventoryNumber(item.price);
     if (pacCost <= 0) { debugCounts.noPacPrice++; continue inventory; }
 
+    // Apply lender worksheetRules eligibility (km cap, vehicle ban, carfax cap, year cap).
+    // carfaxClaimAmount comes from inventory bb metadata when available.
+    const carfaxClaimAmount = parseInventoryNumber((item as any).carfaxClaimsAmount ?? (item as any).carfaxClaimAmount);
+    if (ruleEffects.length > 0) {
+      const elig = applyEligibilityRules(ruleEffects, {
+        vehicle: item.vehicle,
+        km,
+        vehicleYear,
+        bbWholesale,
+        carfaxClaimAmount: carfaxClaimAmount > 0 ? carfaxClaimAmount : undefined,
+      }, { tierName: params.tierName });
+      if (!elig.ok) {
+        debugCounts.excludedByRule++;
+        for (const r of elig.rejections) {
+          ruleRejectionsSummary[r.ruleName] = (ruleRejectionsSummary[r.ruleName] ?? 0) + 1;
+        }
+        continue inventory;
+      }
+    }
+
     const maxAdvance = hasAdvanceCap ? bbWholesale * maxAdvanceLTV : Infinity;
     const maxAllInWithTax = hasAllInCap ? bbWholesale * maxAllInLTV : Infinity;
-    const maxAllInPreTax = isFinite(maxAllInWithTax) ? (maxAllInWithTax / allInTaxMultiplier) : Infinity;
+    let maxAllInPreTax = isFinite(maxAllInWithTax) ? (maxAllInWithTax / allInTaxMultiplier) : Infinity;
+    // Total-finance rule cap (e.g. ACC $50k, Santander tier-conditional caps)
+    // tightens the all-in subtotal bound regardless of whether an LTV all-in
+    // cap is otherwise active. The cap is post-tax (matches CreditApp's
+    // totalFinancedAmount.amount), so we divide back into the same pre-tax
+    // space and force `hasAllInCap` true so downstream ceilings honor it.
+    let effectiveHasAllInCap = hasAllInCap;
+    if (ruleTotalFinanceCap != null) {
+      const capPreTax = ruleTotalFinanceCap / allInTaxMultiplier;
+      maxAllInPreTax = Math.min(maxAllInPreTax, capPreTax);
+      effectiveHasAllInCap = true;
+    }
 
     const paymentPV = computePaymentCeilingPV(rateDecimal, termMonths, maxPmt);
     const ceilingResult = computeZeroDpCeiling({
       hasAdvanceCap,
       maxAdvance,
-      hasAllInCap,
+      hasAllInCap: effectiveHasAllInCap,
       maxAllInPreTax,
       paymentPV,
       downPayment,
@@ -356,6 +406,10 @@ router.post("/lender-calculate", requireOwnerOrViewer, validateBody(LenderCalcul
 
   logger.info({
     debugCounts,
+    ruleRejectionsSummary,
+    ruleEffectsCount: ruleEffects.length,
+    ruleTermCap,
+    ruleTotalFinanceCap,
     lender: params.lenderCode,
     program: guide.programTitle,
     tier: params.tierName,

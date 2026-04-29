@@ -21,7 +21,13 @@ import {
   resolveSellingPrice,
   allocateBackend,
   settleConstraints,
+  parseWorksheetRule,
+  parseWorksheetRules,
+  applyEligibilityRules,
+  deriveTermCap,
+  deriveTotalFinanceCap,
 } from "../../artifacts/api-server/src/lib/lenderCalcEngine.js";
+import type { WorksheetRule } from "../../artifacts/api-server/src/lib/bbObjectStore.js";
 
 // --------------------------------------------------------------------------
 // Helpers — mirror the exact functions from routes/lender.ts so we can test
@@ -609,4 +615,293 @@ test("Scenario 14: settleConstraints reduces products before requiring extra DP"
     assert.ok(result.state.gap <= 2000, "GAP trimmed first");
     assert.ok(result.state.warranty <= 3000, "Warranty trimmed only after GAP");
   }
+});
+
+// --------------------------------------------------------------------------
+// Worksheet rules: parser + eligibility application
+// --------------------------------------------------------------------------
+
+function makeRule(query: string, name = "rule", description = ""): WorksheetRule {
+  return {
+    id: `r-${Math.random().toString(36).slice(2, 8)}`,
+    name,
+    query,
+    fieldName: null,
+    description,
+    type: "WARNING",
+  };
+}
+
+test("parseWorksheetRule: Eden Park 180k km cap → odometerMax", () => {
+  const r = makeRule(
+    "${worksheet.vehicle.odometer.amount} > 180000",
+    "Program maximum kilometers 180,000",
+    "180,000 km limit",
+  );
+  const eff = parseWorksheetRule(r);
+  assert.equal(eff.kind, "odometerMax");
+  if (eff.kind === "odometerMax") assert.equal(eff.max, 180000);
+});
+
+test("parseWorksheetRule: ACC age cap → vehicleMinYear", () => {
+  const r = makeRule(
+    `(\${worksheet.vehicle.year} ?? 0) < "2014" && (\${worksheet.vehicle.year} ?? "###") != "###"`,
+    "Program vehicle age Max is 10 years",
+  );
+  const eff = parseWorksheetRule(r);
+  assert.equal(eff.kind, "vehicleMinYear");
+  if (eff.kind === "vehicleMinYear") assert.equal(eff.minYear, 2014);
+});
+
+test("parseWorksheetRule: Eden Park carfax claim cap → carfaxClaimMax", () => {
+  const r = makeRule("${worksheet.vehicle.carfaxClaims.amount} > 7500", "Program Damage Claim limit is $7500");
+  const eff = parseWorksheetRule(r);
+  assert.equal(eff.kind, "carfaxClaimMax");
+  if (eff.kind === "carfaxClaimMax") assert.equal(eff.max, 7500);
+});
+
+test("parseWorksheetRule: Rifco carfax ratio (50% of BBV)", () => {
+  const r = makeRule(
+    "${worksheet.vehicle.carfaxClaims.amount} > 10000 || ${worksheet.vehicle.carfaxClaims.amount} > (${worksheet.vehicle.wholesaleValueBasedOnProgram.amount} * 0.5)",
+    "Rifco claim limit",
+  );
+  const eff = parseWorksheetRule(r);
+  assert.equal(eff.kind, "carfaxClaimRatioMax");
+  if (eff.kind === "carfaxClaimRatioMax") assert.equal(eff.ratio, 0.5);
+});
+
+test("parseWorksheetRule: Santander carfax 35% above $20k BBV", () => {
+  const r = makeRule(
+    "${worksheet.vehicle.carfaxClaims.amount} > (${worksheet.vehicle.wholesaleValueBasedOnProgram.amount} * 0.35 ) && (${worksheet.vehicle.wholesaleValueBasedOnProgram.amount} > 20000)",
+  );
+  const eff = parseWorksheetRule(r);
+  assert.equal(eff.kind, "carfaxClaimRatioMax");
+  if (eff.kind === "carfaxClaimRatioMax") {
+    assert.equal(eff.ratio, 0.35);
+    assert.equal(eff.bbvFloor, 20000);
+  }
+});
+
+test("parseWorksheetRule: Santander 100% rule (claims > BBV)", () => {
+  const r = makeRule(
+    "${worksheet.vehicle.carfaxClaims.amount} > ${worksheet.vehicle.wholesaleValueBasedOnProgram.amount}",
+  );
+  const eff = parseWorksheetRule(r);
+  assert.equal(eff.kind, "carfaxClaimRatioMax");
+  if (eff.kind === "carfaxClaimRatioMax") assert.equal(eff.ratio, 1.0);
+});
+
+test("parseWorksheetRule: Eden Park cargo van regex ban (preserves AND across OR-disjuncts)", () => {
+  const r = makeRule(
+    "${worksheet.vehicle.trim} match /^van|cargo|cube/ || ${worksheet.vehicle.model} match /cargo|^van/ || (${worksheet.vehicle.make} match /Chevrolet/ && (${worksheet.vehicle.model} match /Express/ || ${worksheet.vehicle.trim} match /Express/)) || (${worksheet.vehicle.make} match /Ram/ && ${worksheet.vehicle.model} match /ProMaster/) || (${worksheet.vehicle.make} match /Ford/ && ${worksheet.vehicle.model} match /Transit/)",
+    "Cargo Van & Cube are not allowed",
+    "Cargo Van & Cube are not allowed",
+  );
+  const eff = parseWorksheetRule(r);
+  assert.equal(eff.kind, "vehicleTypeBan");
+  if (eff.kind === "vehicleTypeBan") {
+    const effects = [eff];
+    const banned = (vehicle: string) =>
+      !applyEligibilityRules(effects, { vehicle, km: 1, vehicleYear: 2020, bbWholesale: 1 }, { tierName: "x" }).ok;
+    assert.ok(banned("2021 Ford Transit Cargo Van"), "Ford Transit must be rejected");
+    assert.ok(banned("2020 Chevrolet Express 2500"), "Chevy Express must be rejected");
+    assert.ok(banned("2019 Ram ProMaster City"), "Ram ProMaster must be rejected");
+    // Critical regression guard: a regular Chevrolet Silverado must NOT be flagged
+    // as a cargo van just because the regex contains "Chevrolet" in one branch.
+    assert.ok(!banned("2021 Chevrolet Silverado 1500 Crew Cab"), "Chevy Silverado must NOT be a cargo-van false positive");
+    assert.ok(!banned("2021 Toyota Camry"));
+    assert.ok(!banned("2022 Ford F-150"));
+  }
+});
+
+test("parseWorksheetRule: Rifco cargo van model-in-list", () => {
+  const r = makeRule(
+    `\${worksheet.vehicle.model} in ["EXPRESS", "EXPRESS CARGO", "TRANSIT 150", "TRANSIT 250", "PROMASTER", "SPRINTER 2500 CARGO"]`,
+    "Rifco does not provide financing for cargo vans",
+  );
+  const eff = parseWorksheetRule(r);
+  assert.equal(eff.kind, "vehicleModelInList");
+  if (eff.kind === "vehicleModelInList") {
+    assert.ok(eff.models.includes("EXPRESS"));
+    assert.ok(eff.models.includes("PROMASTER"));
+  }
+});
+
+test("parseWorksheetRule: ACC $50k total finance cap (no tier filter)", () => {
+  const r = makeRule(
+    "${worksheet.totalFinancedAmount.amount} > 50000",
+    "Program Max for Total Amount to Financed is $50,000",
+  );
+  const eff = parseWorksheetRule(r);
+  assert.equal(eff.kind, "totalFinanceMax");
+  if (eff.kind === "totalFinanceMax") {
+    assert.equal(eff.max, 50000);
+    assert.equal(eff.tierName, undefined);
+  }
+});
+
+test("parseWorksheetRule: Santander tier-conditional NTC $40k cap", () => {
+  const r = makeRule(
+    `\${worksheet.totalFinancedAmount.amount} > 40000 && \${program.tierName} == "NTC"`,
+  );
+  const eff = parseWorksheetRule(r);
+  assert.equal(eff.kind, "totalFinanceMax");
+  if (eff.kind === "totalFinanceMax") {
+    assert.equal(eff.max, 40000);
+    assert.equal(eff.tierName, "NTC");
+  }
+});
+
+test("parseWorksheetRule: iAF 96-month term cap", () => {
+  const r = makeRule("${worksheet.term} > 96", "Program Limit is 96 months");
+  const eff = parseWorksheetRule(r);
+  assert.equal(eff.kind, "termMax");
+  if (eff.kind === "termMax") assert.equal(eff.max, 96);
+});
+
+test("parseWorksheetRule: Rifco $5k min finance", () => {
+  const r = makeRule(
+    `\${worksheet.totalFinancedAmount.amount} < 5000 && \${worksheet.salePrice.amount} ?? "###" != "###"`,
+  );
+  const eff = parseWorksheetRule(r);
+  assert.equal(eff.kind, "totalFinanceMin");
+  if (eff.kind === "totalFinanceMin") assert.equal(eff.min, 5000);
+});
+
+test("parseWorksheetRule: operational rules return ignored", () => {
+  const samples = [
+    "${worksheet.firstPaymentDate} != ${decision.firstPaymentDate}",
+    `\${worksheet.term} notin [84, 78, 72] && (\${worksheet.term} ?? "###") != "###"`,
+    `\${worksheet.frequency} == "WEEKLY"`,
+    "${worksheet.deliveryDate} date_until \"day\" < -1",
+    "${worksheet.dealerAdminFee.amount} > ${calculatedValues.maxDealerAdminFee}",
+    "${worksheet.creditorFee.amount} > ${calculatedValues.creditorFee}",
+  ];
+  for (const q of samples) {
+    const eff = parseWorksheetRule(makeRule(q));
+    assert.equal(eff.kind, "ignored", `expected ignored for: ${q}`);
+  }
+});
+
+test("applyEligibilityRules: Eden Park rejects 221k km Silverado", () => {
+  const rules = [
+    makeRule("${worksheet.vehicle.odometer.amount} > 180000", "Program maximum kilometers 180,000", "180,000 km limit"),
+  ];
+  const effects = parseWorksheetRules(rules);
+  const result = applyEligibilityRules(effects, {
+    vehicle: "2021 CHEVROLET SILVERADO 1500 CUSTOM CREWCAB",
+    km: 221000,
+    vehicleYear: 2021,
+    bbWholesale: 25092,
+  }, { tierName: "3 Ride" });
+  assert.equal(result.ok, false);
+  assert.equal(result.rejections.length, 1);
+  assert.match(result.rejections[0].reason, /km 221000 > 180000/);
+});
+
+test("applyEligibilityRules: Eden Park accepts 150k km Silverado", () => {
+  const rules = [
+    makeRule("${worksheet.vehicle.odometer.amount} > 180000", "Program maximum kilometers 180,000"),
+  ];
+  const effects = parseWorksheetRules(rules);
+  const result = applyEligibilityRules(effects, {
+    vehicle: "2021 CHEVROLET SILVERADO 1500",
+    km: 150000,
+    vehicleYear: 2021,
+    bbWholesale: 25000,
+  }, { tierName: "3 Ride" });
+  assert.equal(result.ok, true);
+  assert.equal(result.rejections.length, 0);
+});
+
+test("applyEligibilityRules: ACC rejects 2013 Ford F-150", () => {
+  const rules = [
+    makeRule(`(\${worksheet.vehicle.year} ?? 0) < "2014"`, "Program vehicle age Max is 10 years"),
+  ];
+  const effects = parseWorksheetRules(rules);
+  const result = applyEligibilityRules(effects, {
+    vehicle: "2013 FORD F-150",
+    km: 100000,
+    vehicleYear: 2013,
+    bbWholesale: 18000,
+  }, { tierName: "Tier 1" });
+  assert.equal(result.ok, false);
+  assert.match(result.rejections[0].reason, /year 2013 < 2014/);
+});
+
+test("applyEligibilityRules: Eden Park rejects Ford Transit cargo van by regex", () => {
+  const rules = [
+    makeRule(
+      "${worksheet.vehicle.trim} match /^van|cargo|cube/ || ${worksheet.vehicle.model} match /cargo|^van/ || (${worksheet.vehicle.make} match /Ford/ && ${worksheet.vehicle.model} match /Transit/)",
+      "Cargo Van & Cube are not allowed",
+      "Cargo Van & Cube are not allowed",
+    ),
+  ];
+  const effects = parseWorksheetRules(rules);
+  const result = applyEligibilityRules(effects, {
+    vehicle: "2020 FORD TRANSIT 250 CARGO",
+    km: 80000,
+    vehicleYear: 2020,
+    bbWholesale: 30000,
+  }, { tierName: "3 Ride" });
+  assert.equal(result.ok, false);
+});
+
+test("applyEligibilityRules: Rifco rejects Express by model-in-list", () => {
+  const rules = [
+    makeRule(
+      `\${worksheet.vehicle.model} in ["EXPRESS", "EXPRESS CARGO", "TRANSIT 150", "PROMASTER"]`,
+      "Rifco does not provide financing for cargo vans",
+    ),
+  ];
+  const effects = parseWorksheetRules(rules);
+  const result = applyEligibilityRules(effects, {
+    vehicle: "2020 CHEVROLET EXPRESS 2500",
+    km: 50000,
+    vehicleYear: 2020,
+    bbWholesale: 25000,
+  }, { tierName: "Tier 1" });
+  assert.equal(result.ok, false);
+});
+
+test("applyEligibilityRules: Santander tier-conditional cap only applies to NTC tier", () => {
+  const rules = [
+    makeRule(`\${worksheet.totalFinancedAmount.amount} > 40000 && \${program.tierName} == "NTC"`, "NTC $40k cap"),
+  ];
+  const effects = parseWorksheetRules(rules);
+
+  const ntc = applyEligibilityRules(effects, {
+    vehicle: "2022 TOYOTA RAV4",
+    km: 30000,
+    vehicleYear: 2022,
+    bbWholesale: 28000,
+    totalFinancedEstimate: 45000,
+  }, { tierName: "NTC" });
+  assert.equal(ntc.ok, false);
+
+  const otherTier = applyEligibilityRules(effects, {
+    vehicle: "2022 TOYOTA RAV4",
+    km: 30000,
+    vehicleYear: 2022,
+    bbWholesale: 28000,
+    totalFinancedEstimate: 45000,
+  }, { tierName: "9" });
+  assert.equal(otherTier.ok, true);
+});
+
+test("deriveTermCap returns tightest term cap from effects", () => {
+  const effects = parseWorksheetRules([
+    makeRule("${worksheet.term} > 96"),
+    makeRule("${worksheet.term} > 84"),
+  ]);
+  assert.equal(deriveTermCap(effects), 84);
+});
+
+test("deriveTotalFinanceCap respects tier filter", () => {
+  const effects = parseWorksheetRules([
+    makeRule("${worksheet.totalFinancedAmount.amount} > 50000"),
+    makeRule(`\${worksheet.totalFinancedAmount.amount} > 40000 && \${program.tierName} == "NTC"`),
+  ]);
+  assert.equal(deriveTotalFinanceCap(effects, "NTC"), 40000);
+  assert.equal(deriveTotalFinanceCap(effects, "Tier 1"), 50000);
 });

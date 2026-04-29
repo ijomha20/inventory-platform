@@ -223,11 +223,62 @@ export interface LenderProgramGuide {
   adminFeeInclusion?: "backend" | "allIn" | "excluded" | "unknown";
 }
 
+/**
+ * Raw worksheet rule synced from CreditApp's GraphQL `Creditor.worksheetRules`
+ * field. Rules are creditor-level (apply across all programs of that lender)
+ * and contain a CreditApp template-language `query` string that, when true,
+ * would surface a warning/error in the CreditApp UI when booking the deal.
+ *
+ * Most rules are operational (payment-date windows, term-multiple-of-6,
+ * frequency restrictions) and don't affect inventory eligibility. Eligibility-
+ * affecting rules (km caps, vehicle-type bans, carfax claim caps, total-finance
+ * caps, vehicle age caps) are extracted into `RuleEffect[]` by the parser.
+ */
+export interface WorksheetRule {
+  id:          string;
+  name:        string;
+  query:       string;
+  fieldName:   string | null;
+  description: string | null;
+  type:        "ERROR" | "WARNING" | string;
+}
+
+/**
+ * Parsed rule shapes consumed by the calculator's eligibility filter.
+ *
+ * `ignored` is emitted (with a reason) for rules the parser intentionally does
+ * not act on — operational, tier-conditional with unsupported tier context, or
+ * unrecognized syntax. The raw rules are also persisted alongside parsed
+ * effects so future debugging is non-destructive.
+ */
+export type RuleEffect =
+  | { kind: "odometerMax";      max: number;       ruleId: string; ruleName: string }
+  | { kind: "odometerMin";      min: number;       ruleId: string; ruleName: string }
+  | { kind: "vehicleMinYear";   minYear: number;   ruleId: string; ruleName: string }
+  /**
+   * Vehicle type ban predicate: rejects when ANY `disjuncts` entry matches.
+   * Each disjunct is an array of regex patterns that ALL must match the
+   * vehicle string (preserves AND semantics inside an OR-clause, e.g.
+   * "make match /Ford/ AND model match /Transit/").
+   */
+  | { kind: "vehicleTypeBan";   disjuncts: string[][]; description: string; ruleId: string; ruleName: string }
+  | { kind: "vehicleModelInList"; models: string[]; ruleId: string; ruleName: string }
+  | { kind: "carfaxClaimMax";   max: number;       ruleId: string; ruleName: string }
+  | { kind: "carfaxClaimRatioMax"; ratio: number; bbvFloor?: number; bbvCeiling?: number; ruleId: string; ruleName: string }
+  | { kind: "totalFinanceMax";  max: number; tierName?: string; ruleId: string; ruleName: string }
+  | { kind: "totalFinanceMin";  min: number;       ruleId: string; ruleName: string }
+  | { kind: "termMax";          max: number;       ruleId: string; ruleName: string }
+  | { kind: "ignored";          reason: string;    ruleId: string; ruleName: string };
+
 export interface LenderProgram {
   lenderCode:   string;
   lenderName:   string;
   creditorId:   string;
   programs:     LenderProgramGuide[];
+  /** Raw rules from CreditApp (creditor-level, applies to all programs) */
+  worksheetRules?: WorksheetRule[];
+  /** Effects parsed from `worksheetRules`; calculator consumes these directly */
+  ruleEffects?: RuleEffect[];
 }
 
 export interface LenderProgramsBlob {
