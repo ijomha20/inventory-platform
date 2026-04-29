@@ -1030,8 +1030,6 @@ components:
           type: number
         termStretchMonths:
           type: integer
-        showAllWithDownPayment:
-          type: boolean
       required:
         - lenderCode
         - programId
@@ -1053,14 +1051,30 @@ components:
           type: integer
         termStretchApplied:
           type: integer
+        termStretched:
+          type: boolean
+        termStretchCappedReason:
+          type: string
+          nullable: true
         conditionUsed:
           type: string
         bbWholesale:
           type: number
+        pacCost:
+          type: number
+        pacCostSource:
+          type: string
+        onlinePrice:
+          type: number
+          nullable: true
         sellingPrice:
           type: number
-        priceSource:
+        sellingPriceCappedByOnline:
+          type: boolean
+        bindingSellingConstraint:
           type: string
+        requiredDownPayment:
+          type: number
         adminFeeUsed:
           type: number
         warrantyPrice:
@@ -1075,23 +1089,22 @@ components:
           type: number
         monthlyPayment:
           type: number
-        profit:
+        frontEndGross:
           type: number
-        profitTarget:
+        nonCancelableGross:
           type: number
-        qualificationTier:
-          type: string
+        cancelableBackendGross:
+          type: number
+        totalGross:
+          type: number
+        allocationOrderApplied:
+          type: array
+          items:
+            type: string
         hasPhotos:
           type: boolean
         website:
           type: string
-        termStretched:
-          type: boolean
-        termStretchCappedReason:
-          type: string
-          nullable: true
-        requiredDownPayment:
-          type: number
       required:
         - vin
         - vehicle
@@ -1099,10 +1112,14 @@ components:
         - term
         - matrixTerm
         - termStretchApplied
+        - termStretched
         - conditionUsed
         - bbWholesale
+        - pacCost
+        - pacCostSource
         - sellingPrice
-        - priceSource
+        - sellingPriceCappedByOnline
+        - bindingSellingConstraint
         - adminFeeUsed
         - warrantyPrice
         - warrantyCost
@@ -1110,12 +1127,13 @@ components:
         - gapCost
         - totalFinanced
         - monthlyPayment
-        - profit
-        - profitTarget
-        - qualificationTier
+        - frontEndGross
+        - nonCancelableGross
+        - cancelableBackendGross
+        - totalGross
+        - allocationOrderApplied
         - hasPhotos
         - website
-        - termStretched
 
     DebugCounts:
       type: object
@@ -1134,19 +1152,7 @@ components:
           type: integer
         noBBVal:
           type: integer
-        noPrice:
-          type: integer
-        ltvAdvance:
-          type: integer
-        ltvMinAftermarket:
-          type: integer
-        ltvAllIn:
-          type: integer
-        negFinanced:
-          type: integer
-        dealValue:
-          type: integer
-        maxPmtFilter:
+        noPacPrice:
           type: integer
         passed:
           type: integer
@@ -1208,8 +1214,6 @@ components:
           type: string
         termStretchMonths:
           type: integer
-        showAllWithDownPayment:
-          type: boolean
         calculatorVersion:
           type: string
         gitSha:
@@ -1218,6 +1222,8 @@ components:
           $ref: "#/components/schemas/LenderProgramTier"
         programLimits:
           $ref: "#/components/schemas/ProgramLimits"
+        pacCostSource:
+          type: string
         debugCounts:
           $ref: "#/components/schemas/DebugCounts"
         resultCount:
@@ -1231,10 +1237,10 @@ components:
         - program
         - tier
         - termStretchMonths
-        - showAllWithDownPayment
         - calculatorVersion
         - gitSha
         - tierConfig
+        - pacCostSource
         - programLimits
         - debugCounts
         - resultCount

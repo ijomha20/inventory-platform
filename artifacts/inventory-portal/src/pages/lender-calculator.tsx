@@ -42,7 +42,14 @@ function formatPayment(n: number): string {
 
 const COND_SHORT: Record<string, string> = { extraClean: "XC", clean: "C", average: "A", rough: "R" };
 
-const PRICE_SOURCE_LABEL: Record<string, string> = { online: "On", reduced: "Red", maximized: "Max", pac: "PAC" };
+const BINDING_LABEL: Record<string, string> = {
+  online: "On",
+  advance: "Adv",
+  allIn: "AllIn",
+  payment: "Pmt",
+  pacFloor: "PAC",
+  none: "—",
+};
 
 interface OpsCheck {
   pass: boolean;
@@ -90,21 +97,25 @@ function ResultRow({ item, rank, showDP }: { item: any; rank: number; showDP: bo
   const needsDP = (item.requiredDownPayment ?? 0) > 0;
   const stretched = item.termStretched === true;
   const applied = Number(item.termStretchApplied ?? 0);
-  const tier = Number(item.qualificationTier ?? 1);
+  const binding = String(item.bindingSellingConstraint ?? "none");
   let rowBg = "odd:bg-white even:bg-slate-50/40";
   if (needsDP) rowBg = "bg-gray-100/60";
-  else if (tier === 2) rowBg = "bg-blue-50/50";
+  else if (binding === "pacFloor") rowBg = "bg-rose-50/60";
+  else if (binding !== "online" && binding !== "none") rowBg = "bg-blue-50/40";
   else if (stretched && applied === 12) rowBg = "bg-orange-50";
   else if (stretched && applied === 6) rowBg = "bg-amber-50";
 
-  const profitMet = item.profit >= (item.profitTarget ?? 0);
+  const totalGross = Number(item.totalGross ?? 0);
+  const frontEndGross = Number(item.frontEndGross ?? 0);
+  const nonCancelable = Number(item.nonCancelableGross ?? 0);
+  const cancelable = Number(item.cancelableBackendGross ?? 0);
+  const grossTooltip = `Front: ${formatCurrency(frontEndGross)} · Non-cancelable: ${formatCurrency(nonCancelable)} · Cancelable backend: ${formatCurrency(cancelable)}`;
 
   return (
     <tr className={`border-b border-gray-100 last:border-0 ${rowBg} hover:bg-blue-50/50`}>
       <td className="px-1.5 py-1.5 text-[11px] text-gray-400 font-semibold text-center">{rank}</td>
       <td className="px-2 py-1.5 text-xs font-semibold text-gray-900">
         <div className="truncate" title={item.vehicle}>
-          {tier === 2 && <span className="text-[9px] font-bold text-blue-600 mr-1">T2</span>}
           {item.vehicle}
         </div>
       </td>
@@ -122,13 +133,12 @@ function ResultRow({ item, rank, showDP }: { item: any; rank: number; showDP: bo
       </td>
       <td className="px-1.5 py-1.5 text-xs text-center text-gray-600 whitespace-nowrap">{COND_SHORT[item.conditionUsed] ?? item.conditionUsed}</td>
       <td className="px-1.5 py-1.5 text-xs text-right font-medium text-gray-600">{formatCurrency(item.bbWholesale)}</td>
-      <td className="px-2 py-1.5 text-xs text-right font-medium text-gray-700">
+      <td className="px-2 py-1.5 text-xs text-right font-medium text-gray-700"
+        title={item.onlinePrice != null ? `Online: ${formatCurrency(Number(item.onlinePrice))} · PAC: ${formatCurrency(Number(item.pacCost ?? 0))}` : `PAC: ${formatCurrency(Number(item.pacCost ?? 0))}`}>
         {item.sellingPrice > 0 ? formatCurrency(item.sellingPrice) : "—"}
-        {item.priceSource && (
-          <span className="text-[10px] text-gray-400 ml-0.5">
-            ({PRICE_SOURCE_LABEL[item.priceSource] ?? item.priceSource})
-          </span>
-        )}
+        <span className="text-[10px] text-gray-400 ml-0.5">
+          ({BINDING_LABEL[binding] ?? binding})
+        </span>
       </td>
       <td className="px-1.5 py-1.5 text-xs text-right font-medium text-indigo-700">{formatCurrency(item.adminFeeUsed)}</td>
       <td className="px-2 py-1.5 text-xs text-right text-gray-700">
@@ -141,10 +151,8 @@ function ResultRow({ item, rank, showDP }: { item: any; rank: number; showDP: bo
       </td>
       <td className="px-2 py-1.5 text-xs text-right font-medium text-gray-700">{formatCurrency(item.totalFinanced)}</td>
       <td className="px-2 py-1.5 text-xs text-right font-semibold text-green-700">{formatPayment(item.monthlyPayment)}</td>
-      <td className="px-2 py-1.5 text-xs text-right font-semibold text-emerald-700"
-        title={`Target: ${formatCurrency(item.profitTarget ?? 0)}`}>
-        {formatCurrency(item.profit)}
-        {!profitMet && <span className="text-[9px] text-red-500 ml-0.5 align-super">!</span>}
+      <td className="px-2 py-1.5 text-xs text-right font-semibold text-emerald-700" title={grossTooltip}>
+        {formatCurrency(totalGross)}
       </td>
       {showDP && (
         <td className="px-2 py-1.5 text-xs text-right font-semibold text-red-600">
@@ -290,20 +298,19 @@ export default function LenderCalculator() {
       taxRate: parseFloat(taxRate) || 5,
       adminFee: parseFloat(adminFee) || 0,
       termStretchMonths: Number(termStretch) as 0 | 6 | 12,
-      showAllWithDownPayment: showAllDP,
     };
     const pmtOverride = parseFloat(maxPaymentOverride);
     if (pmtOverride > 0) payload.maxPaymentOverride = pmtOverride;
     hasCalculated.current = true;
     calcMutation.mutate({ data: payload });
-  }, [selectedLender, selectedProgram, selectedTier, approvedRate, downPayment, tradeValue, tradeLien, taxRate, adminFee, termStretch, showAllDP, maxPaymentOverride, calcMutation]);
+  }, [selectedLender, selectedProgram, selectedTier, approvedRate, downPayment, tradeValue, tradeLien, taxRate, adminFee, termStretch, maxPaymentOverride, calcMutation]);
 
   handleCalculateRef.current = handleCalculate;
 
   useEffect(() => {
     if (!hasCalculated.current) return;
     handleCalculateRef.current();
-  }, [termStretch, showAllDP]);
+  }, [termStretch]);
 
   const handleLenderChange = (code: string) => {
     setSelectedLender(code);
@@ -636,7 +643,15 @@ export default function LenderCalculator() {
                   <div className="flex items-center gap-2 text-sm font-semibold text-gray-900">
                     <Car className="w-4 h-4" />
                     Results
-                    <Badge variant="secondary" className="text-xs ml-1">{calcResults.resultCount} vehicles</Badge>
+                    <Badge variant="secondary" className="text-xs ml-1">
+                      {(() => {
+                        const all = (calcResults.results ?? []) as any[];
+                        const dpFree = all.filter(r => !((r.requiredDownPayment ?? 0) > 0)).length;
+                        return showAllDP
+                          ? `${all.length} vehicles`
+                          : `${dpFree} of ${all.length} vehicles · zero down`;
+                      })()}
+                    </Badge>
                   </div>
                   <div className="flex flex-wrap gap-2">
                     <Badge variant="outline" className="text-xs">{calcResults.lender} / {calcResults.program} / {calcResults.tier}</Badge>
@@ -647,41 +662,57 @@ export default function LenderCalculator() {
                   </div>
                 </div>
 
-                {calcResults.resultCount === 0 ? (
-                  <div className="text-center py-12 text-gray-400">
-                    <Car className="w-10 h-10 mx-auto mb-3 opacity-40" />
-                    <p className="text-sm font-medium">No vehicles qualify</p>
-                    <p className="text-xs mt-1">Try adjusting the max payment or rate</p>
-                  </div>
-                ) : (
-                  <div className="rounded-md border border-gray-200 overflow-x-auto">
-                    <table className="text-left w-full">
-                      <thead className="bg-gray-50 sticky top-0 z-10">
-                        <tr className="border-b border-gray-200 text-[10px] text-gray-600 uppercase tracking-wide">
-                          <th className="w-8 px-1.5 py-2 text-center">#</th>
-                          <th className="px-2 py-2" style={{ minWidth: "220px" }}>Vehicle</th>
-                          <th className="px-1.5 py-2 whitespace-nowrap">Loc</th>
-                          <th className="px-1.5 py-2 text-center whitespace-nowrap">Term</th>
-                          <th className="px-1.5 py-2 text-center whitespace-nowrap">Cond</th>
-                          <th className="px-1.5 py-2 text-right whitespace-nowrap">BB Val</th>
-                          <th className="px-2 py-2 text-right" style={{ minWidth: "100px" }}>Sell Price</th>
-                          <th className="px-1.5 py-2 text-right whitespace-nowrap">Admin</th>
-                          <th className="px-2 py-2 text-right" style={{ minWidth: "100px" }}>Warranty</th>
-                          <th className="px-2 py-2 text-right" style={{ minWidth: "90px" }}>GAP</th>
-                          <th className="px-2 py-2 text-right" style={{ minWidth: "90px" }}>Financed</th>
-                          <th className="px-2 py-2 text-right whitespace-nowrap">Pmt</th>
-                          <th className="px-2 py-2 text-right whitespace-nowrap">Profit</th>
-                          {showAllDP && <th className="px-2 py-2 text-right whitespace-nowrap">Req. DP</th>}
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {calcResults.results.map((item: any, idx: number) => (
-                          <ResultRow key={item.vin} item={item} rank={idx + 1} showDP={showAllDP} />
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
+                {(() => {
+                  const allResults = (calcResults.results ?? []) as any[];
+                  const visibleResults = showAllDP
+                    ? allResults
+                    : allResults.filter(r => !((r.requiredDownPayment ?? 0) > 0));
+                  const hiddenDpCount = allResults.length - visibleResults.length;
+
+                  if (visibleResults.length === 0) {
+                    return (
+                      <div className="text-center py-12 text-gray-400">
+                        <Car className="w-10 h-10 mx-auto mb-3 opacity-40" />
+                        <p className="text-sm font-medium">No vehicles qualify at zero down</p>
+                        <p className="text-xs mt-1">
+                          {hiddenDpCount > 0
+                            ? `Toggle "Show all + req. DP" to see ${hiddenDpCount} vehicle${hiddenDpCount !== 1 ? "s" : ""} that need a down payment`
+                            : "Try adjusting the max payment or rate"}
+                        </p>
+                      </div>
+                    );
+                  }
+
+                  return (
+                    <div className="rounded-md border border-gray-200 overflow-x-auto">
+                      <table className="text-left w-full">
+                        <thead className="bg-gray-50 sticky top-0 z-10">
+                          <tr className="border-b border-gray-200 text-[10px] text-gray-600 uppercase tracking-wide">
+                            <th className="w-8 px-1.5 py-2 text-center">#</th>
+                            <th className="px-2 py-2" style={{ minWidth: "220px" }}>Vehicle</th>
+                            <th className="px-1.5 py-2 whitespace-nowrap">Loc</th>
+                            <th className="px-1.5 py-2 text-center whitespace-nowrap">Term</th>
+                            <th className="px-1.5 py-2 text-center whitespace-nowrap">Cond</th>
+                            <th className="px-1.5 py-2 text-right whitespace-nowrap">BB Val</th>
+                            <th className="px-2 py-2 text-right" style={{ minWidth: "100px" }}>Sell Price</th>
+                            <th className="px-1.5 py-2 text-right whitespace-nowrap">Admin</th>
+                            <th className="px-2 py-2 text-right" style={{ minWidth: "100px" }}>Warranty</th>
+                            <th className="px-2 py-2 text-right" style={{ minWidth: "90px" }}>GAP</th>
+                            <th className="px-2 py-2 text-right" style={{ minWidth: "90px" }}>Financed</th>
+                            <th className="px-2 py-2 text-right whitespace-nowrap">Pmt</th>
+                            <th className="px-2 py-2 text-right whitespace-nowrap" title="Total gross = front + admin + reserve + warranty profit + GAP profit">Total Gross</th>
+                            {showAllDP && <th className="px-2 py-2 text-right whitespace-nowrap">Req. DP</th>}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {visibleResults.map((item: any, idx: number) => (
+                            <ResultRow key={item.vin} item={item} rank={idx + 1} showDP={showAllDP} />
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  );
+                })()}
               </CardContent>
             </Card>
           )}

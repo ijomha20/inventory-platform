@@ -18,5 +18,4 @@ export interface LenderCalculateRequest {
   taxRate?: number;
   adminFee?: number;
   termStretchMonths?: number;
-  showAllWithDownPayment?: boolean;
 }

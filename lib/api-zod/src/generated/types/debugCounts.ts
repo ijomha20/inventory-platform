@@ -14,12 +14,6 @@ export interface DebugCounts {
   noCondition?: number;
   noBB?: number;
   noBBVal?: number;
-  noPrice?: number;
-  ltvAdvance?: number;
-  ltvMinAftermarket?: number;
-  ltvAllIn?: number;
-  negFinanced?: number;
-  dealValue?: number;
-  maxPmtFilter?: number;
+  noPacPrice?: number;
   passed?: number;
 }

@@ -15,11 +15,11 @@ export interface LenderCalculateResponse {
   program: string;
   tier: string;
   termStretchMonths: number;
-  showAllWithDownPayment: boolean;
   calculatorVersion: string;
   gitSha: string;
   tierConfig: LenderProgramTier;
   programLimits: ProgramLimits;
+  pacCostSource: string;
   debugCounts: DebugCounts;
   resultCount: number;
   results: LenderCalcResultItem[];

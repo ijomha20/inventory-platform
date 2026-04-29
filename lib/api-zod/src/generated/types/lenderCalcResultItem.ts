@@ -13,10 +13,17 @@ export interface LenderCalcResultItem {
   term: number;
   matrixTerm: number;
   termStretchApplied: number;
+  termStretched: boolean;
+  termStretchCappedReason?: string | null;
   conditionUsed: string;
   bbWholesale: number;
+  pacCost: number;
+  pacCostSource: string;
+  onlinePrice?: number | null;
   sellingPrice: number;
-  priceSource: string;
+  sellingPriceCappedByOnline: boolean;
+  bindingSellingConstraint: string;
+  requiredDownPayment?: number;
   adminFeeUsed: number;
   warrantyPrice: number;
   warrantyCost: number;
@@ -24,12 +31,11 @@ export interface LenderCalcResultItem {
   gapCost: number;
   totalFinanced: number;
   monthlyPayment: number;
-  profit: number;
-  profitTarget: number;
-  qualificationTier: string;
+  frontEndGross: number;
+  nonCancelableGross: number;
+  cancelableBackendGross: number;
+  totalGross: number;
+  allocationOrderApplied: string[];
   hasPhotos: boolean;
   website: string;
-  termStretched: boolean;
-  termStretchCappedReason?: string | null;
-  requiredDownPayment?: number;
 }

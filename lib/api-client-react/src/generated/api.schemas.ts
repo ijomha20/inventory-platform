@@ -177,7 +177,6 @@ export interface LenderCalculateRequest {
   taxRate?: number;
   adminFee?: number;
   termStretchMonths?: number;
-  showAllWithDownPayment?: boolean;
 }
 
 export interface LenderCalcResultItem {
@@ -187,10 +186,17 @@ export interface LenderCalcResultItem {
   term: number;
   matrixTerm: number;
   termStretchApplied: number;
+  termStretched: boolean;
+  termStretchCappedReason?: string | null;
   conditionUsed: string;
   bbWholesale: number;
+  pacCost: number;
+  pacCostSource: string;
+  onlinePrice?: number | null;
   sellingPrice: number;
-  priceSource: string;
+  sellingPriceCappedByOnline: boolean;
+  bindingSellingConstraint: string;
+  requiredDownPayment?: number;
   adminFeeUsed: number;
   warrantyPrice: number;
   warrantyCost: number;
@@ -198,14 +204,13 @@ export interface LenderCalcResultItem {
   gapCost: number;
   totalFinanced: number;
   monthlyPayment: number;
-  profit: number;
-  profitTarget: number;
-  qualificationTier: string;
+  frontEndGross: number;
+  nonCancelableGross: number;
+  cancelableBackendGross: number;
+  totalGross: number;
+  allocationOrderApplied: string[];
   hasPhotos: boolean;
   website: string;
-  termStretched: boolean;
-  termStretchCappedReason?: string | null;
-  requiredDownPayment?: number;
 }
 
 export interface DebugCounts {
@@ -216,13 +221,7 @@ export interface DebugCounts {
   noCondition?: number;
   noBB?: number;
   noBBVal?: number;
-  noPrice?: number;
-  ltvAdvance?: number;
-  ltvMinAftermarket?: number;
-  ltvAllIn?: number;
-  negFinanced?: number;
-  dealValue?: number;
-  maxPmtFilter?: number;
+  noPacPrice?: number;
   passed?: number;
 }
 
@@ -248,11 +247,11 @@ export interface LenderCalculateResponse {
   program: string;
   tier: string;
   termStretchMonths: number;
-  showAllWithDownPayment: boolean;
   calculatorVersion: string;
   gitSha: string;
   tierConfig: LenderProgramTier;
   programLimits: ProgramLimits;
+  pacCostSource: string;
   debugCounts: DebugCounts;
   resultCount: number;
   results: LenderCalcResultItem[];
