@@ -258,8 +258,9 @@ router.post("/lender-calculate", requireOwnerOrViewer, validateBody(LenderCalcul
     const bindingSellingConstraint = sellingResolution.bindingSellingConstraint;
     const sellingPriceCappedByOnline = sellingResolution.sellingPriceCappedByOnline;
 
-    const exposure0 = sellingPrice - downPayment - netTrade;
-    const allInRoom0 = isFinite(maxAllInPreTax) ? (maxAllInPreTax - exposure0 - creditorFee) : Infinity;
+    const reqDpForPac = sellingResolution.requiredDownPaymentForPac;
+    const effectiveExposure = sellingPrice - (downPayment + reqDpForPac) - netTrade;
+    const allInRoom0 = isFinite(maxAllInPreTax) ? (maxAllInPreTax - effectiveExposure - creditorFee) : Infinity;
     const aftermarketBase = guide.aftermarketBase === "salePrice" ? sellingPrice : bbWholesale;
     const aftermarketRoom0 = hasAftermarketCap ? aftermarketBase * maxAftermarketLTV : Infinity;
 
@@ -291,7 +292,7 @@ router.post("/lender-calculate", requireOwnerOrViewer, validateBody(LenderCalcul
       maxPmt,
       paymentPV,
       maxAllInPreTax,
-      initialReqDP: sellingResolution.requiredDownPaymentForPac,
+      initialReqDP: reqDpForPac,
     });
 
     if (!settlement.feasible) continue inventory;

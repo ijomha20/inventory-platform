@@ -509,6 +509,65 @@ test("Scenario 13b: allocateBackend skips warranty when room is below minimum th
 // Scenario 14: settleConstraints trims products under payment cap
 // --------------------------------------------------------------------------
 
+test("Scenario 13c: allocateBackend with post-DP exposure exposes hidden room above advance ceiling", () => {
+  // Reproduces a real-deal pattern: PAC > advance LTV ceiling but all-in
+  // ceiling has slack. After applying the DP needed to reach PAC, that
+  // slack should be available for backend products.
+  const maxAdvance = 50000;
+  const maxAllInPreTax = 52500;
+  const creditorFee = 699;
+  const pacCost = 52000;
+  const downPayment = 0;
+  const netTrade = 0;
+
+  const paymentPV = computePaymentCeilingPV(0.0699, 84, 1500); // generous
+  const ceiling = computeZeroDpCeiling({
+    hasAdvanceCap: true,
+    maxAdvance,
+    hasAllInCap: true,
+    maxAllInPreTax,
+    paymentPV,
+    downPayment,
+    netTrade,
+    creditorFee,
+    taxRate: 0.05,
+  });
+
+  const selling = resolveSellingPrice({
+    pacCost,
+    onlinePrice: null,
+    zeroDpCeiling: ceiling.zeroDpCeiling,
+    bindingZeroDpReason: ceiling.bindingReason,
+  });
+
+  // The naive (pre-DP) room would be negative
+  const naiveExposure = selling.sellingPrice - downPayment - netTrade;
+  const naiveRoom = maxAllInPreTax - naiveExposure - creditorFee;
+  assert.ok(naiveRoom < 0, "Pre-DP room should be negative for this case");
+
+  // Post-DP exposure exposes real room
+  const effectiveExposure = selling.sellingPrice - (downPayment + selling.requiredDownPaymentForPac) - netTrade;
+  const effectiveRoom = maxAllInPreTax - effectiveExposure - creditorFee;
+  assert.ok(effectiveRoom > 0, "Post-DP room should be positive for product stacking");
+
+  const state = allocateBackend({
+    allInRoom: effectiveRoom,
+    aftermarketRoom: Infinity,
+    capAdmin: 999,
+    desiredAdmin: 999,
+    capWarranty: 2000,
+    capGap: undefined,
+    gapAllowed: true,
+    adminInclusion: "included",
+    markup: 2.5,
+    minWarrantyCost: 600,
+    minGapCost: 550,
+    maxGapPrice: 2500,
+  });
+
+  assert.ok(state.admin > 0, "Admin should be allocated when post-DP room exists");
+});
+
 test("Scenario 14: settleConstraints reduces products before requiring extra DP", () => {
   const state = { admin: 699, warranty: 3000, gap: 2000 };
   const rateDecimal = 0.2149;
