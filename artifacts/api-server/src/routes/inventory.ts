@@ -3,7 +3,7 @@ import { getUserRole, requireAccess } from "../lib/auth.js";
 import { logger } from "../lib/logger.js";
 import { getCacheState, getFuzzyResolvedDoc, refreshCache } from "../lib/inventoryCache.js";
 import { filterInventoryByRole } from "../lib/roleFilter.js";
-import { runBlackBookWorker, getBlackBookStatus } from "../lib/blackBookWorker.js";
+import { runBlackBookWorker, getBlackBookStatus, getBlackBookConfigStatus } from "../lib/blackBookWorker.js";
 import {
   DEALER_COLLECTIONS,
   IMAGE_CDN_BASE,
@@ -33,6 +33,7 @@ router.get("/inventory", requireAccess, async (req, res) => {
 router.get("/cache-status", requireAccess, (_req, res) => {
   const { lastUpdated, isRefreshing, data } = getCacheState();
   const bb = getBlackBookStatus();
+  const bbConfig = getBlackBookConfigStatus();
 
   const bbCachedCount = data.filter((i) => !!i.bbAvgWholesale).length;
   const websiteCount  = data.filter((i) => i.website?.trim().startsWith("http")).length;
@@ -67,6 +68,9 @@ router.get("/cache-status", requireAccess, (_req, res) => {
     bbLastError:    bb.lastError,
     bbLastBatch:    bb.lastBatch,
     bbPendingTargetVinCount: bb.pendingTargetVinCount,
+    bbEnabled:      bbConfig.enabled,
+    bbMissingEnv:   bbConfig.missingEnv,
+    bbAllowProdBrowserLogin: bbConfig.allowProdBrowserLogin,
   });
 });
 
@@ -78,8 +82,17 @@ router.post("/refresh-blackbook", requireAccess, async (req, res) => {
     return;
   }
   const { running } = getBlackBookStatus();
+  const bbConfig = getBlackBookConfigStatus();
   if (running) {
     res.json({ ok: true, message: "Already running", running: true });
+    return;
+  }
+  if (!bbConfig.enabled) {
+    res.status(503).json({
+      ok: false,
+      error: "Black Book worker is disabled due to missing credentials",
+      missingEnv: bbConfig.missingEnv,
+    });
     return;
   }
   runBlackBookWorker().catch((err) =>

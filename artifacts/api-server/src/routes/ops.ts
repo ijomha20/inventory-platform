@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { requireAccess, requireOwner } from "../lib/auth.js";
 import { getCacheState } from "../lib/inventoryCache.js";
-import { getBlackBookLastRunAtIso, getBlackBookStatus } from "../lib/blackBookWorker.js";
+import { getBlackBookLastRunAtIso, getBlackBookStatus, getBlackBookConfigStatus } from "../lib/blackBookWorker.js";
 import { getCachedLenderPrograms, getLenderSyncStatus } from "../lib/lenderWorker.js";
 import {
   TYPESENSE_HOST,
@@ -28,12 +28,13 @@ function isWithinLastHours(iso: string | null, hours: number): boolean {
 router.get("/ops/function-status", requireAccess, async (_req, res) => {
   const { data } = getCacheState();
   const bbStatus = getBlackBookStatus();
+  const bbConfig = getBlackBookConfigStatus();
   const lenderStatus = getLenderSyncStatus();
   const lenderPrograms = getCachedLenderPrograms();
 
   const bbLastRunIso = bbStatus.lastRun ?? await getBlackBookLastRunAtIso();
   const blackBookWithin24h = isWithinLastHours(bbLastRunIso, 24);
-  const blackBookPass = blackBookWithin24h && bbStatus.lastOutcome !== "failed";
+  const blackBookPass = bbConfig.enabled && blackBookWithin24h && bbStatus.lastOutcome !== "failed";
   const bbCoveragePct = data.length > 0 ? Math.round((bbStatus.lastCount / data.length) * 10000) / 100 : 0;
 
   const carfaxUrlCount = data.filter((item) => item.carfax?.trim().startsWith("http")).length;
@@ -54,6 +55,9 @@ router.get("/ops/function-status", requireAccess, async (_req, res) => {
         pass: blackBookPass,
         lastRunAt: bbLastRunIso,
         running: bbStatus.running,
+        enabled: bbConfig.enabled,
+        missingEnv: bbConfig.missingEnv,
+        allowProdBrowserLogin: bbConfig.allowProdBrowserLogin,
         valuedInventoryCount: bbStatus.lastCount,
         coveragePct: bbCoveragePct,
         outcome: bbStatus.lastOutcome,

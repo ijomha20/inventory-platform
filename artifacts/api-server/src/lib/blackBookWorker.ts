@@ -39,6 +39,9 @@ const CREDITAPP_EMAIL       = env.CREDITAPP_EMAIL;
 const CREDITAPP_PASSWORD    = env.CREDITAPP_PASSWORD;
 const CREDITAPP_TOTP_SECRET = env.CREDITAPP_TOTP_SECRET;
 const BB_ENABLED            = !!(CREDITAPP_EMAIL && CREDITAPP_PASSWORD);
+const BB_ALLOW_PROD_BROWSER_LOGIN = env.BB_ALLOW_PROD_BROWSER_LOGIN;
+const BB_SELF_HEAL_INTERVAL_MS = env.BB_SELF_HEAL_INTERVAL_MIN * 60_000;
+const BB_SELF_HEAL_STALE_MS = env.BB_SELF_HEAL_STALE_HOURS * 60 * 60 * 1000;
 
 const CBB_ENDPOINT    = env.BB_CBB_ENDPOINT || "https://admin.creditapp.ca/api/cbb/find";
 const CREDITAPP_HOME  = "https://admin.creditapp.ca";
@@ -72,6 +75,15 @@ interface BbStatus {
     updated: number;
   } | null;
 }
+
+interface BbConfigStatus {
+  enabled: boolean;
+  missingEnv: string[];
+  isProduction: boolean;
+  allowProdBrowserLogin: boolean;
+}
+
+type BbAuthCookies = { appSession: string; csrfToken: string };
 
 const status: BbStatus = {
   running: false,
@@ -110,6 +122,19 @@ async function drainPendingTargetVins(reason: string): Promise<void> {
 
 export function getBlackBookStatus(): BbStatus {
   return { ...status };
+}
+
+export function getBlackBookConfigStatus(): BbConfigStatus {
+  const missingEnv: string[] = [];
+  if (!CREDITAPP_EMAIL) missingEnv.push("CREDITAPP_EMAIL");
+  if (!CREDITAPP_PASSWORD) missingEnv.push("CREDITAPP_PASSWORD");
+  if (!env.DEFAULT_OBJECT_STORAGE_BUCKET_ID) missingEnv.push("DEFAULT_OBJECT_STORAGE_BUCKET_ID");
+  return {
+    enabled: BB_ENABLED,
+    missingEnv,
+    isProduction,
+    allowProdBrowserLogin: BB_ALLOW_PROD_BROWSER_LOGIN,
+  };
 }
 
 export async function getBlackBookLastRunAtIso(): Promise<string | null> {
@@ -305,16 +330,19 @@ async function getAuthCookies(): Promise<{ appSession: string; csrfToken: string
     }
   }
 
-  // 4. Production: no browser login — cookies must come from dev's nightly run
-  if (isProduction) {
+  // 4. Production default: no browser login unless explicitly enabled
+  if (isProduction && !BB_ALLOW_PROD_BROWSER_LOGIN) {
     throw new Error(
       "BB worker: session cookies expired in production — dev's nightly 2am run will refresh them. " +
       "Values remain from the last successful run.",
     );
   }
 
-  // 5. Dev only: full browser login to refresh cookies
-  logger.info("BB worker: launching browser for fresh login (dev)");
+  // 5. Dev (and optional production fallback): full browser login to refresh cookies
+  logger.info(
+    { isProduction, allowProdBrowserLogin: BB_ALLOW_PROD_BROWSER_LOGIN },
+    "BB worker: launching browser for fresh login",
+  );
   let browser: any = null;
   try {
     browser = await launchBrowser();
@@ -376,6 +404,22 @@ async function getAuthCookies(): Promise<{ appSession: string; csrfToken: string
     return auth;
   } finally {
     if (browser) { try { await browser.close(); } catch (_) {} }
+  }
+}
+
+function isLikelyAuthExpiryError(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err);
+  return msg.includes("HTTP 401") || msg.includes("HTTP 403") || msg.includes("session cookies expired");
+}
+
+async function callCbbWithAutoReauth(authRef: { current: BbAuthCookies }, vin: string, km: number): Promise<any[]> {
+  try {
+    return await callCbbEndpoint(authRef.current.appSession, authRef.current.csrfToken, vin, km);
+  } catch (err) {
+    if (!isLikelyAuthExpiryError(err)) throw err;
+    logger.warn({ vin, km, err: String(err) }, "BB worker: auth likely expired mid-run — refreshing session and retrying");
+    authRef.current = await getAuthCookies();
+    return callCbbEndpoint(authRef.current.appSession, authRef.current.csrfToken, vin, km);
   }
 }
 
@@ -1267,7 +1311,7 @@ async function runBlackBookBatch(): Promise<{
   if (items.length === 0) throw new Error("Inventory cache is empty — cannot run BB batch");
 
   // --- Get valid auth cookies (DB → file → browser login) ---
-  const { appSession, csrfToken } = await getAuthCookies();
+  const authRef = { current: await getAuthCookies() };
   logger.info("BB worker: auth ready — proceeding with API calls");
 
   // --- Process each VIN ---
@@ -1286,7 +1330,7 @@ async function runBlackBookBatch(): Promise<{
 
       const nhtsa = await decodeVinNhtsa(vin);
 
-      const options = await callCbbEndpoint(appSession, csrfToken, vin, kmInt);
+      const options = await callCbbWithAutoReauth(authRef, vin, kmInt);
 
       if (options.length === 0) {
         logger.info({ vin }, "BB worker: no options returned (VIN not in CBB)");
@@ -1309,7 +1353,7 @@ async function runBlackBookBatch(): Promise<{
       // Second call with 0 KM to get unadjusted wholesale grades
       await sleep(rand(1000, 2000));
       try {
-        const unadjOptions = await callCbbEndpoint(appSession, csrfToken, vin, 0);
+        const unadjOptions = await callCbbWithAutoReauth(authRef, vin, 0);
         const unadjBest = matchBestTrim(vehicle, nhtsa, unadjOptions, vin);
         if (unadjBest) {
           bbDetailMap.set(vinKey, {
@@ -1403,7 +1447,11 @@ async function runWithRetry(attempt = 1): Promise<{
 
 export async function runBlackBookWorker(): Promise<void> {
   if (!BB_ENABLED) {
-    logger.info("BB worker: CREDITAPP_EMAIL or CREDITAPP_PASSWORD not set — skipping");
+    const err = "BB worker: CREDITAPP_EMAIL or CREDITAPP_PASSWORD not set — skipping";
+    status.lastOutcome = "failed";
+    status.lastError = err;
+    status.lastBatch = null;
+    logger.warn(err);
     return;
   }
   if (status.running) {
@@ -1488,7 +1536,38 @@ export function scheduleBlackBookWorker(): void {
     },
   });
 
+  startBlackBookSelfHealLoop();
   logger.info("BB worker scheduled — randomized daily within business hours (Mountain Time)");
+}
+
+let bbSelfHealTimer: NodeJS.Timeout | null = null;
+
+function startBlackBookSelfHealLoop(): void {
+  if (bbSelfHealTimer) return;
+
+  bbSelfHealTimer = setInterval(() => {
+    if (status.running || !BB_ENABLED) return;
+
+    const lastRunAt = status.lastRun ? Date.parse(status.lastRun) : NaN;
+    const stale = !Number.isFinite(lastRunAt) || (Date.now() - lastRunAt) >= BB_SELF_HEAL_STALE_MS;
+    const failedRecently = status.lastOutcome === "failed";
+    const authError = isLikelyAuthExpiryError(status.lastError ?? "");
+
+    if (!(stale || failedRecently || authError)) return;
+
+    const reason = stale
+      ? "stale-last-run"
+      : authError
+        ? "auth-error-recovery"
+        : "failed-run-recovery";
+    logger.warn({ reason }, "BB worker: self-heal watchdog triggering recovery run");
+    runBlackBookWorker().catch((err) => logger.error({ err, reason }, "BB worker: self-heal run failed"));
+  }, BB_SELF_HEAL_INTERVAL_MS);
+
+  logger.info(
+    { intervalMin: env.BB_SELF_HEAL_INTERVAL_MIN, staleHours: env.BB_SELF_HEAL_STALE_HOURS },
+    "BB worker: self-heal watchdog enabled",
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -1523,7 +1602,7 @@ export async function runBlackBookForVins(targetVins: string[]): Promise<void> {
   logger.info({ count: targetItems.length }, "BB worker (targeted): processing new VINs");
 
   try {
-    const { appSession, csrfToken } = await getAuthCookies();
+    const authRef = { current: await getAuthCookies() };
 
     const bbMap = new Map<string, string>();
     const bbDetailMap = new Map<string, { xclean: number; clean: number; avg: number; rough: number }>();
@@ -1536,7 +1615,7 @@ export async function runBlackBookForVins(targetVins: string[]): Promise<void> {
       try {
         const kmInt = parseKm(km);
         const nhtsa = await decodeVinNhtsa(vin);
-        const options = await callCbbEndpoint(appSession, csrfToken, vin, kmInt);
+        const options = await callCbbWithAutoReauth(authRef, vin, kmInt);
 
         if (options.length === 0) { skipped++; continue; }
         if (!("adjusted_whole_avg" in options[0])) { skipped++; continue; }
@@ -1549,7 +1628,7 @@ export async function runBlackBookForVins(targetVins: string[]): Promise<void> {
 
         await sleep(rand(1000, 2000));
         try {
-          const unadjOptions = await callCbbEndpoint(appSession, csrfToken, vin, 0);
+          const unadjOptions = await callCbbWithAutoReauth(authRef, vin, 0);
           const unadjBest = matchBestTrim(vehicle, nhtsa, unadjOptions, vin);
           if (unadjBest) {
             bbDetailMap.set(vinKey, {

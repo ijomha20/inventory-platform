@@ -31,6 +31,11 @@ const envSchema = z.object({
   CREDITAPP_PASSWORD:            optStr,
   CREDITAPP_TOTP_SECRET:         optStr,
   BB_CBB_ENDPOINT:               optStr,
+  BB_SELF_HEAL_INTERVAL_MIN:     z.coerce.number().int().positive().default(120),
+  BB_SELF_HEAL_STALE_HOURS:      z.coerce.number().int().positive().default(12),
+  BB_ALLOW_PROD_BROWSER_LOGIN:   z.string().trim().toLowerCase()
+                                   .transform((v) => v === "true")
+                                   .default("true"),
 
   LENDER_CREDITAPP_EMAIL:        optStr,
   LENDER_CREDITAPP_PASSWORD:     optStr,
