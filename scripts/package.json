@@ -8,13 +8,26 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test:lender-golden": "tsx --test ./src/lender-engine.golden.test.ts",
     "test:lender-scenarios": "tsx --test ./src/lender-calc-scenarios.test.ts",
+    "test:self-heal-primitives": "tsx --test ./src/self-heal-primitives.test.ts",
+    "test:chaos-primitives": "tsx --test ./src/chaos/chaos-primitives.test.ts",
     "smoke:lender": "tsx ./src/lender-smoke.ts",
     "export:complete-md": "tsx ./src/generate-complete-source-md.ts",
     "check:patterns": "tsx ./src/check-patterns.ts",
-    "check:readme-sync": "tsx ./src/check-readme-sync.ts"
+    "check:readme-sync": "tsx ./src/check-readme-sync.ts",
+    "check:invariants": "tsx ./src/check-invariants.ts",
+    "check-self-heal-diff": "tsx ./src/check-self-heal-diff.ts",
+    "backup:db": "tsx ./src/backup-db.ts",
+    "backup:rotate": "tsx ./src/backup-rotate.ts",
+    "backup:blobs": "tsx ./src/backup-blobs.ts",
+    "restore:db": "tsx ./src/restore-from-backup.ts",
+    "dr-drill": "tsx ./src/dr-drill.ts",
+    "quarterly:reminders": "tsx ./src/quarterly-reminders.ts"
   },
   "devDependencies": {
     "@types/node": "catalog:",
     "tsx": "catalog:"
+  },
+  "dependencies": {
+    "@google-cloud/storage": "^7.19.0"
   }
 }

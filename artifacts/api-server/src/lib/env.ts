@@ -57,6 +57,14 @@ const envSchema = z.object({
   APPS_SCRIPT_WEB_APP_URL:       optStr,
 
   RESEND_API_KEY:                optStr,
+  GITHUB_TOKEN:                  optStr,
+  GH_TOKEN:                      optStr,
+  SELF_HEAL_ENABLED:             z.string().trim().toLowerCase().transform((v) => v === "true").default("true"),
+  SELF_HEAL_DRY_RUN:             z.string().trim().toLowerCase().transform((v) => v === "true").default("true"),
+  SELF_HEAL_AUTOMERGE_ENABLED:   z.string().trim().toLowerCase().transform((v) => v === "true").default("false"),
+  SELF_HEAL_GATE_ACTIVE:         z.string().trim().toLowerCase().transform((v) => v === "true").default("false"),
+  SELF_HEAL_AUTOMERGE_FLAG_PATH: optStr,
+  SELF_HEAL_HANDOFF_ALERT_HOURS: z.coerce.number().int().positive().default(4),
 
   GIT_SHA:                       optStr,
   REPL_GIT_COMMIT:               optStr,

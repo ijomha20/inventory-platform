@@ -48,3 +48,32 @@ export async function sendInvitationEmail(
     logger.error({ err, toEmail }, "Failed to send invitation email");
   }
 }
+
+export async function sendOpsAlert(
+  severity: "info" | "warning" | "critical",
+  subject: string,
+  html: string,
+): Promise<void> {
+  if (!env.RESEND_API_KEY) {
+    logger.warn("RESEND_API_KEY not set — skipping ops alert email");
+    return;
+  }
+  if (!env.OWNER_EMAIL) {
+    logger.warn("OWNER_EMAIL not set — skipping ops alert email");
+    return;
+  }
+
+  const resend = new Resend(env.RESEND_API_KEY);
+  const prefix = severity.toUpperCase();
+  try {
+    await resend.emails.send({
+      from: "Inventory Ops <onboarding@resend.dev>",
+      to: env.OWNER_EMAIL,
+      subject: `[${prefix}] ${subject}`,
+      html,
+    });
+    logger.info({ severity, subject }, "Ops alert email sent");
+  } catch (err) {
+    logger.error({ err, severity, subject }, "Failed to send ops alert email");
+  }
+}

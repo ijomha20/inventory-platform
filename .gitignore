@@ -43,6 +43,7 @@ Thumbs.db
 
 .cursor/rules/nx-rules.mdc
 .github/instructions/nx.instructions.md
+.github/copilot-instructions.md
 
 # Session files
 .carfax-session.json
@@ -58,4 +59,3 @@ Thumbs.db
 
 # Generated export — the generator stays in repo; only the 37K-line output is ignored
 downloads/inventory-platform-complete-source.md
-.github/
