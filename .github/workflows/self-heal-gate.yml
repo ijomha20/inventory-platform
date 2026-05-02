@@ -1,0 +1,28 @@
+name: Self Heal Gate
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, edited]
+
+jobs:
+  gate:
+    if: startsWith(github.event.pull_request.title, '[self-heal-automerge]')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run typecheck
+      - run: pnpm --filter @workspace/scripts check:patterns
+      - run: pnpm --filter @workspace/scripts check:readme-sync
+      - run: pnpm --filter @workspace/scripts check:invariants
+      - run: pnpm --filter @workspace/scripts test:lender-golden
+      - run: pnpm --filter @workspace/scripts test:lender-scenarios
+      - run: pnpm --filter @workspace/scripts test:self-heal-primitives
+      - run: pnpm --filter @workspace/scripts check-self-heal-diff
+
