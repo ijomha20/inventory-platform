@@ -12,6 +12,7 @@
     "test:chaos-primitives": "tsx --test ./src/chaos/chaos-primitives.test.ts",
     "smoke:lender": "tsx ./src/lender-smoke.ts",
     "export:complete-md": "tsx ./src/generate-complete-source-md.ts",
+    "export:complete-md:split": "tsx ./src/split-complete-source-md.ts",
     "check:patterns": "tsx ./src/check-patterns.ts",
     "check:readme-sync": "tsx ./src/check-readme-sync.ts",
     "check:invariants": "tsx ./src/check-invariants.ts",

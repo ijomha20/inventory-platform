@@ -23,6 +23,8 @@ const BASE_DIRS = [
   "artifacts/inventory-portal",
   "artifacts/mockup-sandbox",
   "templates",
+  "docs",
+  ".github/workflows",
 ] as const;
 
 const ROOT_FILES = [
@@ -34,6 +36,7 @@ const ROOT_FILES = [
   "tsconfig.base.json",
   ".replit",
   "replit.md",
+  ".cursorrules",
 ] as const;
 
 const EXTRA_REL_FILES = ["downloads/README.md"] as const;
@@ -97,6 +100,7 @@ const DOMAIN_SECTIONS: readonly {
         "tsconfig.base.json",
         ".replit",
         "replit.md",
+        ".cursorrules",
       ].includes(r),
   },
   {
@@ -169,6 +173,17 @@ const DOMAIN_SECTIONS: readonly {
       r === "artifacts/api-server/src/scripts/testCarfax.ts",
   },
   {
+    id: "ops-self-heal",
+    title: "11b. API server — ops, incidents, self-heal & code repair",
+    match: (r) =>
+      r === "artifacts/api-server/src/routes/ops.ts" ||
+      r.startsWith("artifacts/api-server/src/lib/selfHeal/") ||
+      r.startsWith("artifacts/api-server/src/lib/codeRepair/") ||
+      r === "artifacts/api-server/src/lib/incidentService.ts" ||
+      r === "artifacts/api-server/src/lib/platformError.ts" ||
+      r === "artifacts/api-server/src/lib/backupScheduler.ts",
+  },
+  {
     id: "server-cross",
     title: "12. API server — cross-cutting (health, routing, logging, types)",
     match: (r) =>
@@ -204,8 +219,18 @@ const DOMAIN_SECTIONS: readonly {
     match: (r) => r.startsWith("scripts/"),
   },
   {
+    id: "ci-workflows",
+    title: "17. GitHub Actions workflows",
+    match: (r) => r.startsWith(".github/workflows/"),
+  },
+  {
+    id: "documentation",
+    title: "18. Documentation (runbooks, SLAs, stability)",
+    match: (r) => r.startsWith("docs/"),
+  },
+  {
     id: "uncategorized",
-    title: "17. Uncategorized (extend DOMAIN_SECTIONS if files appear here)",
+    title: "19. Uncategorized (extend DOMAIN_SECTIONS if files appear here)",
     match: () => true,
   },
 ];
@@ -345,12 +370,12 @@ function main(): void {
   lines.push("");
   lines.push(
     [
-      "- Root: `AGENTS.md`, `package.json`, `pnpm-workspace.yaml`, `pnpm-lock.yaml`, `tsconfig*.json`, `.replit`, `replit.md`",
+      "- Root: `AGENTS.md`, `.cursorrules`, `package.json`, `pnpm-workspace.yaml`, `pnpm-lock.yaml`, `tsconfig*.json`, `.replit`, `replit.md`",
       "- `lib/` (db, api-spec, api-zod, api-client-react, including generated)",
       "- `artifacts/api-server/` (no `dist/`)",
       "- `artifacts/inventory-portal/`",
       "- `artifacts/mockup-sandbox/`",
-      "- `templates/`, `scripts/`, `downloads/README.md`",
+      "- `templates/`, `scripts/`, `docs/`, `.github/workflows/`, `downloads/README.md`",
     ].join("\n"),
   );
   lines.push("");
