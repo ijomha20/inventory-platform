@@ -293,3 +293,57 @@ export async function loadLenderProgramsFromStore(): Promise<LenderProgramsBlob 
 export async function saveLenderProgramsToStore(data: LenderProgramsBlob): Promise<void> {
   await writeJson("lender-programs.json", data);
 }
+
+// ---------------------------------------------------------------------------
+// Self-heal flags durability mirror (DB is primary, GCS is backup path)
+// ---------------------------------------------------------------------------
+
+export interface SelfHealFlagBlob {
+  subsystem: string;
+  flagState: "canary" | "promoted" | "rolled_back";
+  prUrl: string | null;
+  incidentLogId: number | null;
+  rollbackReason: string | null;
+  updatedAt: string;
+}
+
+export async function saveSelfHealFlagToStore(patchId: string, data: SelfHealFlagBlob): Promise<void> {
+  await writeJsonBestEffort(`self-heal-flags/${patchId}.json`, data);
+}
+
+export async function loadSelfHealFlagFromStore(patchId: string): Promise<SelfHealFlagBlob | null> {
+  return readJson<SelfHealFlagBlob>(`self-heal-flags/${patchId}.json`);
+}
+
+export async function loadSelfHealAutomergeToggle(): Promise<{ enabled: boolean } | null> {
+  return readJson<{ enabled: boolean }>("self-heal/automerge-toggle.json");
+}
+
+export async function saveSelfHealAutomergeToggle(enabled: boolean): Promise<void> {
+  await writeJsonBestEffort("self-heal/automerge-toggle.json", {
+    enabled,
+    updatedAt: new Date().toISOString(),
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Bucket reachability probe — used by /healthz/deep to verify GCS is live.
+// Unlike readJson, this actually throws on transport/auth failure rather than
+// returning null, giving the health check a real signal.
+// ---------------------------------------------------------------------------
+
+export async function probeBucket(): Promise<{ ok: boolean; error: string | null }> {
+  const timeoutMs = 5_000;
+  try {
+    const b = bucket();
+    await Promise.race([
+      b.getMetadata(),
+      new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error(`GCS probe timed out after ${timeoutMs}ms`)), timeoutMs),
+      ),
+    ]);
+    return { ok: true, error: null };
+  } catch (err: any) {
+    return { ok: false, error: err?.message ?? String(err) };
+  }
+}

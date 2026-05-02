@@ -1,9 +1,9 @@
-import { check, integer, pgTable, text, timestamp } from "drizzle-orm/pg-core";
+import { check, pgTable, text, timestamp, integer } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 
-export const lenderSessionTable = pgTable("lender_session", {
-  id:        text("id").primaryKey().default("singleton"),
-  cookies:   text("cookies").notNull(),
+export const carfaxSessionTable = pgTable("carfax_session", {
+  id: text("id").primaryKey().default("singleton"),
+  cookies: text("cookies"),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
   lastRunAt: timestamp("last_run_at"),
   lastOutcome: text("last_outcome"),
@@ -12,5 +12,6 @@ export const lenderSessionTable = pgTable("lender_session", {
   lastErrorAt: timestamp("last_error_at"),
   consecutiveFailures: integer("consecutive_failures").notNull().default(0),
 }, (table) => [
-  check("lender_session_singleton", sql`${table.id} = 'singleton'`),
+  check("carfax_session_singleton", sql`${table.id} = 'singleton'`),
 ]);
+

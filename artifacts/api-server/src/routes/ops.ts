@@ -1,4 +1,8 @@
 import { Router } from "express";
+import { runDeepHealth } from "./health.js";
+import { db, bbSessionTable, lenderSessionTable, carfaxSessionTable } from "@workspace/db";
+import { deadLetterQueueTable } from "@workspace/db";
+import { eq } from "drizzle-orm";
 import { requireAccess, requireOwner } from "../lib/auth.js";
 import { getCacheState } from "../lib/inventoryCache.js";
 import { getBlackBookLastRunAtIso, getBlackBookStatus, getBlackBookConfigStatus } from "../lib/blackBookWorker.js";
@@ -14,6 +18,9 @@ import {
 } from "../lib/typesense.js";
 import { getRuntimeFingerprint } from "../lib/runtimeFingerprint.js";
 import { logger } from "../lib/logger.js";
+import { listIncidents, recordIncident } from "../lib/incidentService.js";
+import { env } from "../lib/env.js";
+import { loadSelfHealAutomergeToggle, saveSelfHealAutomergeToggle } from "../lib/bbObjectStore.js";
 
 const router = Router();
 
@@ -47,9 +54,21 @@ router.get("/ops/function-status", requireAccess, async (_req, res) => {
   const lenderProgramCount = lenderPrograms?.programs.length ?? 0;
   const lenderUpdatedAt = lenderPrograms?.updatedAt ?? null;
 
+  const [bbPersisted] = await db.select().from(bbSessionTable).where(eq(bbSessionTable.id, "singleton")).limit(1);
+  const [lenderPersisted] = await db.select().from(lenderSessionTable).where(eq(lenderSessionTable.id, "singleton")).limit(1);
+  const [carfaxPersisted] = await db.select().from(carfaxSessionTable).where(eq(carfaxSessionTable.id, "singleton")).limit(1);
+  const gcsToggle = await loadSelfHealAutomergeToggle().catch(() => null);
+
   res.set("Cache-Control", "no-store");
   res.json({
     inventoryCount: data.length,
+    selfHeal: {
+      enabled: env.SELF_HEAL_ENABLED,
+      dryRun: env.SELF_HEAL_DRY_RUN,
+      automergeEnabled: env.SELF_HEAL_AUTOMERGE_ENABLED,
+      automergeEnabledGcs: gcsToggle?.enabled ?? null,
+      gateActive: env.SELF_HEAL_GATE_ACTIVE,
+    },
     checks: {
       blackBookUpdatedWithin24Hours: {
         pass: blackBookPass,
@@ -84,8 +103,117 @@ router.get("/ops/function-status", requireAccess, async (_req, res) => {
         running: lenderStatus.running,
         error: lenderStatus.error ?? null,
       },
+      oauthConfiguration: {
+        pass: Boolean(env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET),
+        callbackConfigured: Boolean(env.REPLIT_DOMAINS || env.NODE_ENV === "development"),
+        missingEnv: [
+          !env.GOOGLE_CLIENT_ID ? "GOOGLE_CLIENT_ID" : null,
+          !env.GOOGLE_CLIENT_SECRET ? "GOOGLE_CLIENT_SECRET" : null,
+        ].filter(Boolean),
+      },
     },
+    subsystems: [
+      {
+        subsystem: "blackBook",
+        lastOutcome: bbPersisted?.lastOutcome ?? bbStatus.lastOutcome ?? null,
+        lastErrorReason: bbPersisted?.lastErrorReason ?? null,
+        lastErrorAt: bbPersisted?.lastErrorAt?.toISOString() ?? null,
+        consecutiveFailures: bbPersisted?.consecutiveFailures ?? 0,
+        recoveryInProgress: bbStatus.running,
+      },
+      {
+        subsystem: "lender",
+        lastOutcome: lenderPersisted?.lastOutcome ?? null,
+        lastErrorReason: lenderPersisted?.lastErrorReason ?? null,
+        lastErrorAt: lenderPersisted?.lastErrorAt?.toISOString() ?? null,
+        consecutiveFailures: lenderPersisted?.consecutiveFailures ?? 0,
+        recoveryInProgress: lenderStatus.running,
+      },
+      {
+        subsystem: "carfax",
+        lastOutcome: carfaxPersisted?.lastOutcome ?? null,
+        lastErrorReason: carfaxPersisted?.lastErrorReason ?? null,
+        lastErrorAt: carfaxPersisted?.lastErrorAt?.toISOString() ?? null,
+        consecutiveFailures: carfaxPersisted?.consecutiveFailures ?? 0,
+        recoveryInProgress: false,
+      },
+    ],
   });
+});
+
+router.get("/ops/incidents", requireOwner, async (req, res) => {
+  const includeTransients = String(req.query.include_transients ?? "") === "1";
+  const limit = Number(req.query.limit ?? 50);
+  const offset = Number(req.query.offset ?? 0);
+  const rows = await listIncidents({ includeTransients, limit, offset });
+  res.set("Cache-Control", "no-store");
+  res.json({
+    includeTransients,
+    limit,
+    offset,
+    count: rows.length,
+    incidents: rows,
+  });
+});
+
+router.get("/ops/dependencies", requireOwner, async (_req, res) => {
+  try {
+    const payload = await runDeepHealth();
+    res.set("Cache-Control", "no-store");
+    res.json(payload);
+  } catch (err) {
+    res.status(500).json({ error: "Failed to fetch deep dependency status", details: String(err) });
+  }
+});
+
+router.post("/ops/self-heal-toggle", requireOwner, async (req, res) => {
+  const enabled = Boolean(req.body?.enabled);
+  await saveSelfHealAutomergeToggle(enabled);
+  res.json({ ok: true, enabled });
+});
+
+router.get("/ops/dead-letters", requireOwner, async (_req, res) => {
+  const rows = await db.select().from(deadLetterQueueTable).orderBy(deadLetterQueueTable.enqueuedAt).limit(200);
+  const active = rows.filter((r) => !r.archivedAt);
+  const countsBySubsystem = active.reduce<Record<string, number>>((acc, row) => {
+    acc[row.subsystem] = (acc[row.subsystem] ?? 0) + 1;
+    return acc;
+  }, {});
+  res.json({
+    activeCount: active.length,
+    countsBySubsystem,
+    thresholds: {
+      carfax: 50,
+      blackBook: 20,
+      lender: 5,
+    },
+    weeklyDigestBanner:
+      active.length > 0
+        ? `Dead-letter queue has ${active.length} active entries; review top subsystem counts.`
+        : null,
+    rows: active,
+  });
+});
+
+router.post("/ops/dead-letters/:id/retrigger", requireOwner, async (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isFinite(id)) {
+    res.status(400).json({ error: "Invalid dead-letter id" });
+    return;
+  }
+  const [row] = await db.select().from(deadLetterQueueTable).where(eq(deadLetterQueueTable.id, id)).limit(1);
+  if (!row) {
+    res.status(404).json({ error: "Dead-letter row not found" });
+    return;
+  }
+  await recordIncident({
+    subsystem: row.subsystem as any,
+    reason: "UNKNOWN",
+    recoverability: "transient",
+    message: "Dead-letter re-trigger requested",
+    payload: { deadLetterId: id, originalReason: row.reason, payload: row.payload },
+  });
+  res.json({ ok: true, retriggered: id });
 });
 
 // GET /ops/diagnostics — owner-only deep diagnostics.
