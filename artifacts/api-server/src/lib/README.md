@@ -10,10 +10,11 @@ All paths relative to `artifacts/api-server/src/lib/`.
 - **Consumed by:** `app.ts` (passport init), all route files (auth middleware)
 
 ### `inventoryCache.ts`
-- **Exports:** `InventoryItem` (type), `getCacheState()`, `refreshCache()`, `applyCarfaxResults()`, `applyBlackBookValues()`, `startBackgroundRefresh()`
+- **Exports:** `InventoryItem` (type), `getCacheState()`, `refreshCache()`, `applyCarfaxResults()`, `applyBlackBookValues()`, `startBackgroundRefresh()`, `getFuzzyResolvedDoc(vin)`
 - **Purpose:** Central inventory data store. Loads from DB on startup, refreshes hourly from Apps Script JSON feed, enriches with Typesense (prices/URLs/photos) and BB values.
 - **Consumed by:** `routes/inventory.ts`, `routes/lender/`, all workers (BB, Carfax)
 - **Data flow:** Apps Script feed → normalize → Typesense enrichment → merge BB/Carfax → persist to DB
+- **Note:** `getFuzzyResolvedDoc(vin)` returns the Typesense doc resolved for a VIN (including fuzzy-match results); consumed by `routes/inventory.ts` `/vehicle-images` handler.
 
 ### `lenderCalcEngine.ts`
 - **Exports:** `resolveCapProfile(input)`, `resolveNoOnlineSellingPrice(ctx)`, `NO_ONLINE_STRATEGY_BY_PROFILE`, type exports
@@ -66,10 +67,19 @@ All paths relative to `artifacts/api-server/src/lib/`.
 - **Purpose:** Schedules daily tasks at random times within business hours (Mountain Time). Weekday window: 8:30 AM – 7 PM, weekend: 10 AM – 4 PM.
 - **Consumed by:** `blackBookWorker.ts`, `carfaxWorker.ts`, `lenderWorker.ts`
 
+### `roleFilter.ts`
+- **Exports:** `filterInventoryByRole(items, role)`
+- **Purpose:** Strips role-gated fields from inventory items based on the calling user's role. Owner sees all fields; viewer hides `matrixPrice` and `cost`; guest hides those plus `bbAvgWholesale`, `bbValues`, and `price`.
+- **Consumed by:** `routes/inventory.ts`
+
 ### `typesense.ts`
-- **Exports:** Typesense client instance, `extractWebsiteUrl(document)`
-- **Purpose:** Centralizes Typesense connection config and provides a helper to extract the canonical website URL from a Typesense document.
-- **Consumed by:** `inventoryCache.ts`, `routes/price-lookup.ts`
+- **Exports:** `TYPESENSE_HOST`, `DealerCollection` (type), `DEALER_COLLECTIONS`, `DEALER_BY_HOSTNAME`, `IMAGE_CDN_BASE`, `typesenseSearch(dealer, params, timeoutMs?)`, `typesenseSearchUrl(collection, apiKey, params)`, `extractWebsiteUrl(doc, siteUrl)`, `extractDocVin(doc)`, `extractDocImagePaths(doc)`, `parseVehicleDescriptor(vehicle)`, `scoreFuzzyMatch(item, doc)`, `buildDocSummary(doc, collection, siteUrl)`, `LOCATION_TO_DEALER_NAME`, `TypesenseDocSummary` (type), `TypesenseSearchResponse<T>` (type), `ParsedVehicleDescriptor` (type)
+- **Purpose:** Single source of truth for Typesense configuration, dealer collections, document extraction helpers, VIN normalization, fuzzy-match scoring, and typed Typesense API wrappers. All Typesense consumers import from here — never hardcode keys or collection IDs.
+- **Consumed by:** `inventoryCache.ts` (batch enrichment, fuzzy fallback), `routes/price-lookup.ts` (live price lookup), `routes/inventory.ts` (vehicle images), `routes/ops.ts` (diagnostics probe)
+- **Key patterns:**
+  - `typesenseSearch` sends the API key in a **header** (not URL) — scoped keys contain `+`/`/`/`=` that corrupt URL encoding.
+  - `probeField` pattern: `extractDocVin` tries 5 candidates; `extractOnlinePrice` tries `special_price`, `sale_price`, `price`, `internet_price`, `online_price`, `list_price` with `special_price_on` gating.
+  - `scoreFuzzyMatch` gates on exact year + make/model substring, then scores trim tokens + km/price proximity. Minimum acceptance: 30 points.
 
 ### `env.ts`
 - **Exports:** `env` (Zod-validated environment object), `isProduction`
@@ -79,7 +89,8 @@ All paths relative to `artifacts/api-server/src/lib/`.
 ### `validate.ts`
 - **Exports:** `validateBody(Schema)`, `validateQuery(Schema)`, `validateParams(Schema)`
 - **Purpose:** Express middleware factories that validate request body/query/params against a Zod schema, returning 400 with structured errors on failure.
-- **Consumed by:** `routes/access.ts`, `routes/inventory.ts`
+- **Consumed by:** `routes/access.ts`, `routes/inventory.ts`, `routes/lender/lender-calculate.ts`
+- **Note:** `validateQuery` stores validated data on `req.validatedQuery` (typed via `Express.Request` extension in `types/passport.d.ts`) because Express 5 made `req.query` read-only.
 
 ### `runtimeFingerprint.ts`
 - **Exports:** `getRuntimeFingerprint()`

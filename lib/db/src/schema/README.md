@@ -15,7 +15,7 @@ Stores approved users who can access the portal.
 | `role` | text | `"viewer"` or `"guest"` (default: `"viewer"`) |
 
 - **Writers:** `routes/access.ts` (POST, PATCH, DELETE)
-- **Readers:** `routes/auth.ts` (role lookup on `/me`), `routes/inventory.ts` (access check), `routes/lender.ts` (access check)
+- **Readers:** `routes/auth.ts` (role lookup on `/me`), `routes/inventory.ts` (access check), `routes/lender/` (access check)
 
 ### `audit_log` — `audit-log.ts`
 Records all access-list changes for accountability.
@@ -56,7 +56,7 @@ Stores Black Book worker state for cross-restart persistence.
 | `last_run_at` | timestamp (nullable) | Last successful worker run |
 
 - **Writers:** `lib/blackBookWorker.ts`
-- **Readers:** `lib/blackBookWorker.ts` (schedule check), `lib/randomScheduler.ts` (has-run-today)
+- **Readers:** `lib/blackBookWorker.ts` (schedule check + cookie loading)
 
 ### `lender_session` — `lender-session.ts`
 Stores lender sync worker state for cross-restart persistence.

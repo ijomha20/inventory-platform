@@ -10,6 +10,12 @@ function formatPrice(n: number): string {
 
 // GET /api/price-lookup?url=<encoded_url>
 router.get("/price-lookup", async (req, res) => {
+  // Intentionally uses req.isAuthenticated() rather than requireAccess middleware.
+  // This endpoint returns only publicly-scraped pricing data from Typesense — no
+  // inventory cost or role-gated fields. Any authenticated Google user (even one
+  // not yet on the access list) should be able to look up a live price by URL.
+  // Promoting to requireAccess would lock out Google-authed but not-yet-listed users,
+  // which is undesired for this read-only utility.
   if (!req.isAuthenticated || !req.isAuthenticated()) {
     res.status(401).json({ error: "Not authenticated" });
     return;

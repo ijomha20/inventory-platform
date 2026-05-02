@@ -9,6 +9,11 @@ declare global {
     }
     interface Request {
       _role?: UserRole;
+      /**
+       * Populated by validateQuery() middleware with the Zod-parsed query object.
+       * Express 5 made req.query read-only, so we store validated data here instead.
+       */
+      validatedQuery?: unknown;
     }
   }
 }

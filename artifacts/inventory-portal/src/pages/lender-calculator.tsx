@@ -1,3 +1,13 @@
+/**
+ * Lender Calculator Page (route: /calculator)
+ *
+ * Owner-only deal structuring tool. Fetches CreditApp lender programs,
+ * lets the owner enter approval terms (vehicle, BB wholesale, DP, trade, etc.),
+ * and runs the calculation engine to show which lenders/tiers can fund the deal.
+ * Also displays operational status from /api/ops/function-status (owner only).
+ *
+ * Auth: RequireAuth. Server enforces owner-only on all /lender-* endpoints.
+ */
 import React, { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import {
   useGetMe,
@@ -240,6 +250,10 @@ export default function LenderCalculator() {
         let lastStatus: number | null = null;
 
         for (const url of candidates) {
+          // Raw fetch: /ops/function-status is not included in openapi.yaml
+          // (it's an operational diagnostic endpoint, not part of the public API
+          // contract), so no generated hook exists. Candidate list handles
+          // Replit dev vs. production base-URL differences.
           const resp = await fetch(url, {
             credentials: "include",
             cache: "no-store",

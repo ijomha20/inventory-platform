@@ -1,3 +1,29 @@
+/**
+ * Random Scheduler
+ *
+ * Schedules daily tasks at a random time within business hours (Mountain Time)
+ * so that worker runs are spread throughout the day and don't cluster at startup.
+ *
+ * Exports:
+ *   toMountainDateStr()     — "YYYY-MM-DD" string for today in Mountain Time
+ *   scheduleRandomDaily(opts) — registers a daily job within the defined window
+ *
+ * Business hours (Mountain Time):
+ *   Weekdays: 8:30 AM – 7:00 PM
+ *   Weekends: 10:00 AM – 4:00 PM
+ *
+ * @example
+ * ```ts
+ * import { scheduleRandomDaily } from "../lib/randomScheduler.js";
+ *
+ * scheduleRandomDaily({
+ *   name: "carfax-worker",
+ *   run: async () => { await runCarfaxWorker(); },
+ * });
+ * ```
+ *
+ * Consumers: lib/blackBookWorker.ts, lib/carfaxWorker.ts, lib/lenderWorker.ts
+ */
 import { logger } from "./logger.js";
 
 const MOUNTAIN_TZ = "America/Edmonton";

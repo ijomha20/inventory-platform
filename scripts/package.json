@@ -9,7 +9,9 @@
     "test:lender-golden": "tsx --test ./src/lender-engine.golden.test.ts",
     "test:lender-scenarios": "tsx --test ./src/lender-calc-scenarios.test.ts",
     "smoke:lender": "tsx ./src/lender-smoke.ts",
-    "export:complete-md": "tsx ./src/generate-complete-source-md.ts"
+    "export:complete-md": "tsx ./src/generate-complete-source-md.ts",
+    "check:patterns": "tsx ./src/check-patterns.ts",
+    "check:readme-sync": "tsx ./src/check-readme-sync.ts"
   },
   "devDependencies": {
     "@types/node": "catalog:",

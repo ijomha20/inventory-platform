@@ -1,0 +1,126 @@
+# Cursor Generation Rules — Inventory Platform
+
+These rules mirror the Anti-Patterns section in AGENTS.md and are enforced
+by `scripts/src/check-patterns.ts` in CI. Cursor should apply them when
+generating or editing code in this repository.
+
+---
+
+## Environment Variables
+
+- ALWAYS import `env` and `isProduction` from `artifacts/api-server/src/lib/env.ts`.
+- NEVER read `process.env` directly anywhere else in the application bundle.
+- NEVER define a local `const isProduction = ...`.
+
+```ts
+// ✓ Correct
+import { env, isProduction } from "../lib/env.js";
+const secret = env.SESSION_SECRET;
+
+// ✗ Wrong
+const secret = process.env.SESSION_SECRET;
+const isProduction = process.env.NODE_ENV === "production";
+```
+
+---
+
+## Express Request Types
+
+- NEVER cast `(req as any)` to access custom request properties.
+- ALWAYS extend `Express.Request` in `artifacts/api-server/src/types/passport.d.ts`.
+
+```ts
+// ✓ Correct — extend in passport.d.ts, then use typed property
+req._role   // typed as UserRole | undefined
+req.validatedQuery  // typed as unknown | undefined
+
+// ✗ Wrong
+(req as any)._role
+(req as any).validatedQuery
+```
+
+---
+
+## Auth Middleware
+
+- NEVER define route-local auth functions.
+- ALWAYS use the shared middleware from `lib/auth.ts`:
+  - `requireOwner` — owner only
+  - `requireAccess` — any listed user (owner, viewer, guest)
+  - `requireOwnerOrViewer` — owner or viewer (sets `req._role`)
+
+```ts
+// ✓ Correct
+router.get("/my-route", requireOwner, handler);
+
+// ✗ Wrong
+router.get("/my-route", (req, res, next) => {
+  if (!req.user?.isOwner) return res.status(403).json({ error: "..." });
+  next();
+}, handler);
+```
+
+---
+
+## Request Validation
+
+- NEVER write ad-hoc request parsing (manual `req.body.field ?? default`).
+- ALWAYS use `validateBody(Schema)`, `validateQuery(Schema)`, or `validateParams(Schema)` from `lib/validate.ts`.
+- Access validated query via `req.validatedQuery` (not `req.query`) after `validateQuery`.
+
+```ts
+// ✓ Correct
+router.post("/foo", validateBody(FooBodySchema), (req, res) => {
+  const { field } = req.body as z.infer<typeof FooBodySchema>;
+});
+```
+
+---
+
+## Typesense
+
+- NEVER hardcode Typesense host, collection IDs, or API keys.
+- ALWAYS import from `lib/typesense.ts` for `DEALER_COLLECTIONS`, `typesenseSearch`, and helpers.
+- ALWAYS send the API key in a **header** (not URL) — `typesenseSearch` handles this automatically.
+
+---
+
+## Role-Based Field Filtering
+
+- NEVER strip inventory fields inline (e.g. `delete item.bbAvgWholesale`).
+- ALWAYS use `filterInventoryByRole(items, role)` from `lib/roleFilter.ts`.
+
+---
+
+## Module Imports
+
+- NEVER use `require()`. Use static `import` or `await import()` with an inline comment explaining why dynamic import is necessary.
+- All imports go at the top of the file — no mid-file imports.
+
+---
+
+## Calculation Logic
+
+- NEVER put math or business logic in route files.
+- ALWAYS put it in `lib/lenderCalcEngine.ts` and import from routes.
+
+---
+
+## File Headers
+
+Every new `lib/*.ts` and `routes/*.ts` file must open with a JSDoc block that lists:
+- Purpose (1–2 sentences)
+- Exports (each public export named)
+- Consumers (which files import it)
+- Required env vars (if any)
+
+See `lib/inventoryCache.ts` or `lib/lenderWorker.ts` for canonical examples.
+
+---
+
+## Verified Intentional Deviations (do NOT "fix" these)
+
+- `routes/price-lookup.ts` uses `req.isAuthenticated()` instead of `requireAccess` — intentional, documented with inline comment.
+- `routes/auth.ts` `/me` handler checks access list inline — it IS the access-list lookup, not a consumer of it.
+- `inventory.tsx` uses raw `fetch` for `/api/refresh-blackbook` — intentional, documented with inline comment.
+- `lender-calculator.tsx` uses raw `fetch` for `/api/ops/function-status` — intentional, documented with inline comment.

@@ -1,3 +1,14 @@
+/**
+ * Inventory Page (route: /)
+ *
+ * Main vehicle inventory view. Renders a sortable, searchable table (desktop)
+ * or card grid (mobile < 768px). Features: photo gallery with full-screen
+ * modal, VIN clipboard copy, Carfax VHR link, Black Book refresh trigger
+ * (owner), live cache-status polling every 60 s.
+ *
+ * Auth: RequireAuth (any authenticated user on access list). Guests see
+ * price stripped — enforcement is server-side in routes/inventory.ts.
+ */
 import { useState, useCallback, useEffect, useRef } from "react";
 import {
   useGetInventory,
@@ -414,6 +425,9 @@ export default function Inventory() {
     bbCooldownRef.current = setTimeout(() => setBbClicked(false), 90_000);
     try {
       const base = (import.meta.env.BASE_URL ?? "/").replace(/\/$/, "");
+      // Raw fetch: /api/refresh-blackbook is in openapi.yaml but the generated
+      // hook (usePostRefreshBlackbook) fires immediately on mount; we need manual
+      // trigger control, so we call fetch directly with the owner-only credentials.
       await fetch(`${base}/api/refresh-blackbook`, { method: "POST", credentials: "include" });
     } catch (_) {}
   }, [bbRunning]);

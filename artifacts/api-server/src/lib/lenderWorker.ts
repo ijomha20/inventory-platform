@@ -1,3 +1,30 @@
+/**
+ * Lender Worker
+ *
+ * Syncs lender program matrices from the CreditApp GraphQL API. Runs daily
+ * at a random time during business hours (Mountain Time). Programs are
+ * normalized into a uniform LenderProgram[] structure and stored in GCS.
+ *
+ * Exports:
+ *   getLenderSyncStatus()        — last sync timestamp + error state
+ *   getCachedLenderPrograms()    — in-memory program array (never null after first load)
+ *   loadLenderProgramsFromCache()— loads from GCS into memory on startup
+ *   runLenderSync()              — full sync from CreditApp GraphQL
+ *   scheduleLenderSync()         — starts the daily randomized schedule
+ *
+ * Consumers: routes/lender/ (reads cached programs), index.ts (scheduling)
+ *
+ * Required env: LENDER_CREDITAPP_EMAIL, LENDER_CREDITAPP_PASSWORD
+ * Optional env: LENDER_CREDITAPP_TOTP_SECRET
+ *
+ * Sections:
+ *   1. Constants + creditor name maps
+ *   2. In-memory cache + sync state
+ *   3. GraphQL queries
+ *   4. Normalization helpers (matrix parsing, tier mapping)
+ *   5. Public API (get/load/run/schedule)
+ */
+
 import { logger } from "./logger.js";
 import {
   loadLenderProgramsFromStore,

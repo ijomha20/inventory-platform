@@ -1,3 +1,31 @@
+/**
+ * Lender Calculator Engine
+ *
+ * Pure calculation and profile-resolution logic for the lender deal calculator.
+ * No Express, no I/O, no side-effects — all math lives here.
+ *
+ * Exports:
+ *   CapProfile / CapProfileInput / CapProfileKey — LTV cap structure types
+ *   NoOnlineSellContext / NoOnlineSellResolution — no-online-price strategy types
+ *   resolveCapProfile(input)       — maps maxAdvanceLTV/maxAftermarketLTV/maxAllInLTV
+ *                                    into a typed 3-bit CapProfile key
+ *   resolveNoOnlineSellingPrice(ctx)— maximizes selling price when no online listing
+ *   NO_ONLINE_STRATEGY_BY_PROFILE  — lookup table of strategies by profile key
+ *   parseWorksheetRules(raw)       — normalizes CreditApp worksheet rules → WorksheetRule[]
+ *
+ * Consumers: routes/lender/lender-calculate.ts (calculator), scripts/lender-engine.golden.test.ts
+ *
+ * Sections:
+ *   1. Type definitions (CapProfile, NoOnlineSell*, WorksheetRule types re-exported)
+ *   2. resolveCapProfile — 3-bit key assignment
+ *   3. resolveNoOnlineSellingPrice — price maximization strategies
+ *   4. NO_ONLINE_STRATEGY_BY_PROFILE lookup table
+ *   5. parseWorksheetRules — CreditApp worksheet normalization
+ *
+ * WARNING: Do NOT put calculation logic in route files. Everything goes here.
+ * WARNING: This file is NOT eligible for automated code repair (see AGENTS.md Tier A allow-list).
+ */
+
 import type {
   VehicleTermMatrixEntry,
   VehicleConditionMatrixEntry,

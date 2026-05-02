@@ -26,6 +26,8 @@ React SPA built with Vite, Wouter (routing), React Query, and shadcn/ui componen
 - 403 → redirect to `/denied`
 - Loading → full-screen spinner
 
+**Note on `/admin`:** The `/admin` route is wrapped in `RequireAuth` (not `RequireOwner`) at the UI layer — any authenticated user who passes `RequireAuth` can load the page shell. Owner-only enforcement is applied server-side by `requireOwner` middleware on every `/access`, `/audit-log`, and related API endpoint. Guests and viewers who land on `/admin` will receive 403 responses from the API.
+
 ## Component Structure
 
 ```
@@ -43,7 +45,7 @@ App.tsx
 ## Shared UI
 
 - `components/layout.tsx` — Page shell with navigation header, optional `wide` prop for calculator
-- `components/ui/*` — ~52 shadcn-style components (button, card, table, select, dialog, etc.)
+- `components/ui/*` — 55 shadcn-style components (button, card, table, select, dialog, etc.)
 
 ## API Client
 

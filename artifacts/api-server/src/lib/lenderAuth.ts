@@ -1,5 +1,25 @@
+/**
+ * Lender Auth
+ *
+ * Authenticates to the CreditApp admin portal for the lender-program sync
+ * worker. Manages TOTP-based 2FA, session cookies, and provides a typed
+ * GraphQL client for querying lender data.
+ *
+ * Exports:
+ *   LENDER_ENABLED         — true when LENDER_CREDITAPP_EMAIL + PASSWORD are set
+ *   getLenderAuthCookies() — returns valid session cookies (re-authenticating if needed)
+ *   callGraphQL(query, variables, cookies) — executes a CreditApp GraphQL query
+ *   graphqlHealthCheck()   — lightweight connectivity probe
+ *
+ * Consumers: lib/lenderWorker.ts
+ *
+ * Required env: LENDER_CREDITAPP_EMAIL, LENDER_CREDITAPP_PASSWORD
+ * Optional env: LENDER_CREDITAPP_TOTP_SECRET, LENDER_CREDITAPP_2FA_CODE
+ */
+
 import { logger } from "./logger.js";
 import { env, isProduction } from "./env.js";
+import { loadLenderSessionFromStore, saveLenderSessionToStore } from "./bbObjectStore.js";
 import * as fs from "fs";
 import * as path from "path";
 import * as crypto from "crypto";
@@ -32,11 +52,6 @@ function generateTOTP(secret: string, period = 30, digits = 6): string {
   const code = ((hmac[offset] & 0x7f) << 24 | hmac[offset + 1] << 16 | hmac[offset + 2] << 8 | hmac[offset + 3]) % (10 ** digits);
   return code.toString().padStart(digits, "0");
 }
-import {
-  loadLenderSessionFromStore,
-  saveLenderSessionToStore,
-} from "./bbObjectStore.js";
-
 const LENDER_EMAIL         = env.LENDER_CREDITAPP_EMAIL;
 const LENDER_PASSWORD      = env.LENDER_CREDITAPP_PASSWORD;
 const LENDER_TOTP_SECRET   = env.LENDER_CREDITAPP_TOTP_SECRET;

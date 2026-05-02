@@ -1,3 +1,29 @@
+/**
+ * Inventory Cache
+ *
+ * Central in-memory store for all vehicle inventory. Loads from DB on startup
+ * so the API can serve immediately without waiting for an Apps Script fetch.
+ *
+ * Exports:
+ *   InventoryItem        — canonical vehicle record shape
+ *   getCacheState()      — returns current { data, lastUpdated, isRefreshing }
+ *   refreshCache()       — full refresh from Apps Script + Typesense enrichment
+ *   applyCarfaxResults() — merges Carfax VHR URLs into the in-memory + DB cache
+ *   applyBlackBookValues()— merges BB wholesale values into the in-memory + DB cache
+ *   getFuzzyResolvedDoc()— returns Typesense doc for a VIN (with fuzzy fallback)
+ *   startBackgroundRefresh() — starts the hourly auto-refresh loop
+ *
+ * Data flow:
+ *   Apps Script JSON feed
+ *     → normalize fields (normalizeCarfaxValue, extractOnlinePrice)
+ *     → Typesense enrichment (fetchFromTypesense + applyFuzzyFallback)
+ *     → merge BB values + Carfax URLs
+ *     → persistToDb (singleton DB row)
+ *
+ * Consumers: routes/inventory.ts, routes/lender/, lib/blackBookWorker.ts,
+ *            lib/carfaxWorker.ts
+ */
+
 import { db, inventoryCacheTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { logger } from "./logger.js";

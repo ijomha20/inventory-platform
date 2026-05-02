@@ -20,18 +20,25 @@ This is a private inventory management platform for vehicle dealership operation
 ## Structure
 
 ```text
-artifacts-monorepo/
+workspace/
+├── AGENTS.md                   # Top-level AI agent navigation guide (read first)
+├── replit.md                   # This file — workspace overview for Replit/agent tooling
+├── package.json                # Root pnpm workspace manifest
+├── tsconfig.json               # Root composite tsconfig (project references)
+├── tsconfig.base.json          # Shared tsconfig base (composite: true, strict, ESM)
+├── pnpm-workspace.yaml         # Declares workspace packages
 ├── artifacts/                  # Deployable applications
 │   ├── api-server/             # Express API server (port from $PORT)
-│   └── inventory-portal/       # React + Vite portal frontend
-├── lib/                        # Shared libraries
+│   ├── inventory-portal/       # React + Vite portal frontend
+│   └── mockup-sandbox/         # Standalone UI mockup preview — NOT production code
+├── lib/                        # Shared libraries (workspace packages)
 │   ├── api-spec/               # OpenAPI spec + Orval codegen config
-│   ├── api-client-react/       # Generated React Query hooks
-│   ├── api-zod/                # Generated Zod schemas from OpenAPI
+│   ├── api-client-react/       # Generated React Query hooks (Orval output)
+│   ├── api-zod/                # Generated Zod schemas from OpenAPI (Orval output)
 │   └── db/                     # Drizzle ORM schema + DB connection
-├── attached_assets/            # Apps Script source: InventorySync_v3.2.gs
-├── scripts/                    # Utility scripts
-└── pnpm-workspace.yaml
+├── scripts/                    # Utility scripts (golden tests, lender smoke, etc.)
+├── attached_assets/            # Captured CreditApp payloads + InventorySync_v3.2.gs — NOT live code
+└── downloads/                  # Markdown export snapshots of source — NOT live code
 ```
 
 ## TypeScript & Composite Projects
@@ -55,12 +62,18 @@ Express 5 API server. Routes live in `src/routes/` and use `@workspace/api-zod` 
 
 - Entry: `src/index.ts` — reads `PORT`, starts Express, schedules Carfax, BB, & Lender sync workers (randomized daily within business hours, Mountain Time)
 - App setup: `src/app.ts` — CORS, session, Passport, rate limiting (60 req/min), trust proxy
-- Routes: `src/routes/index.ts` mounts sub-routers
+- Routes: `src/routes/index.ts` mounts sub-routers in this order:
   - `health.ts` — GET /healthz
-  - `auth.ts` — OAuth flow, GET /me (returns role), GET/POST auth routes
-  - `inventory.ts` — GET /inventory (role-filtered), GET /cache-status, POST /refresh, GET /vehicle-images
+  - `auth.ts` — GET /auth/google, GET /auth/google/callback, GET /auth/logout, GET /me, GET /auth/debug-callback (dev only)
+  - `inventory.ts` — GET /inventory (role-filtered), GET /cache-status, POST /refresh (webhook), POST /refresh-blackbook (owner), GET /vehicle-images
   - `access.ts` — GET /access, POST /access, PATCH /access/:email, DELETE /access/:email, GET /audit-log
-  - `lender.ts` — GET /lender-programs, GET /lender-status, POST /refresh-lender, POST /lender-calculate (all owner-only)
+  - `carfax.ts` — GET /carfax/batch-status, POST /carfax/run-batch, POST /carfax/test
+  - `lender/index.ts` — router barrel mounting:
+    - `lender/lender-read.ts` — GET /lender-programs, GET /lender-status
+    - `lender/lender-calculate.ts` — POST /lender-calculate
+    - `lender/lender-admin.ts` — POST /refresh-lender, GET /lender-debug
+  - `price-lookup.ts` — GET /price-lookup?url= (Typesense live price lookup)
+  - `ops.ts` — GET /ops/function-status, GET /ops/diagnostics (owner only)
 - Lib: `src/lib/inventoryCache.ts` — in-memory cache of Apps Script inventory, auto-refreshes hourly
 - Lib: `src/lib/carfaxWorker.ts` — cloud Carfax lookup bot (puppeteer, randomized daily schedule)
 - Lib: `src/lib/randomScheduler.ts` — shared utility for randomized business-hours scheduling (Mon–Fri 8:30AM–7PM, Sat–Sun 10AM–4PM Mountain Time)
@@ -92,9 +105,12 @@ Features:
 Database layer using Drizzle ORM with PostgreSQL. Exports a Drizzle client instance and schema models.
 
 Schema tables:
+- `session` — connect-pg-simple session store (managed by connect-pg-simple)
 - `access_list` — email, added_at, added_by, role (viewer|guest; owner is env-var based)
 - `audit_log` — id, action, target_email, changed_by, role_from, role_to, timestamp
-- `session` — connect-pg-simple session store
+- `inventory_cache` — singleton row (id=1): full inventory JSON + last_updated timestamp
+- `bb_session` — singleton: Black Book worker session cookies + last_run_at
+- `lender_session` — singleton: Lender sync worker session cookies + last_run_at
 
 - `drizzle.config.ts` — requires `DATABASE_URL` (provided automatically by Replit)
 - DB push: `pnpm --filter @workspace/db run push` (interactive) or use direct SQL
@@ -138,9 +154,16 @@ Utility scripts package.
 | `APPS_SCRIPT_WEB_APP_URL` | Replit Secrets | Apps Script Web App URL (no query string) |
 | `LENDER_CREDITAPP_EMAIL` | Replit Secrets | CreditApp lender account email |
 | `LENDER_CREDITAPP_PASSWORD` | Replit Secrets | CreditApp lender account password |
-| `LENDER_CREDITAPP_2FA_CODE` | Replit Secrets | CreditApp lender 2FA backup code |
+| `LENDER_CREDITAPP_TOTP_SECRET` | Replit Secrets | CreditApp lender TOTP/2FA secret (base32) |
+| `LENDER_CREDITAPP_2FA_CODE` | Replit Secrets | CreditApp lender 2FA backup code (fallback) |
+| `CREDITAPP_EMAIL` | Replit Secrets | CreditApp Black Book worker account email |
+| `CREDITAPP_PASSWORD` | Replit Secrets | CreditApp Black Book worker account password |
+| `CREDITAPP_TOTP_SECRET` | Replit Secrets | CreditApp Black Book worker TOTP secret (base32) |
 | `TYPESENSE_KEY_PARKDALE` | Replit Secrets | Typesense scoped search API key for Parkdale collection |
 | `TYPESENSE_KEY_MATRIX` | Replit Secrets | Typesense scoped search API key for Matrix collection |
+| `TYPESENSE_COLLECTION_PARKDALE` | Replit Secrets | Typesense collection ID for Parkdale (has default in env.ts) |
+| `TYPESENSE_COLLECTION_MATRIX` | Replit Secrets | Typesense collection ID for Matrix (has default in env.ts) |
+| `RESEND_API_KEY` | Replit Secrets | Resend API key for invitation emails (optional) |
 
 ## Apps Script Setup (InventorySync_v3.2.gs)
 

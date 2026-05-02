@@ -1,3 +1,10 @@
+/**
+ * Admin Page (route: /admin)
+ *
+ * Owner-only user management panel. Tabs: Users (add/remove/role-change) and
+ * Audit Log (read-only history). All mutations are guarded by requireOwner on
+ * the server — any non-owner who reaches this URL will receive 403 from the API.
+ */
 import { useState } from "react";
 import {
   useGetAccessList,

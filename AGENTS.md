@@ -3,6 +3,14 @@
 > **Purpose:** This file is the top-level entry point for any AI agent working in this codebase.
 > Read this first to locate the right domain, files, and symbols for any task.
 
+## 30-Second Orientation (start here every session)
+
+1. **Read this file** — locate your domain in the Domain Index below.
+2. **Read the relevant README** — `artifacts/api-server/src/routes/README.md` for routes, `artifacts/api-server/src/lib/README.md` for libraries, `artifacts/inventory-portal/src/README.md` for the portal, `lib/db/src/schema/README.md` for DB tables.
+3. **Read the target file's header comment** — every lib and route file opens with a doc block listing its exports and consumers.
+4. **Check the Anti-Patterns section below** before writing any code — violations are caught by CI.
+5. **Write code** using the established patterns. Use the Pattern Catalog at `docs/patterns.md` for canonical examples of each shared utility.
+
 ## Architecture Overview
 
 ```
@@ -19,7 +27,7 @@ Apps Script JSON feed
    ┌────┴──────────────────────────────────┐
    │           Express API (/api)          │
    │  health │ auth │ inventory │ access   │
-   │  carfax │ lender │ price-lookup       │
+   │  carfax │ lender │ price-lookup │ ops │
    └───────────────────────────────────────┘
         │                          ▲
         ▼                          │
@@ -78,7 +86,7 @@ All paths relative to `artifacts/api-server/src/`.
 | `randomScheduler.ts` | Randomized daily scheduling within business hours (MT) | All workers |
 | `typesense.ts` | Typesense client config + `extractWebsiteUrl()` helper | `inventoryCache.ts`, `routes/price-lookup.ts` |
 | `env.ts` | Zod-validated environment variables, `isProduction` flag | All files needing env access |
-| `validate.ts` | `validateBody(Schema)`, `validateQuery(Schema)`, `validateParams(Schema)` — Zod validation middleware | `routes/access.ts`, `routes/inventory.ts` |
+| `validate.ts` | `validateBody(Schema)`, `validateQuery(Schema)`, `validateParams(Schema)` — Zod validation middleware | `routes/access.ts`, `routes/inventory.ts`, `routes/lender/lender-calculate.ts` |
 | `runtimeFingerprint.ts` | Calculator version + git SHA for response tracing | `routes/lender/` |
 
 ## Shared Libraries (`lib/`)
