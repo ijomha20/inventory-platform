@@ -40,6 +40,10 @@ import {
 import { parseWorksheetRules } from "./lenderCalcEngine.js";
 import { getLenderAuthCookies, callGraphQL, LENDER_ENABLED } from "./lenderAuth.js";
 import { scheduleRandomDaily, toMountainDateStr } from "./randomScheduler.js";
+import { withRetry } from "./selfHeal/withRetry.js";
+import { PlatformError } from "./platformError.js";
+import { recordFailure, recordIncident, updateLenderSessionState } from "./incidentService.js";
+import { withCircuitBreaker } from "./selfHeal/circuitBreaker.js";
 
 const CREDITOR_NAME_TO_CODE: Record<string, { code: string; name: string }> = {
   SANTANDER:  { code: "SAN", name: "Santander" },
@@ -197,6 +201,13 @@ function mapCreditorToLenderPrograms(creditor: any): LenderProgram[] {
   const mapping = CREDITOR_NAME_TO_CODE[creditorName];
   if (!mapping) {
     logger.info({ creditorName, creditorId }, "Lender sync: unknown creditor — skipping");
+    void recordIncident({
+      subsystem: "lender",
+      reason: "SCHEMA_DRIFT",
+      recoverability: "needsCodeRepair",
+      message: `Unknown creditor encountered: ${creditorName}`,
+      payload: { creditorId, creditorName },
+    });
     return [];
   }
 
@@ -499,13 +510,34 @@ export async function runLenderSync(): Promise<void> {
   status.error     = undefined;
 
   try {
-    await syncLenderPrograms();
+    await withCircuitBreaker("lender-sync", async () =>
+      withRetry(
+        { retries: 2, baseDelayMs: 3_000, jitterMs: 500 },
+        async () => syncLenderPrograms(),
+      ), { threshold: 3, cooldownMs: 60_000 });
     status.lastRun   = new Date().toISOString();
     status.lastCount = cachedPrograms?.programs.length ?? 0;
     await recordRunDateToDb();
+    await updateLenderSessionState({
+      lastOutcome: "success",
+      consecutiveFailures: 0,
+    });
   } catch (err: any) {
     status.error = err.message;
     logger.error({ err: err.message }, "Lender sync: run failed");
+    await recordFailure(new PlatformError({
+      subsystem: "lender",
+      reason: err.message?.includes("GraphQL") ? "NETWORK_TIMEOUT" : "UNKNOWN",
+      recoverability: "transient",
+      message: err.message,
+      payload: { where: "runLenderSync" },
+    }));
+    await updateLenderSessionState({
+      lastOutcome: "failed",
+      lastErrorReason: err.message?.includes("GraphQL") ? "NETWORK_TIMEOUT" : "UNKNOWN",
+      lastErrorMessage: err.message,
+      consecutiveFailures: 1,
+    });
     throw err;
   } finally {
     status.running   = false;

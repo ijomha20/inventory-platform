@@ -21,8 +21,10 @@ const router = Router();
 // GET /inventory — instant response from server-side cache, role-filtered
 router.get("/inventory", requireAccess, async (req, res) => {
   const role = await getUserRole(req) ?? "guest";
-  const { data } = getCacheState();
+  const { data, lastUpdated } = getCacheState();
+  const stalenessMs = lastUpdated ? Date.now() - lastUpdated.getTime() : -1;
   res.set("Cache-Control", "no-store");
+  res.set("X-Data-Staleness", String(stalenessMs));
   res.json(filterInventoryByRole(data, role));
 });
 
@@ -49,6 +51,7 @@ router.get("/cache-status", requireAccess, (_req, res) => {
     : 0;
 
   res.set("Cache-Control", "no-store");
+  res.set("X-Data-Staleness", String(lastUpdated ? Date.now() - lastUpdated.getTime() : -1));
   res.json({
     lastUpdated:    lastUpdated?.toISOString() ?? null,
     isRefreshing,

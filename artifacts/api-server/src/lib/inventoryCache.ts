@@ -28,6 +28,8 @@ import { db, inventoryCacheTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { logger } from "./logger.js";
 import { env, isProduction } from "./env.js";
+import { createHash } from "crypto";
+import { recordIncident } from "./incidentService.js";
 
 export interface InventoryItem {
   location:       string;
@@ -61,6 +63,12 @@ const state: CacheState = {
   lastUpdated:  null,
   isRefreshing: false,
 };
+
+let feedShapeHash = "";
+let consecutiveEmptyFeedCount = 0;
+// Track which Typesense collections currently have an open MISSING_FIELD
+// incident to avoid re-filing the same incident on every hourly refresh.
+const missingVinOpenIncidents = new Set<string>();
 
 function normalizeCarfaxValue(raw: unknown): string {
   const value = String(raw ?? "").trim();
@@ -254,6 +262,7 @@ async function fetchFromTypesense(): Promise<TypesenseMaps> {
 
   for (const col of DEALER_COLLECTIONS) {
     const collectionDocs: TypesenseDocSummary[] = [];
+    let missingVinCount = 0;
 
     try {
       let page = 1;
@@ -285,7 +294,10 @@ async function fetchFromTypesense(): Promise<TypesenseMaps> {
           collectionDocs.push(summary);
 
           const vin = summary.vin;
-          if (!vin) continue;
+          if (!vin) {
+            missingVinCount += 1;
+            continue;
+          }
           if (!vinToDoc.has(vin)) vinToDoc.set(vin, summary);
 
           if (!prices.has(vin) && summary.onlinePrice) {
@@ -304,9 +316,33 @@ async function fetchFromTypesense(): Promise<TypesenseMaps> {
       }
     } catch (err) {
       logger.warn({ err, collection: col.collection }, "Typesense fetch failed for collection");
+      await recordIncident({
+        subsystem: "typesense",
+        reason: "NETWORK_TIMEOUT",
+        recoverability: "transient",
+        message: `Typesense fetch failed for ${col.name}`,
+        payload: { error: String(err), collection: col.collection },
+      });
     }
 
     docsByCol.set(col.name, collectionDocs);
+    // Only file a MISSING_FIELD incident the first time a collection shows
+    // missing VINs (not on every hourly refresh). Clear the open flag once
+    // the collection is healthy again so a future regression re-fires.
+    if (missingVinCount > 0) {
+      if (!missingVinOpenIncidents.has(col.name)) {
+        missingVinOpenIncidents.add(col.name);
+        await recordIncident({
+          subsystem: "typesense",
+          reason: "MISSING_FIELD",
+          recoverability: "needsCodeRepair",
+          message: `Typesense documents missing VIN field for ${col.name}`,
+          payload: { missingVinCount, collection: col.collection },
+        });
+      }
+    } else {
+      missingVinOpenIncidents.delete(col.name);
+    }
     logger.info(
       { collection: col.name, count: collectionDocs.length, withVin: collectionDocs.filter((d) => d.vin).length },
       "Typesense: collection scanned",
@@ -467,8 +503,32 @@ export async function refreshCache(): Promise<void> {
       }
       if (raw.length === 0) {
         logger.warn("Apps Script returned empty array — keeping stale cache");
+        consecutiveEmptyFeedCount += 1;
+        if (consecutiveEmptyFeedCount >= 3) {
+          await recordIncident({
+            subsystem: "inventoryFeed",
+            reason: "STALE_FEED",
+            recoverability: "transient",
+            message: "Apps Script returned empty array repeatedly",
+            payload: { consecutiveEmptyFeedCount },
+          });
+        }
         return;
       }
+      consecutiveEmptyFeedCount = 0;
+
+      const shapeKeys = Array.from(new Set(raw.flatMap((r: any) => Object.keys(r ?? {})))).sort();
+      const shapeHash = createHash("sha256").update(JSON.stringify(shapeKeys)).digest("hex");
+      if (feedShapeHash && feedShapeHash !== shapeHash) {
+        await recordIncident({
+          subsystem: "inventoryFeed",
+          reason: "SCHEMA_DRIFT",
+          recoverability: "needsCodeRepair",
+          message: "Inventory feed shape changed",
+          payload: { previousHash: feedShapeHash, nextHash: shapeHash, keys: shapeKeys },
+        });
+      }
+      feedShapeHash = shapeHash;
 
       const existingBb = new Map<string, string>();
       const existingBbDetail = new Map<string, { xclean: number; clean: number; avg: number; rough: number }>();

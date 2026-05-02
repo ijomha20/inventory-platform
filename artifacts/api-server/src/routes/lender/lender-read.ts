@@ -15,10 +15,18 @@ const router = Router();
 router.get("/lender-programs", requireOwnerOrViewer, async (req, res) => {
   const programs = getCachedLenderPrograms();
   if (!programs) {
+    res.set("Cache-Control", "no-store");
+    res.set("X-Data-Staleness", "-1");
     res.json({ programs: [], updatedAt: null, role: req._role });
     return;
   }
+  // Compute staleness from the blob's own updatedAt timestamp so the header
+  // reflects real program age, not the age of the last API call.
+  const stalenessMs = programs.updatedAt
+    ? Date.now() - new Date(programs.updatedAt).getTime()
+    : -1;
   res.set("Cache-Control", "no-store");
+  res.set("X-Data-Staleness", String(stalenessMs));
   res.json({ ...programs, role: req._role });
 });
 

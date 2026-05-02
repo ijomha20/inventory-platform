@@ -19,6 +19,10 @@ import { scheduleRandomDaily, toMountainDateStr } from "./randomScheduler.js";
 import { loadCarfaxRunsFromStore, saveCarfaxRunsToStore } from "./bbObjectStore.js";
 import * as fs   from "fs";
 import * as path from "path";
+import { PlatformError } from "./platformError.js";
+import { recordFailure, updateCarfaxSessionState, recordIncident } from "./incidentService.js";
+import { withRetry } from "./selfHeal/withRetry.js";
+import { withCircuitBreaker } from "./selfHeal/circuitBreaker.js";
 
 const APPS_SCRIPT_URL = env.APPS_SCRIPT_WEB_APP_URL;
 const CARFAX_EMAIL    = env.CARFAX_EMAIL;
@@ -865,32 +869,43 @@ export function getCarfaxBatchStatus(): { running: boolean; startedAt: string | 
   return { running: batchRunning, startedAt: batchStartedAt?.toISOString() ?? null };
 }
 
-export async function runCarfaxWorker(opts: { force?: boolean } = {}): Promise<void> {
+export async function runCarfaxWorker(opts: { force?: boolean } = {}): Promise<boolean> {
   if (batchRunning) {
     logger.warn("Carfax worker: batch already in progress — skipping duplicate trigger");
-    return;
+    return false;
   }
 
   logger.info("Carfax worker: starting run");
 
   if (!opts.force && !CARFAX_ENABLED) {
     logger.info("Carfax worker: DISABLED (set CARFAX_ENABLED=true to activate)");
-    return;
+    return false;
   }
   if (!CARFAX_EMAIL || !CARFAX_PASSWORD) {
     logger.warn("Carfax worker: CARFAX_EMAIL or CARFAX_PASSWORD not set — skipping");
     await sendAlert("Carfax worker could not run: credentials not set in Replit secrets.");
-    return;
+    await updateCarfaxSessionState({
+      lastOutcome: "failed",
+      lastErrorReason: "PERMISSION_DENIED",
+      lastErrorMessage: "Missing CARFAX_EMAIL/CARFAX_PASSWORD",
+      consecutiveFailures: 1,
+    });
+    return false;
   }
 
   batchRunning   = true;
   batchStartedAt = new Date();
 
-  const rawPending = await fetchPendingVins();
+  const rawPending = await withCircuitBreaker(
+    "carfax",
+    async () => withRetry({ retries: 2, baseDelayMs: 2_000, jitterMs: 500 }, () => fetchPendingVins()),
+    { threshold: 3, cooldownMs: 60_000 },
+  );
   if (rawPending.length === 0) {
     logger.info("Carfax worker: no pending VINs — nothing to do");
     batchRunning = false; batchStartedAt = null;
-    return;
+    await updateCarfaxSessionState({ lastOutcome: "partial", consecutiveFailures: 0 });
+    return true;
   }
 
   const { getCacheState } = await import("./inventoryCache.js");
@@ -910,7 +925,8 @@ export async function runCarfaxWorker(opts: { force?: boolean } = {}): Promise<v
   if (pendingVins.length === 0) {
     logger.info({ originalCount: rawPending.length }, "Carfax worker: all pending VINs already have URLs — nothing to do");
     batchRunning = false; batchStartedAt = null;
-    return;
+    await updateCarfaxSessionState({ lastOutcome: "partial", consecutiveFailures: 0 });
+    return true;
   }
   logger.info({ count: pendingVins.length, skipped: rawPending.length - pendingVins.length }, "Carfax worker: fetched pending VINs (after skip-if-has-URL filter)");
 
@@ -936,7 +952,7 @@ export async function runCarfaxWorker(opts: { force?: boolean } = {}): Promise<v
     const loggedIn = await ensureLoggedIn(browser, page);
     if (!loggedIn) {
       await sendAlert("Carfax worker login failed. Check credentials.");
-      return;
+      return false;
     }
 
     let aborted = false;
@@ -951,12 +967,26 @@ export async function runCarfaxWorker(opts: { force?: boolean } = {}): Promise<v
       if (result.status === "captcha") {
         logger.warn("Carfax worker: anti-bot challenge — aborting batch to avoid escalation");
         await sendAlert("Carfax worker hit an anti-bot challenge and stopped early.");
+        await recordIncident({
+          subsystem: "carfax",
+          reason: "CAPTCHA",
+          recoverability: "transient",
+          message: "Anti-bot challenge detected during run",
+          payload: { vin },
+        });
         aborted = true;
         break;
       }
 
       if (result.status === "session_expired") {
         logger.info("Carfax worker: re-logging in after session expiry");
+        await recordIncident({
+          subsystem: "carfax",
+          reason: "AUTH_EXPIRED",
+          recoverability: "needsReauth",
+          message: "Carfax session expired mid-batch",
+          payload: { vin },
+        });
         const relogged = await loginWithAuth0(page);
         if (!relogged) { failed++; processed++; continue; }
         result = await lookupVinOnDealerPortal(page, vin);
@@ -1008,6 +1038,20 @@ export async function runCarfaxWorker(opts: { force?: boolean } = {}): Promise<v
   } catch (err) {
     logger.error({ err }, "Carfax worker: unexpected crash");
     await sendAlert("Carfax worker crashed: " + String(err));
+    await recordFailure(new PlatformError({
+      subsystem: "carfax",
+      reason: "UNKNOWN",
+      recoverability: "transient",
+      message: String(err),
+      payload: { where: "runCarfaxWorker" },
+    }));
+    await updateCarfaxSessionState({
+      lastOutcome: "failed",
+      lastErrorReason: "UNKNOWN",
+      lastErrorMessage: String(err),
+      consecutiveFailures: 1,
+    });
+    return false;
   } finally {
     if (browser) await browser.close();
     batchRunning   = false;
@@ -1016,6 +1060,14 @@ export async function runCarfaxWorker(opts: { force?: boolean } = {}): Promise<v
   }
 
   logger.info({ processed, succeeded, notFound, failed }, "Carfax worker: run complete");
+  const success = failed === 0;
+  await updateCarfaxSessionState({
+    lastOutcome: success ? "success" : "partial",
+    consecutiveFailures: success ? 0 : 1,
+    lastErrorReason: success ? null : "UNKNOWN",
+    lastErrorMessage: success ? null : `${failed} failed rows in latest batch`,
+  });
+  return true;
 }
 
 // ---------------------------------------------------------------------------
@@ -1094,13 +1146,15 @@ export function scheduleCarfaxWorker(): void {
       return false;
     },
     execute: (reason: string) => {
-      const today = toMountainDateStr();
-      memoryLastRunDate = today;
-      saveCarfaxRunsToStore(today).catch((err) =>
-        logger.warn({ err: String(err) }, "Carfax worker: could not persist run date"),
-      );
       logger.info({ reason }, "Carfax worker: triggering run");
-      runCarfaxWorker().catch((err) => logger.error({ err }, "Carfax worker: run error"));
+      runCarfaxWorker()
+        .then(async (ok) => {
+          if (!ok) return;
+          const today = toMountainDateStr();
+          memoryLastRunDate = today;
+          await saveCarfaxRunsToStore(today);
+        })
+        .catch((err) => logger.error({ err }, "Carfax worker: run error"));
     },
   });
 

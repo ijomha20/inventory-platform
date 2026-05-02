@@ -30,6 +30,10 @@ import {
   saveBbValuesToStore,
 } from "./bbObjectStore.js";
 import { scheduleRandomDaily, toMountainDateStr } from "./randomScheduler.js";
+import { PlatformError } from "./platformError.js";
+import { recordFailure, recordIncident, updateBbSessionState } from "./incidentService.js";
+import { withRetry } from "./selfHeal/withRetry.js";
+import { withCircuitBreaker } from "./selfHeal/circuitBreaker.js";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -1416,29 +1420,20 @@ async function runWithRetry(attempt = 1): Promise<{
   failed: number;
   updated: number;
 }> {
-  try {
-    return await runBlackBookBatch();
-  } catch (err) {
-    const msg = String(err);
-    // Permanent errors: no cookies available in production — do not retry
-    if (msg.includes(PERMANENT_ERROR_PREFIX)) {
-      logger.warn({ err: msg }, "BB worker: no valid session — aborting (will recover after next dev nightly run)");
-      throw err;
-    }
-    // Empty cache is not transient — retrying would wedge status.running until cache fills
-    if (msg.includes(EMPTY_INVENTORY_MSG)) {
-      logger.warn({ err: msg }, "BB worker: empty inventory — not retrying");
-      throw err;
-    }
-    if (attempt >= MAX_BATCH_ATTEMPTS) {
-      logger.error({ err: msg, attempt }, "BB worker: max transient retries exceeded — giving up");
-      throw err;
-    }
-    const waitMin = Math.min(attempt * 5, 30);
-    logger.warn({ err: msg, attempt, waitMin }, "BB worker: run failed — self-healing, will retry");
-    await sleep(waitMin * 60_000);
-    return runWithRetry(attempt + 1);
-  }
+  return withRetry({
+    retries: MAX_BATCH_ATTEMPTS - 1,
+    baseDelayMs: 60_000,
+    jitterMs: 1000,
+    shouldRetry: (error, idx) => {
+      const msg = String(error);
+      if (msg.includes(PERMANENT_ERROR_PREFIX)) return false;
+      if (msg.includes(EMPTY_INVENTORY_MSG)) return false;
+      const nextAttempt = idx + 1;
+      const waitMin = Math.min(nextAttempt * 5, 30);
+      logger.warn({ err: msg, attempt: nextAttempt, waitMin }, "BB worker: run failed — self-healing, will retry");
+      return true;
+    },
+  }, async () => runBlackBookBatch());
 }
 
 // ---------------------------------------------------------------------------
@@ -1452,6 +1447,12 @@ export async function runBlackBookWorker(): Promise<void> {
     status.lastError = err;
     status.lastBatch = null;
     logger.warn(err);
+    await updateBbSessionState({
+      lastOutcome: "failed",
+      lastErrorReason: "PERMISSION_DENIED",
+      lastErrorMessage: err,
+      consecutiveFailures: 1,
+    });
     return;
   }
   if (status.running) {
@@ -1463,17 +1464,35 @@ export async function runBlackBookWorker(): Promise<void> {
   status.startedAt = new Date().toISOString();
 
   try {
-    const batch = await runWithRetry();
+    const batch = await withCircuitBreaker("blackBook", async () => runWithRetry(), { threshold: 3, cooldownMs: 60_000 });
     status.lastRun   = new Date().toISOString();
     status.lastCount = getCacheState().data.filter((i) => !!i.bbAvgWholesale).length;
     status.lastOutcome = batch.failed === 0 && batch.skipped === 0 ? "success" : "partial";
     status.lastError = null;
     status.lastBatch = batch;
     await recordRunDateToDb();
+    await updateBbSessionState({
+      lastOutcome: status.lastOutcome,
+      consecutiveFailures: 0,
+    });
   } catch (err) {
     status.lastOutcome = "failed";
     status.lastError = err instanceof Error ? err.message : String(err);
     logger.error({ err: status.lastError }, "BB worker: run failed");
+    const reason = isLikelyAuthExpiryError(status.lastError) ? "AUTH_EXPIRED" : "UNKNOWN";
+    await recordFailure(new PlatformError({
+      subsystem: "blackBook",
+      reason,
+      recoverability: reason === "AUTH_EXPIRED" ? "needsReauth" : "transient",
+      message: status.lastError,
+      payload: { where: "runBlackBookWorker" },
+    }));
+    await updateBbSessionState({
+      lastOutcome: "failed",
+      lastErrorReason: reason,
+      lastErrorMessage: status.lastError,
+      consecutiveFailures: 1,
+    });
   } finally {
     status.running   = false;
     status.startedAt = null;

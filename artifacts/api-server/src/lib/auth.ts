@@ -6,6 +6,8 @@ import { accessListTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { logger } from "./logger.js";
 import { env } from "./env.js";
+import { recordFailure } from "./incidentService.js";
+import { PlatformError } from "./platformError.js";
 
 const OWNER_EMAIL   = env.OWNER_EMAIL;
 const CLIENT_ID     = env.GOOGLE_CLIENT_ID;
@@ -82,6 +84,18 @@ export async function requireAccess(req: Request, res: Response, next: NextFunct
 export function configurePassport() {
   if (!CLIENT_ID || !CLIENT_SECRET) {
     logger.warn("GOOGLE_CLIENT_ID or GOOGLE_CLIENT_SECRET not set — Google OAuth disabled");
+    void recordFailure(new PlatformError({
+      subsystem: "oauth",
+      reason: "PERMISSION_DENIED",
+      recoverability: "permanent",
+      message: "Google OAuth disabled because credentials are missing",
+      payload: {
+        missing: [
+          !CLIENT_ID ? "GOOGLE_CLIENT_ID" : null,
+          !CLIENT_SECRET ? "GOOGLE_CLIENT_SECRET" : null,
+        ].filter(Boolean),
+      },
+    }));
     return;
   }
 
@@ -94,7 +108,16 @@ export function configurePassport() {
       },
       (_accessToken, _refreshToken, profile, done) => {
         const email = profile.emails?.[0]?.value ?? "";
-        if (!email) return done(new Error("Google profile missing email"));
+        if (!email) {
+          void recordFailure(new PlatformError({
+            subsystem: "oauth",
+            reason: "PERMISSION_DENIED",
+            recoverability: "permanent",
+            message: "Google profile missing email",
+            payload: { profileId: profile.id },
+          }));
+          return done(new Error("Google profile missing email"));
+        }
         const name    = profile.displayName ?? "";
         const picture = profile.photos?.[0]?.value ?? "";
         done(null, { email, name, picture });
