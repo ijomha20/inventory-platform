@@ -17,7 +17,8 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - run: pnpm run typecheck
+      - run: pnpm run typecheck:libs
+      - run: pnpm --filter @workspace/api-server typecheck
       - run: pnpm --filter @workspace/scripts check:patterns
       - run: pnpm --filter @workspace/scripts check:readme-sync
       - run: pnpm --filter @workspace/scripts check:invariants

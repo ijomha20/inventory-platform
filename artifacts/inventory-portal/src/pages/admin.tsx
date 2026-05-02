@@ -5,7 +5,7 @@
  * Audit Log (read-only history). All mutations are guarded by requireOwner on
  * the server — any non-owner who reaches this URL will receive 403 from the API.
  */
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   useGetAccessList,
   useAddAccessEntry,
@@ -24,7 +24,7 @@ import {
 import { FullScreenSpinner } from "@/components/ui/spinner";
 import { useLocation } from "wouter";
 
-type Tab = "users" | "audit";
+type Tab = "users" | "audit" | "operations";
 
 const ROLE_LABELS: Record<string, string> = {
   viewer: "Viewer",
@@ -93,6 +93,8 @@ export default function Admin() {
   const [newRole,  setNewRole]  = useState<"viewer" | "guest">("viewer");
   const [errorMsg, setErrorMsg] = useState("");
   const [activeTab, setActiveTab] = useState<Tab>("users");
+  const [opsData, setOpsData] = useState<any>(null);
+  const [opsError, setOpsError] = useState<string>("");
 
   const { data: accessList, isLoading, error } = useGetAccessList({
     query: { queryKey: getGetAccessListQueryKey(), retry: false },
@@ -142,6 +144,27 @@ export default function Admin() {
       { onSuccess: invalidateAll }
     );
   };
+
+  useEffect(() => {
+    if (activeTab !== "operations") return;
+    let cancelled = false;
+    async function loadOps() {
+      setOpsError("");
+      try {
+        // Raw fetch: /ops endpoints are operational diagnostics and are not part of the generated OpenAPI hooks.
+        const [functionStatus, incidents, deps] = await Promise.all([
+          fetch("/api/ops/function-status", { credentials: "include", cache: "no-store" }).then((r) => r.json()),
+          fetch("/api/ops/incidents?limit=20", { credentials: "include", cache: "no-store" }).then((r) => r.json()),
+          fetch("/api/ops/dependencies", { credentials: "include", cache: "no-store" }).then((r) => r.json()),
+        ]);
+        if (!cancelled) setOpsData({ functionStatus, incidents, deps });
+      } catch (err) {
+        if (!cancelled) setOpsError(String(err));
+      }
+    }
+    loadOps();
+    return () => { cancelled = true; };
+  }, [activeTab]);
 
   return (
     <div className="max-w-4xl mx-auto space-y-6">
@@ -193,6 +216,7 @@ export default function Admin() {
           {([
             { id: "users" as Tab, label: "Users",     icon: <UserCheck className="w-4 h-4" /> },
             { id: "audit" as Tab, label: "Audit Log",  icon: <ClipboardList className="w-4 h-4" /> },
+            { id: "operations" as Tab, label: "Operations", icon: <Shield className="w-4 h-4" /> },
           ] as const).map((tab) => (
             <button key={tab.id} onClick={() => setActiveTab(tab.id)}
               className={`flex items-center gap-2 px-5 py-3 text-sm font-medium border-b-2 transition-colors ${
@@ -320,6 +344,59 @@ export default function Admin() {
                   )}
                 </tbody>
               </table>
+            )}
+          </div>
+        )}
+
+        {activeTab === "operations" && (
+          <div className="p-5 space-y-4">
+            {opsError && <div className="text-xs text-red-600">{opsError}</div>}
+            {!opsData && !opsError && <div className="text-xs text-gray-500">Loading operations data...</div>}
+            {opsData && (
+              <>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                  <div className="border rounded-lg p-3">
+                    <p className="text-xs font-semibold text-gray-700">Gate Health</p>
+                    <p className="text-xs text-gray-500 mt-1">
+                      Last check: {opsData?.deps?.checkedAt ? format(new Date(opsData.deps.checkedAt), "MMM d, yyyy HH:mm") : "N/A"}
+                    </p>
+                  </div>
+                  <div className="border rounded-lg p-3">
+                    <p className="text-xs font-semibold text-gray-700">Quarterly DR drill</p>
+                    <p className="text-xs text-gray-500 mt-1">Run `pnpm --filter @workspace/scripts dr-drill` and acknowledge.</p>
+                  </div>
+                  <div className="border rounded-lg p-3">
+                    <p className="text-xs font-semibold text-gray-700">Allow-list audit</p>
+                    <p className="text-xs text-gray-500 mt-1">Audit due every 90 days.</p>
+                  </div>
+                </div>
+
+                <div>
+                  <h3 className="text-sm font-semibold text-gray-800 mb-2">Recent incidents</h3>
+                  <div className="border rounded-lg overflow-hidden">
+                    <table className="w-full text-left text-xs">
+                      <thead className="bg-gray-50 text-gray-500">
+                        <tr>
+                          <th className="px-3 py-2">When</th>
+                          <th className="px-3 py-2">Subsystem</th>
+                          <th className="px-3 py-2">Reason</th>
+                          <th className="px-3 py-2">Message</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-100">
+                        {(opsData?.incidents?.incidents ?? []).map((row: any) => (
+                          <tr key={row.id}>
+                            <td className="px-3 py-2">{row.createdAt ? format(new Date(row.createdAt), "MMM d HH:mm") : "—"}</td>
+                            <td className="px-3 py-2">{row.subsystem}</td>
+                            <td className="px-3 py-2">{row.reason}</td>
+                            <td className="px-3 py-2 text-gray-600">{row.message}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </>
             )}
           </div>
         )}
