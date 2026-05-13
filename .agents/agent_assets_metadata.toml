@@ -42,3 +42,9 @@ id = "tHZvsmUgFhlQ6Hwd9Vpmg"
 uri = "file://matrix-motors-complete-source.txt"
 type = "text"
 title = "Matrix Motors Inventory Portal — Complete Source Code"
+
+[[outputs]]
+id = "7UOmA1pDdh1fs5mnoho7T"
+uri = "file://downloads/calculator-code.tar.gz"
+type = "unspecified"
+title = "Calculator Code (3 files)"
